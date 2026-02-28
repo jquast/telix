@@ -46,8 +46,6 @@ dependencies = [
     "blessed>=1.31",
     "textual>=0.44",
     "wcwidth>=0.2.13",
-    "ucs-detect>=2,<3",
-    "prettytable",
 ]
 
 [project.scripts]
