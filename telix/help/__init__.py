@@ -27,6 +27,8 @@ def get_help(topic: str) -> str:
         return _read_topic("highlights")
     if topic == "room":
         return _read_topic("rooms")
+    if topic == "room-mapping":
+        return _read_topic("room-mapping")
     if topic == "keybindings":
         return _read_topic("keybindings")
     raise ValueError(f"unknown help topic: {topic!r}")

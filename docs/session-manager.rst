@@ -1,13 +1,18 @@
 Session manager
 ===============
 
-When launched without a host argument, telix opens a Textual-based session
-manager.  The left panel lists saved sessions; selecting one shows its
-connection details on the right.
+When launched without a host argument, telix opens a Textual-based session manager.
 
-Each session stores per-host options: encoding (utf-8, cp437, latin-1, and
-more), SSL/TLS with optional certificate verification, raw or line mode,
-connection timeout, environment variables, telnet option negotiation, color
-matching, background color, and ICE colors.
+This is a traditional "Dialing Directory" of host/port combinations and their settings
+which may be set accordingly to preference of the remote system (BBS or MUD):
 
-The session list is persisted to ``$XDG_CONFIG_HOME/telix/sessions.json``.
+- Encoding (eg. utf-8, cp437, latin-1, gbk)
+- SSL/TLS
+- ICE colors (BBS)
+- vga color matching (BBS)
+- raw (BBS) or line mode (MUDs)
+- Advance REPL (MUDs)
+
+To connect to a system, use the mouse to click the selected entry, or select using keyboard and press return.
+
+Once connected, disconnect using ``Control  + ]``, which returns to the session manager.

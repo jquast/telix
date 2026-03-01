@@ -24,3 +24,4 @@ htmlcov
 .mypy_cache/
 __pycache__/
 logs
+my-run.sh

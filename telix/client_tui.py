@@ -3992,7 +3992,10 @@ def confirm_dialog_main(
 class _RandomwalkDialogScreen(Screen[bool]):
     """Random walk confirmation dialog with visit-level parameter."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("f1", "show_help", "Help", show=False),
+    ]
 
     DEFAULT_CSS = """
     _RandomwalkDialogScreen {
@@ -4094,12 +4097,17 @@ class _RandomwalkDialogScreen(Screen[bool]):
                     )
             yield Static("", id="rw-error")
             with Horizontal(id="rw-buttons"):
+                yield Button("Help", variant="default", id="rw-help")
                 yield Button("Cancel", variant="default", id="rw-cancel")
                 yield Button("OK", variant="success", id="rw-ok")
 
     def on_mount(self) -> None:
         """Focus the OK button on mount."""
         self.query_one("#rw-ok", Button).focus()
+
+    def action_show_help(self) -> None:
+        """Show room-mapping help screen."""
+        self.app.push_screen(_CommandHelpScreen(topic="room-mapping"))
 
     def _validate_and_dismiss(self) -> None:
         raw = self.query_one("#rw-visit-level", Input).value.strip()
@@ -4117,8 +4125,10 @@ class _RandomwalkDialogScreen(Screen[bool]):
         self.dismiss(True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle OK and Cancel button presses."""
-        if event.button.id == "rw-ok":
+        """Handle OK, Cancel, and Help button presses."""
+        if event.button.id == "rw-help":
+            self.action_show_help()
+        elif event.button.id == "rw-ok":
             self._validate_and_dismiss()
         elif event.button.id == "rw-cancel":
             self._write_result(
@@ -4188,7 +4198,10 @@ def randomwalk_dialog_main(
 class _AutodiscoverDialogScreen(Screen[bool]):
     """Autodiscover confirmation dialog with BFS/DFS strategy selection."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("f1", "show_help", "Help", show=False),
+    ]
 
     DEFAULT_CSS = """
     _AutodiscoverDialogScreen {
@@ -4270,12 +4283,17 @@ class _AutodiscoverDialogScreen(Screen[bool]):
                         value=(self._default_strategy == "dfs"),
                     )
             with Horizontal(id="ad-buttons"):
+                yield Button("Help", variant="default", id="ad-help")
                 yield Button("Cancel", variant="default", id="ad-cancel")
                 yield Button("OK", variant="success", id="ad-ok")
 
     def on_mount(self) -> None:
         """Focus the OK button on mount."""
         self.query_one("#ad-ok", Button).focus()
+
+    def action_show_help(self) -> None:
+        """Show room-mapping help screen."""
+        self.app.push_screen(_CommandHelpScreen(topic="room-mapping"))
 
     def _get_strategy(self) -> str:
         """Return the selected strategy string."""
@@ -4285,7 +4303,9 @@ class _AutodiscoverDialogScreen(Screen[bool]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle OK and Cancel button presses."""
-        if event.button.id == "ad-ok":
+        if event.button.id == "ad-help":
+            self.action_show_help()
+        elif event.button.id == "ad-ok":
             self._write_result(True, self._get_strategy())
             self.dismiss(True)
         elif event.button.id == "ad-cancel":
