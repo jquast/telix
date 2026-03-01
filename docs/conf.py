@@ -37,18 +37,20 @@ exclude_patterns = ["_build"]
 
 add_function_parentheses = True
 add_module_names = False
-pygments_style = "monokai"
-pygments_dark_style = "monokai"
+pygments_style = "sphinx"
 
 # -- Options for HTML output --------------------------------------------------
 
-html_theme = "furo"
+html_theme = "alabaster"
 html_theme_options = {
-    "dark_css_variables": {
-        "color-brand-primary": "#7c4dff",
-        "color-brand-content": "#7c4dff",
-    },
+    "description": "A modern telnet client for BBSs and MUDs",
+    "github_user": "jquast",
+    "github_repo": "telix",
+    "fixed_sidebar": True,
 }
+
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 html_split_index = True
 html_show_sourcelink = True

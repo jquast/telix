@@ -1,3 +1,2 @@
 Sphinx>3
-furo
 myst-parser
