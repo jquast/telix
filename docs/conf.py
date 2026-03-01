@@ -27,11 +27,11 @@ source_suffix = {
 
 master_doc = "index"
 
-project = "telix"
+project = "Telix"
 copyright = f"2025-{datetime.datetime.now().year} Jeff Quast"
 
-version = "0.1"
-release = "0.1.0"  # keep in sync with pyproject.toml
+version = "0"
+release = "0.0.1"  # keep in sync with pyproject.toml
 
 exclude_patterns = ["_build"]
 
