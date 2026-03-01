@@ -117,6 +117,7 @@ class SessionContext(TelnetSessionContext):
         self.chat_unread: int = 0
         self.chat_channels: list[dict[str, Any]] = []
         self.chat_file: str = ""
+        self.on_room_info: Optional[Callable[[dict[str, Any]], None]] = None
         self.on_chat_text: Optional[Callable[[dict[str, Any]], None]] = None
         self.on_chat_channels: Optional[Callable[[list[dict[str, Any]]], None]] = None
 

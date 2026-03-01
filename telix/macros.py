@@ -34,6 +34,9 @@ class Macro:
     text: str
     enabled: bool = True
     last_used: str = ""
+    toggle: bool = False
+    toggle_text: str = ""
+    toggle_state: bool = False
 
 
 def _parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
@@ -46,7 +49,12 @@ def _parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
             continue
         enabled = bool(entry.get("enabled", True))
         last_used = str(entry.get("last_used", ""))
-        macros.append(Macro(key=key, text=text, enabled=enabled, last_used=last_used))
+        toggle = bool(entry.get("toggle", False))
+        toggle_text = str(entry.get("toggle_text", ""))
+        macros.append(Macro(
+            key=key, text=text, enabled=enabled, last_used=last_used,
+            toggle=toggle, toggle_text=toggle_text,
+        ))
     return macros
 
 
@@ -95,6 +103,7 @@ def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
                 "text": m.text,
                 **({"enabled": False} if not m.enabled else {}),
                 **({"last_used": m.last_used} if m.last_used else {}),
+                **({"toggle": True, "toggle_text": m.toggle_text} if m.toggle else {}),
             }
             for m in macros
         ]
@@ -124,7 +133,7 @@ def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> 
 
     from blessed.line_editor import DEFAULT_KEYMAP
 
-    from .client_repl import execute_macro_commands
+    from . import client_repl as _repl
 
     result: dict[str, Any] = {}
     for macro in macros:
@@ -133,14 +142,20 @@ def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> 
         if macro.key in DEFAULT_KEYMAP:
             log.warning("macro %r conflicts with editor keymap, skipping", macro.key)
             continue
-        text = macro.text
         _macro_ref = macro
 
-        async def _handler(_text: str = text, _m: Macro = _macro_ref) -> None:
+        async def _handler(_m: Macro = _macro_ref) -> None:
+            if _m.toggle:
+                _text = _m.toggle_text if _m.toggle_state else _m.text
+                _m.toggle_state = not _m.toggle_state
+            else:
+                _text = _m.text
             _m.last_used = datetime.now(timezone.utc).isoformat()
             if hasattr(ctx, "mark_macros_dirty"):
                 ctx.mark_macros_dirty()
-            task = asyncio.ensure_future(execute_macro_commands(_text, ctx, log))
+            task = asyncio.ensure_future(
+                _repl.execute_macro_commands(_text, ctx, log)
+            )
 
             def _on_done(t: "asyncio.Task[None]") -> None:
                 if not t.cancelled() and t.exception() is not None:

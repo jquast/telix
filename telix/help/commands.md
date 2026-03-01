@@ -104,6 +104,15 @@ Travel back to the room where the current macro started executing.
 | `` `return fast` `` | Return to start room (fast) |
 | `` `return slow` `` | Return to start room (slow, autoreplies fire) |
 
+### Home
+
+Fast travel to the home room of your current area.  Set a home room
+in the room browser (F7) using the Home button.
+
+| Example | Effect |
+|---------|--------|
+| `` `home` `` | Travel to area home room |
+
 ### Autodiscover
 
 BFS-explore unvisited exits from nearby rooms.  Optional arguments

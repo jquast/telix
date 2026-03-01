@@ -12,10 +12,12 @@ import pytest
 # local
 from telix.progressbars import (
     BarConfig,
+    TRAVEL_BAR_NAME,
     bar_color_at,
     load_progressbars,
     save_progressbars,
     detect_progressbars,
+    resolve_text_color_hex,
 )
 from telix.gmcp_snapshot import load_gmcp_snapshot, save_gmcp_snapshot
 
@@ -57,16 +59,17 @@ def test_detect_max_prefix_pattern():
         "Char.Guild.Stats": {"Adrenaline": 442, "MaxAdrenaline": 442, "Water": 100, "MaxWater": 200}
     }
     bars = detect_progressbars(gmcp)
-    names = {b.name for b in bars}
+    gmcp_bars = [b for b in bars if b.gmcp_package]
+    names = {b.name for b in gmcp_bars}
     assert "Adrenaline" in names
     assert "Water" in names
-    for b in bars:
+    for b in gmcp_bars:
         assert b.enabled is False
 
 
 def test_detect_suffix_max_pattern():
     gmcp = {"Custom.Pkg": {"stamina": 80, "staminamax": 100}}
-    bars = detect_progressbars(gmcp)
+    bars = [b for b in detect_progressbars(gmcp) if b.gmcp_package]
     assert len(bars) == 1
     assert bars[0].name == "stamina"
     assert bars[0].max_field == "staminamax"
@@ -74,7 +77,7 @@ def test_detect_suffix_max_pattern():
 
 def test_detect_case_insensitive():
     gmcp = {"Char.Guild": {"energy": 50, "MAXENERGY": 100}}
-    bars = detect_progressbars(gmcp)
+    bars = [b for b in detect_progressbars(gmcp) if b.gmcp_package]
     assert len(bars) == 1
     assert bars[0].value_field == "energy"
 
@@ -85,17 +88,20 @@ def test_detect_empty_gmcp():
 
 def test_detect_no_pairs():
     gmcp = {"Char.Vitals": {"name": "player", "level": 5}}
-    assert detect_progressbars(gmcp) == []
+    bars = [b for b in detect_progressbars(gmcp) if b.gmcp_package]
+    assert bars == []
 
 
 def test_detect_skips_non_numeric_values():
     gmcp = {"Char.StatusVars": {"xp": "Experience", "maxxp": "Max Experience"}}
-    assert detect_progressbars(gmcp) == []
+    bars = [b for b in detect_progressbars(gmcp) if b.gmcp_package]
+    assert bars == []
 
 
 def test_detect_skips_non_numeric_pair():
     gmcp = {"Custom.Pkg": {"Mode": "Rage", "MaxMode": "something"}}
-    assert detect_progressbars(gmcp) == []
+    bars = [b for b in detect_progressbars(gmcp) if b.gmcp_package]
+    assert bars == []
 
 
 def test_detect_combined_hp_mp_and_guild():
@@ -125,9 +131,13 @@ def test_detect_no_duplicate_standard_and_pair():
 def test_round_trip(tmp_path):
     path = str(tmp_path / "pb.json")
     bars = [
-        BarConfig("HP", "Char.Vitals", "hp", "maxhp", True, "theme", "green", "red", "shortest", 0),
         BarConfig(
-            "MP", "Char.Vitals", "mp", "maxmp", True, "custom", "blue", "gold1", "longest", 1
+            "HP", "Char.Vitals", "hp", "maxhp", True, "theme", "green", "red", "shortest",
+            display_order=0,
+        ),
+        BarConfig(
+            "MP", "Char.Vitals", "mp", "maxmp", True, "custom", "blue", "gold1", "longest",
+            display_order=1,
         ),
     ]
     save_progressbars(path, "mud:1234", bars)
@@ -276,3 +286,100 @@ def test_snapshot_has_session_key(tmp_path):
         raw = json.load(f)
     assert raw["session_key"] == "mud:4000"
     assert "last_updated" in raw
+
+
+# -- text color fields --
+
+
+def test_text_color_default_auto():
+    bar = BarConfig("HP", "V", "hp", "mhp")
+    assert bar.text_color_fill == "auto"
+    assert bar.text_color_empty == "auto"
+
+
+def test_text_color_json_roundtrip(tmp_path):
+    path = str(tmp_path / "pb.json")
+    bars = [BarConfig("HP", "V", "hp", "mhp", text_color_fill="red", text_color_empty="blue")]
+    save_progressbars(path, "m:1", bars)
+    loaded = load_progressbars(path, "m:1")
+    assert loaded[0].text_color_fill == "red"
+    assert loaded[0].text_color_empty == "blue"
+
+
+def test_auto_omitted_from_json(tmp_path):
+    path = str(tmp_path / "pb.json")
+    bars = [BarConfig("HP", "V", "hp", "mhp")]
+    save_progressbars(path, "m:1", bars)
+    with open(path, "r") as f:
+        raw = json.load(f)
+    entry = raw["m:1"]["bars"][0]
+    assert "text_color_fill" not in entry
+    assert "text_color_empty" not in entry
+
+
+def test_resolve_text_color_hex_auto():
+    assert resolve_text_color_hex("auto") is None
+
+
+def test_resolve_text_color_hex_named():
+    result = resolve_text_color_hex("red")
+    assert result is not None
+    assert result.startswith("#")
+    assert len(result) == 7
+
+
+# -- side field --
+
+
+def test_side_field_default():
+    bar = BarConfig("HP", "V", "hp", "mhp")
+    assert bar.side == "left"
+
+
+def test_side_field_round_trip(tmp_path):
+    path = str(tmp_path / "pb.json")
+    bars = [BarConfig("HP", "V", "hp", "mhp", side="right")]
+    save_progressbars(path, "m:1", bars)
+    loaded = load_progressbars(path, "m:1")
+    assert loaded[0].side == "right"
+
+
+def test_side_left_omitted_from_json(tmp_path):
+    path = str(tmp_path / "pb.json")
+    bars = [BarConfig("HP", "V", "hp", "mhp")]
+    save_progressbars(path, "m:1", bars)
+    with open(path, "r") as f:
+        raw = json.load(f)
+    entry = raw["m:1"]["bars"][0]
+    assert "side" not in entry
+
+
+def test_load_json_without_side_defaults_left(tmp_path):
+    path = str(tmp_path / "pb.json")
+    data = {"m:1": {"bars": [{"name": "HP", "gmcp_package": "V",
+            "value_field": "hp", "max_field": "mhp"}]}}
+    with open(path, "w") as f:
+        json.dump(data, f)
+    loaded = load_progressbars(path, "m:1")
+    assert loaded[0].side == "left"
+
+
+# -- Travel bar in detect --
+
+
+def test_detect_includes_travel_bar():
+    gmcp = {"Char.Vitals": {"hp": 100, "maxhp": 200}}
+    bars = detect_progressbars(gmcp)
+    travel = [b for b in bars if b.name == TRAVEL_BAR_NAME]
+    assert len(travel) == 1
+    assert travel[0].gmcp_package == ""
+    assert travel[0].side == "right"
+    assert travel[0].enabled is True
+    assert travel[0].name == "<Travel>"
+
+
+def test_detect_travel_bar_first():
+    gmcp = {"Char.Vitals": {"hp": 100, "maxhp": 200}}
+    bars = detect_progressbars(gmcp)
+    assert bars[0].name == TRAVEL_BAR_NAME
+    assert bars[0].display_order == 0

@@ -87,7 +87,7 @@ async def test_gmcp_data_on_writer():
 @pytest.mark.asyncio
 async def test_ext_callback_registered_for_gmcp():
     client, _ = _make_connected_client()
-    assert client.writer._ext_callback[GMCP] == client._on_gmcp
+    assert client.writer._ext_callback[GMCP] == client.on_gmcp
 
 
 @pytest.mark.asyncio
@@ -124,7 +124,7 @@ async def test_ext_callback_registered_for_gmcp():
 async def test_on_gmcp_data_storage(setup_calls, key, expected):
     client, _ = _make_connected_client()
     for module, data in setup_calls:
-        client._on_gmcp(module, data)
+        client.on_gmcp(module, data)
     assert client.writer.ctx.gmcp_data[key] == expected
 
 
@@ -132,7 +132,7 @@ async def test_on_gmcp_data_storage(setup_calls, key, expected):
 async def test_on_gmcp_logs_debug_by_default():
     client, _ = _make_connected_client()
     with mock.patch.object(client.log, "debug") as mock_debug:
-        client._on_gmcp("Char.Vitals", {"hp": 50})
+        client.on_gmcp("Char.Vitals", {"hp": 50})
         mock_debug.assert_called_once()
 
 
@@ -140,35 +140,64 @@ async def test_on_gmcp_logs_debug_by_default():
 async def test_on_gmcp_logs_info_when_enabled():
     client, _ = _make_connected_client(gmcp_log=True)
     with mock.patch.object(client.log, "info") as mock_info:
-        client._on_gmcp("Char.Vitals", {"hp": 50})
+        client.on_gmcp("Char.Vitals", {"hp": 50})
         mock_info.assert_called_once()
+
+
+def _install_telix_gmcp_wrapper(client):
+    """Install the same GMCP dispatch wrapper that telix_client_shell uses."""
+    from telnetlib3.telopt import GMCP as _GMCP
+
+    ctx = client.writer.ctx
+    base = client.writer._ext_callback.get(_GMCP)
+
+    def _wrapper(package, data):
+        if base is not None:
+            base(package, data)
+        if package == "Comm.Channel.Text":
+            if ctx.on_chat_text is not None:
+                ctx.on_chat_text(data)
+        elif package == "Comm.Channel.List":
+            if ctx.on_chat_channels is not None:
+                ctx.on_chat_channels(data)
+        elif package == "Room.Info":
+            if ctx.on_room_info is not None:
+                ctx.on_room_info(data)
+
+    client.writer.set_ext_callback(_GMCP, _wrapper)
 
 
 @pytest.mark.asyncio
 async def test_on_gmcp_dispatches_chat_text_callback():
     client, _ = _make_connected_client()
+    _install_telix_gmcp_wrapper(client)
     received = []
     client.writer.ctx.on_chat_text = lambda data: received.append(data)
     msg = {"channel": "chat", "talker": "Bob", "text": "hi\n"}
-    client._on_gmcp("Comm.Channel.Text", msg)
+    client.writer._ext_callback[GMCP]("Comm.Channel.Text", msg)
     assert received == [msg]
 
 
 @pytest.mark.asyncio
 async def test_on_gmcp_dispatches_chat_channels_callback():
     client, _ = _make_connected_client()
+    _install_telix_gmcp_wrapper(client)
     received = []
     client.writer.ctx.on_chat_channels = lambda data: received.append(data)
     channels = [{"name": "chat", "command": "chat"}]
-    client._on_gmcp("Comm.Channel.List", channels)
+    client.writer._ext_callback[GMCP]("Comm.Channel.List", channels)
     assert received == [channels]
 
 
 @pytest.mark.asyncio
-async def test_on_gmcp_no_callback_no_error():
+async def test_on_gmcp_dispatches_room_info_callback():
     client, _ = _make_connected_client()
-    client._on_gmcp("Comm.Channel.Text", {"channel": "chat", "text": "hi\n"})
-    client._on_gmcp("Comm.Channel.List", [])
+    _install_telix_gmcp_wrapper(client)
+    received = []
+    client.writer.ctx.on_room_info = lambda data: received.append(data)
+    info = {"num": "abc123", "name": "Dark Forest", "exits": {"north": "xyz"}}
+    client.writer._ext_callback[GMCP]("Room.Info", info)
+    assert received == [info]
 
 
 @pytest.mark.asyncio

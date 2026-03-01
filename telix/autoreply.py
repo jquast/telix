@@ -908,7 +908,11 @@ class AutoreplyEngine:
                 delay = value / 1000.0 if unit == "ms" else value
                 if delay > 0:
                     self._status = f"delay {cmd.strip()}"
+                    now = time.monotonic()
+                    self._until_start = now
+                    self._until_deadline = now + delay
                     await asyncio.sleep(delay)
+                    self._until_start = self._until_deadline = 0.0
                 continue
 
             wm = _WHEN_RE.match(cmd)

@@ -10,7 +10,7 @@ import logging
 import pytest
 
 # local
-from telix.macros import Macro, load_macros, save_macros
+from telix.macros import Macro, build_macro_dispatch, load_macros, save_macros
 
 _SK = "test.host:23"
 
@@ -114,6 +114,65 @@ def test_build_dispatch_skips_editor_keymap_conflicts(caplog):
     assert "KEY_LEFT" not in result
     assert "KEY_ALT_E" in result
     assert "conflicts with editor keymap" in caplog.text
+
+
+def test_toggle_macro_roundtrip(tmp_path):
+    fp = tmp_path / "macros.json"
+    original = [Macro(key="KEY_F5", text="survey on", toggle=True, toggle_text="survey off")]
+    save_macros(str(fp), original, _SK)
+    loaded = load_macros(str(fp), _SK)
+    assert loaded[0].toggle is True
+    assert loaded[0].toggle_text == "survey off"
+    assert loaded[0].text == "survey on"
+
+
+def test_toggle_default_state_false(tmp_path):
+    fp = tmp_path / "macros.json"
+    fp.write_text(json.dumps({
+        _SK: {"macros": [
+            {"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"},
+        ]}
+    }))
+    loaded = load_macros(str(fp), _SK)
+    assert loaded[0].toggle_state is False
+
+
+def test_toggle_dispatch_alternates():
+    pytest.importorskip("blessed")
+    import asyncio
+    import types
+    from unittest.mock import patch
+
+    sent: list[str] = []
+
+    async def _fake_exec(text, ctx, log):
+        sent.append(text)
+
+    ctx = types.SimpleNamespace()
+    macro = Macro(key="KEY_F9", text="survey on", toggle=True, toggle_text="survey off")
+    log = logging.getLogger("test")
+
+    with patch("telix.client_repl.execute_macro_commands", _fake_exec):
+        dispatch = build_macro_dispatch([macro], ctx, log)
+        handler = dispatch["KEY_F9"]
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(handler())
+        loop.run_until_complete(handler())
+        loop.run_until_complete(handler())
+        loop.close()
+
+    assert sent == ["survey on", "survey off", "survey on"]
+
+
+def test_non_toggle_macro_unchanged(tmp_path):
+    fp = tmp_path / "macros.json"
+    original = [Macro(key="KEY_F5", text="look;")]
+    save_macros(str(fp), original, _SK)
+    loaded = load_macros(str(fp), _SK)
+    assert loaded[0].toggle is False
+    assert loaded[0].toggle_text == ""
+    raw = json.loads(fp.read_text())
+    assert "toggle" not in raw[_SK]["macros"][0]
 
 
 def test_expand_commands():

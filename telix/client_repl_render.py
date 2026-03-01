@@ -542,6 +542,8 @@ def _sgr_bg(hexcolor: str) -> str:
 def _vital_bar(
     current: Any, maximum: Any, width: int, kind: str, flash_elapsed: float = -1.0,
     color_override: Optional[str] = None,
+    text_fill_color: Optional[str] = None,
+    text_empty_color: Optional[str] = None,
 ) -> "List[Tuple[str, str]]":
     """
     Build a labelled progress-bar with sextant bookends and overlaid text.
@@ -576,16 +578,18 @@ def _vital_bar(
     kind_lower = kind.lower()
 
     bar_color = color_override if color_override else _vital_color(frac, kind_lower)
+    fg_fill = text_fill_color or "#101010"
+    fg_empty = text_empty_color or "#666666"
     if 0.0 <= flash_elapsed < _FLASH_DURATION:
         fill_bg = _flash_color(bar_color, flash_elapsed)
         empty_bg = _flash_color("#2a2a2a", flash_elapsed)
-        filled_sgr = _sgr_fg("#101010") + _sgr_bg(fill_bg)
-        empty_sgr = _sgr_fg("#666666") + _sgr_bg(empty_bg)
+        filled_sgr = _sgr_fg(fg_fill) + _sgr_bg(fill_bg)
+        empty_sgr = _sgr_fg(fg_empty) + _sgr_bg(empty_bg)
     else:
         fill_bg = bar_color
         empty_bg = "#2a2a2a"
-        filled_sgr = _sgr_fg("#101010") + _sgr_bg(bar_color)
-        empty_sgr = _sgr_fg("#666666") + _sgr_bg("#2a2a2a")
+        filled_sgr = _sgr_fg(fg_fill) + _sgr_bg(bar_color)
+        empty_sgr = _sgr_fg(fg_empty) + _sgr_bg("#2a2a2a")
 
     _builtin_suffix = {
         "hp": " hp",
@@ -776,13 +780,16 @@ def _fill_toolbar(
         grow_idx += 1
         params = slot.grow_params
         assert params is not None
-        if len(params) in (4, 5):
+        if len(params) in (4, 5, 7):
             raw, maxval, kind, flash_elapsed = params[:4]
             c_override = params[4] if len(params) > 4 else None
+            t_fill = params[5] if len(params) > 5 else None
+            t_empty = params[6] if len(params) > 6 else None
             inner = slot.width - 2 + bonus
             frags = _vital_bar(
                 raw, maxval, inner, kind,
                 flash_elapsed=flash_elapsed, color_override=c_override,
+                text_fill_color=t_fill, text_empty_color=t_empty,
             )
             new_w = sum(_wcswidth(t) for _, t in frags)
             return slot._replace(width=new_w, fragments=frags)
@@ -1053,11 +1060,13 @@ class ToolbarRenderer:
         slots: List[_ToolbarSlot],
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
-        from .progressbars import bar_color_at
+        from .progressbars import bar_color_at, resolve_text_color_hex
 
         needs_reflash = False
         for i, cfg in enumerate(bar_configs):
             if not cfg.enabled:
+                continue
+            if not cfg.gmcp_package:
                 continue
             pkg_data = gmcp_data.get(cfg.gmcp_package)
             if not isinstance(pkg_data, dict):
@@ -1073,6 +1082,7 @@ class ToolbarRenderer:
             kind = cfg.name
             priority = i + 1
             order = cfg.display_order if cfg.display_order else i + 2
+            side = getattr(cfg, "side", "left")
             # Compute color from config (theme or custom).
             try:
                 mx = int(maxval) if maxval is not None else 0
@@ -1081,9 +1091,13 @@ class ToolbarRenderer:
             except (TypeError, ValueError):
                 frac = 1.0
             color = bar_color_at(frac, cfg)
+            text_fill = resolve_text_color_hex(cfg.text_color_fill)
+            text_empty = resolve_text_color_hex(cfg.text_color_empty)
             if self._vital_slot(
                 tracker, raw, maxval, _BAR_WIDTH, kind, priority, order, now, slots,
                 color_override=color,
+                text_fill_color=text_fill, text_empty_color=text_empty,
+                side=side,
             ):
                 needs_reflash = True
         return needs_reflash
@@ -1135,6 +1149,9 @@ class ToolbarRenderer:
         now: float,
         slots: List[_ToolbarSlot],
         color_override: Optional[str] = None,
+        text_fill_color: Optional[str] = None,
+        text_empty_color: Optional[str] = None,
+        side: str = "left",
     ) -> bool:
         """
         Update *tracker* and append a vital bar slot.
@@ -1146,6 +1163,7 @@ class ToolbarRenderer:
         frags = _vital_bar(
             raw, maxval, width, kind,
             flash_elapsed=flash_elapsed, color_override=color_override,
+            text_fill_color=text_fill_color, text_empty_color=text_empty_color,
         )
         frags_w = sum(_wcswidth(t) for _, t in frags)
         slots.append(
@@ -1154,11 +1172,14 @@ class ToolbarRenderer:
                 display_order=order,
                 width=frags_w,
                 fragments=frags,
-                side="left",
+                side=side,
                 min_width=0,
                 label="",
                 growable=True,
-                grow_params=(raw, maxval, kind, flash_elapsed, color_override),
+                grow_params=(
+                    raw, maxval, kind, flash_elapsed, color_override,
+                    text_fill_color, text_empty_color,
+                ),
             )
         )
         return needs_reflash
@@ -1197,12 +1218,14 @@ class ToolbarRenderer:
     ) -> None:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:
-            self._mode_bar_slot(
-                self.ctx.randomwalk_current, self.ctx.randomwalk_total, 24, "randomwalk", slots
+            self._travel_bar_slot(
+                self.ctx.randomwalk_current, self.ctx.randomwalk_total,
+                24, "randomwalk", slots,
             )
         elif discover_active:
-            self._mode_bar_slot(
-                self.ctx.discover_current, self.ctx.discover_total, 20, "discover", slots
+            self._travel_bar_slot(
+                self.ctx.discover_current, self.ctx.discover_total,
+                20, "discover", slots,
             )
         elif ar_active:
             idx = getattr(engine, "exclusive_rule_index", None)
@@ -1238,12 +1261,39 @@ class ToolbarRenderer:
                     )
                 )
 
-    @staticmethod
-    def _mode_bar_slot(
-        cur: Any, tot: Any, width: int, kind: str, slots: List[_ToolbarSlot]
+    def _travel_bar_slot(
+        self, cur: Any, tot: Any, width: int, kind: str, slots: List[_ToolbarSlot]
     ) -> None:
-        """Append a walk-mode progress bar slot."""
-        mode_frags = _vital_bar(cur, tot, width, kind)
+        """Append a travel progress bar slot, using config colors when available."""
+        from .progressbars import TRAVEL_BAR_NAME, bar_color_at, resolve_text_color_hex
+
+        travel_cfg = None
+        for cfg in (self.ctx.progressbar_configs or []):
+            if cfg.name == TRAVEL_BAR_NAME or (cfg.name and not cfg.gmcp_package):
+                travel_cfg = cfg
+                break
+
+        color_override = None
+        text_fill = None
+        text_empty = None
+        side = "right"
+        if travel_cfg is not None and travel_cfg.enabled:
+            try:
+                mx = int(tot) if tot is not None else 0
+                cv = int(cur) if cur is not None else 0
+                frac = max(0.0, min(1.0, cv / mx)) if mx > 0 else 1.0
+            except (TypeError, ValueError):
+                frac = 1.0
+            color_override = bar_color_at(frac, travel_cfg)
+            text_fill = resolve_text_color_hex(travel_cfg.text_color_fill)
+            text_empty = resolve_text_color_hex(travel_cfg.text_color_empty)
+            side = getattr(travel_cfg, "side", "right")
+
+        mode_frags = _vital_bar(
+            cur, tot, width, kind,
+            color_override=color_override,
+            text_fill_color=text_fill, text_empty_color=text_empty,
+        )
         mode_w = sum(_wcswidth(t) for _, t in mode_frags)
         slots.append(
             _ToolbarSlot(
@@ -1251,11 +1301,12 @@ class ToolbarRenderer:
                 display_order=10,
                 width=mode_w,
                 fragments=mode_frags,
-                side="right",
+                side=side,
                 min_width=0,
                 label="",
                 growable=True,
-                grow_params=(cur, tot, kind, -1.0),
+                grow_params=(cur, tot, kind, -1.0, color_override,
+                             text_fill, text_empty),
             )
         )
 

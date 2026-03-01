@@ -751,8 +751,11 @@ async def _randomwalk(
         visited |= ctx.last_walk_visited
 
     def _count_filled() -> int:
-        """Count reachable rooms that have reached visit_level."""
-        return sum(1 for r in reachable if walk_counts.get(r, 0) >= visit_level)
+        """Sum visits across reachable rooms, capped at visit_level per room."""
+        if not reachable:
+            return sum(min(int(v), visit_level) for v in walk_counts.values()
+                       if v != float("inf"))
+        return sum(min(int(walk_counts.get(r, 0)), visit_level) for r in reachable)
 
     try:
         stuck_count = 0

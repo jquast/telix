@@ -38,6 +38,8 @@ Module map::
     ├── rooms.py                GMCP Room.Info graph store (SQLite)
     ├── chat.py                 GMCP Comm.Channel.Text persistence
     ├── directory.py            Bundled MUD/BBS directory loader
+    ├── progressbars.py         Progress bar config loading/saving
+    ├── gmcp_snapshot.py        GMCP snapshot persistence
     │
     ├── _paths.py               XDG base directory resolution
     ├── _clipboard.py           Clipboard access (xclip/xsel/pbcopy)
@@ -139,6 +141,71 @@ provides the attributes that ``telnetlib3.client_shell`` uses:
 - ``autoreply_engine`` -- autoreply engine or ``None``
 - ``autoreply_wait_fn`` -- async callable or ``None``
 - ``typescript_file`` -- open file handle or ``None``
+- ``gmcp_data`` -- ``dict[str, Any]`` of raw GMCP package data
+
+GMCP data flow
+~~~~~~~~~~~~~~
+
+GMCP (Generic MUD Communication Protocol) data arrives as telnet
+sub-negotiation and is parsed by telnetlib3 into package/data pairs.
+``TelnetClient.on_gmcp()`` stores each package in ``ctx.gmcp_data``
+(merging dict updates for the same package key).
+
+telix overrides the GMCP ext callback in ``telix_client_shell`` to
+wrap the base ``on_gmcp`` with package-specific dispatch to callbacks
+on ``SessionContext``:
+
+- ``on_chat_text`` -- called for ``Comm.Channel.Text``
+- ``on_chat_channels`` -- called for ``Comm.Channel.List``
+- ``on_room_info`` -- called for ``Room.Info``
+
+These callback attributes are defined on telix's ``SessionContext``
+and wired up in ``client_shell._load_configs()``.  Access them as
+regular attributes — do not use ``getattr()``.
+
+Room tracking
+~~~~~~~~~~~~~
+
+Room state lives in two parallel systems:
+
+1. **In-memory** (for REPL commands like randomwalk, autodiscover,
+   and fast-travel): ``ctx.current_room_num``, ``ctx.previous_room_num``,
+   ``ctx.room_changed``, and ``ctx.room_graph`` (a ``RoomStore`` backed
+   by a SQLite database at ``ctx.rooms_file``).
+
+2. **File-based** (for TUI subprocesses like the F7 room browser):
+   ``ctx.current_room_file`` contains the current room number as plain
+   text, read by ``rooms.read_current_room()``.  The rooms SQLite DB
+   is shared between both systems.
+
+The ``on_room_info`` callback bridges these: when a ``Room.Info`` GMCP
+message arrives, it updates ``ctx.current_room_num``, calls
+``room_graph.update_room()`` to persist the room and its exits to SQLite,
+and writes ``ctx.current_room_file`` so TUI subprocesses see the change.
+
+TUI editor subprocesses
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Pressing F-keys (F5–F11) launches Textual-based editor screens in a
+**child subprocess** via ``_launch_tui_editor()`` in
+``client_repl_dialogs.py``.  Key constraints:
+
+- **Never pipe stderr** (``stderr=subprocess.PIPE``).  Textual renders
+  its TUI to stderr.  Piping it redirects Textual's output to a pipe
+  instead of the terminal, freezing the app because stderr is no
+  longer a TTY.
+
+- **Error display**.  Textual stores unhandled exceptions in
+  ``app._exception`` and queues Rich tracebacks in
+  ``app._exit_renderables``.  In non-pilot mode Textual never calls
+  ``_print_error_renderables()`` itself, so ``_EditorApp`` overrides
+  it to write to stdout (not stderr) after the alt screen exits.
+  ``_run_editor_app()`` calls it explicitly on non-zero return codes.
+
+- **Blocking fds**.  The parent's asyncio event loop sets stdin
+  non-blocking.  Since stdin/stdout/stderr share the same PTY file
+  description, the child inherits non-blocking mode.
+  ``_restore_blocking_fds()`` must run before Textual starts.
 
 Developing
 ----------

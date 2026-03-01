@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
-from typing import Union
+from typing import Any, Union
 
 # 3rd party
 from telnetlib3.client_shell import (
@@ -122,10 +122,23 @@ def _load_configs(ctx: SessionContext) -> None:
     ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
 
     # rooms
-    from .rooms import rooms_path
+    from .rooms import rooms_path, current_room_path, RoomStore, write_current_room
 
     rooms_file = rooms_path(session_key)
     ctx.rooms_file = rooms_file
+    ctx.current_room_file = current_room_path(session_key)
+    ctx.room_graph = RoomStore(rooms_file)
+
+    def _on_room_info(data: dict[str, Any]) -> None:
+        num = str(data["num"])
+        ctx.previous_room_num = ctx.current_room_num
+        ctx.current_room_num = num
+        ctx.room_changed.set()
+        ctx.room_changed.clear()
+        ctx.room_graph.update_room(data)
+        write_current_room(ctx.current_room_file, num)
+
+    ctx.on_room_info = _on_room_info
 
     # history
     ctx.history_file = _paths.history_path(session_key)
@@ -167,6 +180,26 @@ async def telix_client_shell(
 
     # 2. Load per-session configs.
     _load_configs(ctx)
+
+    # 3. Override GMCP callback to dispatch ctx hooks after base storage.
+    from telnetlib3.telopt import GMCP
+
+    _base_on_gmcp = telnet_writer._ext_callback.get(GMCP)
+
+    def _on_gmcp(package: str, data: Any) -> None:
+        if _base_on_gmcp is not None:
+            _base_on_gmcp(package, data)
+        if package == "Comm.Channel.Text":
+            if ctx.on_chat_text is not None:
+                ctx.on_chat_text(data)
+        elif package == "Comm.Channel.List":
+            if ctx.on_chat_channels is not None:
+                ctx.on_chat_channels(data)
+        elif package == "Room.Info":
+            if ctx.on_room_info is not None:
+                ctx.on_room_info(data)
+
+    telnet_writer.set_ext_callback(GMCP, _on_gmcp)
 
     keyboard_escape = "\x1d"
 

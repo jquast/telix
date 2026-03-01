@@ -1,4 +1,4 @@
-## telnetlib3 — Keybindings
+## Keybindings
 
 ### Session Keys
 
@@ -51,5 +51,6 @@ Commands are separated by **`;`** (wait for server prompt) or **`|`**
 sends "get all", waits for the prompt, then sends "drop sword".
 A repeat prefix like `3n;2e` expands to `n;n;n;e;e`.
 
-See the **Command Syntax** section (F8 macro editor help) for the full
-reference on backtick commands, condition gates, travel, and more.
+See the **Command Syntax** section (press F1 inside the macro or
+autoreply editor) for the full reference on backtick commands,
+condition gates, travel, and more.

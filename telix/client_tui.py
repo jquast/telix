@@ -1702,7 +1702,7 @@ class _EditListScreen(Screen["bool | None"]):
 class MacroEditScreen(_EditListScreen):
     """Editor screen for macro key bindings."""
 
-    _growable_keys: list[str] = ["text"]
+    _growable_keys: list[str] = ["text", "toggle-text"]
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel_or_close", "Cancel", priority=True),
@@ -1715,6 +1715,7 @@ class MacroEditScreen(_EditListScreen):
     CSS = """
     #macro-form { padding: 0; }
     #macro-text-row { margin: 1 0; }
+    #macro-toggle-text-row { margin: 0 0 1 0; }
     #macro-form .switch-row { height: 3; margin: 0; }
     #macro-key-label {
         width: 16; height: 1; padding: 0 1;
@@ -1736,7 +1737,7 @@ class MacroEditScreen(_EditListScreen):
         self._session_key = session_key
         self._rooms_file = rooms_file
         self._current_room_file = current_room_file
-        self._macros: list[tuple[str, str, bool, str]] = []
+        self._macros: list[tuple[str, str, bool, str, bool, str]] = []
         self._capturing: bool = False
         self._sort_mode: str = ""
         self._capture_escape_pending: bool = False
@@ -1781,8 +1782,19 @@ class MacroEditScreen(_EditListScreen):
                             yield Static("(none)", id="macro-key-label")
                             yield Static("", id="macro-capture-status")
                         with Horizontal(id="macro-text-row", classes="field-row"):
-                            yield Label("Text", classes="form-label")
+                            yield Label("Text", classes="form-label", id="macro-text-label")
                             yield Input(placeholder="text with ; separators", id="macro-text")
+                        with Horizontal(id="macro-toggle-row", classes="field-row"):
+                            yield Label("Toggle:", classes="toggle-label")
+                            yield Switch(value=False, id="macro-toggle")
+                        with Horizontal(
+                            id="macro-toggle-text-row", classes="field-row"
+                        ):
+                            yield Label("Off command", classes="form-label")
+                            yield Input(
+                                placeholder="off command with ; separators",
+                                id="macro-toggle-text",
+                            )
                         with Horizontal(classes="field-row"):
                             yield Button(
                                 "Fast Travel", id="macro-fast-travel", classes="insert-btn"
@@ -1831,15 +1843,18 @@ class MacroEditScreen(_EditListScreen):
 
         try:
             macros = load_macros(self._path, self._session_key)
-            self._macros = [(m.key, m.text, m.enabled, m.last_used) for m in macros]
+            self._macros = [
+                (m.key, m.text, m.enabled, m.last_used, m.toggle, m.toggle_text)
+                for m in macros
+            ]
         except (ValueError, FileNotFoundError):
             pass
 
     def _matches_search(self, idx: int, query: str) -> bool:
-        """Match macro key or text against search query."""
-        key, text, _enabled, _lu = self._macros[idx]
+        """Match macro key, text, or toggle_text against search query."""
+        key, text, _enabled, _lu, _toggle, toggle_text = self._macros[idx]
         q = query.lower()
-        return q in key.lower() or q in text.lower()
+        return q in key.lower() or q in text.lower() or q in toggle_text.lower()
 
     def _refresh_table(self) -> None:
         table = self.query_one("#macro-table", DataTable)
@@ -1850,10 +1865,12 @@ class MacroEditScreen(_EditListScreen):
         if self._sort_mode == "last_used":
             order.sort(key=lambda i: _invert_ts(self._macros[i][3]))
         for i in order:
-            key, text, enabled, last_used = self._macros[i]
+            key, text, enabled, last_used, toggle, _toggle_text = self._macros[i]
             if q and not self._matches_search(i, q):
                 continue
             status = "" if enabled else " (off)"
+            if toggle:
+                status += " (toggle)"
             lu = _relative_time(last_used) if last_used else ""
             self._filtered_indices.append(i)
             table.add_row(key, text + status, lu, key=str(len(self._filtered_indices) - 1))
@@ -1872,17 +1889,24 @@ class MacroEditScreen(_EditListScreen):
         self._refresh_table()
 
     def _show_form(
-        self, key_val: str = "", text_val: str = "", enabled: bool = True, last_used: str = ""
+        self, key_val: str = "", text_val: str = "", enabled: bool = True,
+        last_used: str = "", toggle: bool = False, toggle_text: str = "",
     ) -> None:
         self._captured_key = key_val
         self._capturing = False
         self._capture_escape_pending = False
         label = self.query_one("#macro-key-label", Static)
-        label.update(key_val if key_val else "(none)")
+        display = self._blessed_display(key_val) if key_val else "(none)"
+        label.update(display)
         label.remove_class("capturing")
         self.query_one("#macro-capture-status", Static).update("")
         self.query_one("#macro-text", Input).value = text_val
         self.query_one("#macro-enabled", Switch).value = enabled
+        self.query_one("#macro-toggle", Switch).value = toggle
+        self.query_one("#macro-toggle-text", Input).value = toggle_text
+        text_label = self.query_one("#macro-text-label", Label)
+        text_label.update("On command" if toggle else "Text")
+        self.query_one("#macro-toggle-text-row").display = toggle
         self.query_one("#macro-search", Input).display = False
         self.query_one("#macro-table").display = False
         self.query_one("#macro-form").display = True
@@ -1894,44 +1918,51 @@ class MacroEditScreen(_EditListScreen):
         self._capture_escape_pending = False
         super()._hide_form()
 
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        """Show/hide toggle text row when the toggle switch changes."""
+        if event.switch.id == "macro-toggle":
+            on = event.value
+            text_label = self.query_one("#macro-text-label", Label)
+            text_label.update("On command" if on else "Text")
+            self.query_one("#macro-toggle-text-row").display = on
+
     def _submit_form(self) -> None:
         """Accept the current inline form values."""
         key_val = self._captured_key.strip()
         text_val = self.query_one("#macro-text", Input).value
         enabled = self.query_one("#macro-enabled", Switch).value
+        toggle = self.query_one("#macro-toggle", Switch).value
+        toggle_text = self.query_one("#macro-toggle-text", Input).value
         lu = self._macros[self._editing_idx][3] if self._editing_idx is not None else ""
-        self._finalize_edit((key_val, text_val, enabled, lu), bool(key_val))
+        self._finalize_edit(
+            (key_val, text_val, enabled, lu, toggle, toggle_text), bool(key_val)
+        )
 
-    _REJECTED_KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "up",
-            "down",
-            "left",
-            "right",
-            "home",
-            "end",
-            "pageup",
-            "pagedown",
-            "tab",
-            "enter",
-            "insert",
-            "delete",
-            "backspace",
-        }
-    )
+    _REPL_RESERVED_KEYS: ClassVar[frozenset[str]] = frozenset({
+        "KEY_F1", "KEY_F3", "KEY_F4", "KEY_F5", "KEY_F6", "KEY_F7",
+        "KEY_F8", "KEY_F9", "KEY_F10", "KEY_F11", "KEY_F18", "KEY_F21",
+    })
 
     @staticmethod
-    def _textual_to_pt(key: str) -> str:
-        """Convert a Textual key name to macro key format."""
-        if key.startswith("ctrl+"):
-            return "c-" + key[5:]
-        return key
+    def _blessed_display(blessed_name: str) -> str:
+        """Format a blessed key name for display (strip KEY\\_ prefix)."""
+        if blessed_name.startswith("KEY_"):
+            return blessed_name[4:]
+        return blessed_name
 
-    def _finish_capture(self, pt_key: str, display: str) -> None:
+    def _finish_capture(self, blessed_key: str, display: str) -> None:
         """Accept a captured key and update the form."""
+        from blessed.line_editor import DEFAULT_KEYMAP
+
+        if blessed_key in DEFAULT_KEYMAP:
+            self._reject_capture(f"Rejected: {display} -- reserved by line editor")
+            return
+        if blessed_key in self._REPL_RESERVED_KEYS:
+            self._reject_capture(f"Rejected: {display} -- reserved by REPL")
+            return
         self._capturing = False
         self._capture_escape_pending = False
-        self._captured_key = pt_key
+        self._captured_key = blessed_key
         label = self.query_one("#macro-key-label", Static)
         label.update(display)
         label.remove_class("capturing")
@@ -1951,12 +1982,15 @@ class MacroEditScreen(_EditListScreen):
             if self._capture_escape_pending:
                 self._capture_escape_pending = False
                 if key == "escape":
-                    self._finish_capture("escape", "escape")
+                    blessed_key = "KEY_ESCAPE"
+                    self._finish_capture(blessed_key, "ESCAPE")
                 elif len(key) == 1 and key.isalpha():
-                    pt_key = "escape " + key
-                    self._finish_capture(pt_key, f"Alt+{key}")
+                    blessed_key = "KEY_ALT_" + key.upper()
+                    self._finish_capture(blessed_key, "ALT_" + key.upper())
                 else:
-                    self._reject_capture(f"Rejected: escape+{key} -- use Esc then a letter")
+                    self._reject_capture(
+                        f"Rejected: escape+{key} -- use Esc then a letter"
+                    )
                 return
 
             if key == "escape":
@@ -1968,32 +2002,27 @@ class MacroEditScreen(_EditListScreen):
                 return
 
             if key.startswith("f") and key[1:].isdigit():
-                self._finish_capture(key, key.upper())
+                blessed_key = "KEY_" + key.upper()
+                self._finish_capture(blessed_key, key.upper())
                 return
 
             if key.startswith("ctrl+"):
                 letter = key[5:]
                 if len(letter) == 1 and letter.isalpha():
-                    pt_key = "c-" + letter
-                    self._finish_capture(pt_key, f"Ctrl+{letter}")
+                    blessed_key = "KEY_CTRL_" + letter.upper()
+                    self._finish_capture(blessed_key, "CTRL_" + letter.upper())
                     return
 
             if key.startswith("alt+"):
                 letter = key[4:]
                 if len(letter) == 1 and letter.isalpha():
-                    pt_key = "escape " + letter
-                    self._finish_capture(pt_key, f"Alt+{letter}")
+                    blessed_key = "KEY_ALT_" + letter.upper()
+                    self._finish_capture(blessed_key, "ALT_" + letter.upper())
                     return
 
-            if key in self._REJECTED_KEYS:
-                self._reject_capture(f"Rejected: {key} -- use F-keys, Ctrl+key, or Alt+key")
-                return
-
-            if len(key) == 1:
-                self._reject_capture(f"Rejected: '{key}' -- use F-keys, Ctrl+key, or Alt+key")
-                return
-
-            self._reject_capture(f"Rejected: {key} -- use F-keys, Ctrl+key, or Alt+key")
+            self._reject_capture(
+                f"Rejected: {key} -- use F-keys, Ctrl+key, or Alt+key"
+            )
             return
 
         super().on_key(event)
@@ -2052,7 +2081,10 @@ class MacroEditScreen(_EditListScreen):
         from .macros import Macro, save_macros
 
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
-        macros = [Macro(key=k, text=t, enabled=ena, last_used=lu) for k, t, ena, lu in self._macros]
+        macros = [
+            Macro(key=k, text=t, enabled=ena, last_used=lu, toggle=tog, toggle_text=tt)
+            for k, t, ena, lu, tog, tt in self._macros
+        ]
         save_macros(self._path, macros, self._session_key)
 
 
@@ -2859,7 +2891,10 @@ class _ProgressBarTuple(NamedTuple):
     color_name_max: str = "success"
     color_name_min: str = "error"
     color_path: str = "shortest"
+    text_color_fill: str = "auto"
+    text_color_empty: str = "auto"
     display_order: int = 0
+    side: str = "left"
 
 
 class ProgressBarEditScreen(_EditListScreen):
@@ -2879,10 +2914,14 @@ class ProgressBarEditScreen(_EditListScreen):
     #pb-color-swatch-min { width: 4; height: 1; padding-top: 1; }
     #pb-color-row1 { height: auto; margin: 0; }
     #pb-color-row2 { height: auto; margin: 0; }
+    #pb-color-row3 { height: auto; margin: 0; }
     #pb-color-mode { max-width: 20; }
-    #pb-color-max { width: 20; }
-    #pb-color-min { width: 20; }
+    #pb-color-max { width: 28; }
+    #pb-color-min { width: 28; }
+    #pb-text-min { width: 28; }
+    #pb-text-max { width: 28; }
     #pb-color-path { max-width: 20; }
+    #pb-side { max-width: 20; }
     #pb-preview-bar { height: 1; margin: 0 0 0 12; }
     #pb-preview-gradient { height: 1; margin: 0 0 0 12; }
     """
@@ -2899,6 +2938,8 @@ class ProgressBarEditScreen(_EditListScreen):
         self._preview_timer: Any = None
         self._preview_phase: float = 0.0
         self._populating_form: bool = False
+        self._form_source_pkg: str = ""
+        self._form_color_mode: str = ""
 
     @property
     def _prefix(self) -> str:
@@ -2981,26 +3022,47 @@ class ProgressBarEditScreen(_EditListScreen):
                                 yield RadioButton("Theme", id="pb-mode-theme", value=True)
                                 yield RadioButton("Custom", id="pb-mode-custom")
                             yield Label("", id="pb-color-gap1", classes="form-gap")
+                            yield Label("Path", classes="form-label")
+                            with RadioSet(id="pb-color-path"):
+                                yield RadioButton(
+                                    "Shortest", id="pb-path-shortest", value=True,
+                                )
+                                yield RadioButton("Longest", id="pb-path-longest")
+                        with Horizontal(classes="field-row"):
+                            yield Label("Side", classes="form-label")
+                            with RadioSet(id="pb-side"):
+                                yield RadioButton("Left", id="pb-side-left", value=True)
+                                yield RadioButton("Right", id="pb-side-right")
+                        with Horizontal(id="pb-color-row2", classes="field-row"):
+                            yield Label("Min:", classes="form-label")
                             yield Select[str](
-                                self._color_options(),
+                                self._theme_color_options(),
                                 id="pb-color-min",
-                                value="red",
+                                value="error",
                                 allow_blank=False,
                             )
                             yield Static("", id="pb-color-swatch-min")
-                        with Horizontal(id="pb-color-row2", classes="field-row"):
-                            yield Label("Path", classes="form-label")
-                            with RadioSet(id="pb-color-path"):
-                                yield RadioButton("Shortest", id="pb-path-shortest", value=True)
-                                yield RadioButton("Longest", id="pb-path-longest")
-                            yield Label("", classes="form-gap")
                             yield Select[str](
-                                self._color_options(),
+                                self._text_color_options(False),
+                                id="pb-text-min",
+                                value="auto",
+                                allow_blank=False,
+                            )
+                        with Horizontal(id="pb-color-row3", classes="field-row"):
+                            yield Label("Max:", classes="form-label")
+                            yield Select[str](
+                                self._theme_color_options(),
                                 id="pb-color-max",
-                                value="green",
+                                value="success",
                                 allow_blank=False,
                             )
                             yield Static("", id="pb-color-swatch-max")
+                            yield Select[str](
+                                self._text_color_options(False),
+                                id="pb-text-max",
+                                value="auto",
+                                allow_blank=False,
+                            )
                         yield Static("", id="pb-preview-bar")
                         yield Static("", id="pb-preview-gradient")
                         with Horizontal(id=f"{pfx}-form-buttons", classes="edit-form-buttons"):
@@ -3038,6 +3100,20 @@ class ProgressBarEditScreen(_EditListScreen):
             label.append("\u2588 ", style=hex_val[:7])
             label.append(name)
             options.append((label, name))
+        return options
+
+    @staticmethod
+    def _text_color_options(is_custom: bool) -> "list[tuple[Text, str]]":
+        """Build Select options for text color: ``auto`` plus bar color options."""
+        from rich.text import Text
+
+        auto_label = Text()
+        auto_label.append("auto")
+        options: list[tuple[Text, str]] = [(auto_label, "auto")]
+        if is_custom:
+            options.extend(ProgressBarEditScreen._color_options())
+        else:
+            options.extend(ProgressBarEditScreen._theme_color_options())
         return options
 
     def on_mount(self) -> None:
@@ -3132,8 +3208,14 @@ class ProgressBarEditScreen(_EditListScreen):
         color_name_max: str = "green",
         color_name_min: str = "red",
         color_path: str = "shortest",
+        text_color_fill: str = "auto",
+        text_color_empty: str = "auto",
         display_order: int = 0,
+        side: str = "left",
     ) -> None:
+        from .progressbars import TRAVEL_BAR_NAME
+
+        is_travel = name == TRAVEL_BAR_NAME or (name and not gmcp_package)
         self._populating_form = True
         self.query_one("#pb-name", Input).value = name
         self.query_one("#pb-enabled", Switch).value = enabled
@@ -3146,23 +3228,35 @@ class ProgressBarEditScreen(_EditListScreen):
         elif gmcp_package:
             src_sel.set_options(pkg_options + [(gmcp_package, gmcp_package)])
             src_sel.value = gmcp_package
+        # Disable source fields for Travel bar
+        src_sel.disabled = is_travel
+        val_sel = self.query_one("#pb-value-select", Select)
+        max_sel = self.query_one("#pb-max-select", Select)
+        val_sel.disabled = is_travel
+        max_sel.disabled = is_travel
         # Populate value/max field dropdowns
+        self._form_source_pkg = gmcp_package
         self._populate_field_selects(gmcp_package, value_field, max_field)
         self._populating_form = False
-        # Color mode — use RadioSet._selected to avoid both-highlighted state
+        # Color mode — set the desired button to on; RadioSet will turn the
+        # other off via its internal _on_radio_button_changed handler.
         is_custom = color_mode == "custom"
-        mode_set = self.query_one("#pb-color-mode", RadioSet)
-        mode_set._selected = 1 if is_custom else 0
+        self._form_color_mode = color_mode
+        target = "#pb-mode-custom" if is_custom else "#pb-mode-theme"
+        self.query_one(target, RadioButton).value = True
         # Color selects — populate with theme or custom options
-        self._swap_color_options(is_custom, preserve_max=color_name_max, preserve_min=color_name_min)
-        self.query_one("#pb-color-max", Select).value = color_name_max
-        self.query_one("#pb-color-min", Select).value = color_name_min
-        # Color path — use RadioSet._selected to avoid both-highlighted state
+        self._swap_color_options(
+            is_custom, preserve_max=color_name_max, preserve_min=color_name_min,
+            preserve_text_fill=text_color_fill, preserve_text_empty=text_color_empty,
+        )
+        # Values already set by _swap_color_options with proper fallbacks.
+        # Color path
         is_longest = color_path == "longest"
-        path_set = self.query_one("#pb-color-path", RadioSet)
-        path_set._selected = 1 if is_longest else 0
-        # Path row only visible for custom mode
-        self.query_one("#pb-color-row2").display = is_custom
+        path_target = "#pb-path-longest" if is_longest else "#pb-path-shortest"
+        self.query_one(path_target, RadioButton).value = True
+        # Side
+        side_target = "#pb-side-right" if side == "right" else "#pb-side-left"
+        self.query_one(side_target, RadioButton).value = True
         # Show form + start preview animation
         self.query_one("#progressbar-search", Input).display = False
         self.query_one("#progressbar-table").display = False
@@ -3187,6 +3281,11 @@ class ProgressBarEditScreen(_EditListScreen):
         color_path = (
             "longest" if self.query_one("#pb-path-longest", RadioButton).value else "shortest"
         )
+        text_color_fill = self._get_select_value("#pb-text-min", "auto")
+        text_color_empty = self._get_select_value("#pb-text-max", "auto")
+        side = (
+            "right" if self.query_one("#pb-side-right", RadioButton).value else "left"
+        )
         order = 0
         if self._editing_idx is not None:
             order = self._bars[self._editing_idx].display_order
@@ -3200,7 +3299,10 @@ class ProgressBarEditScreen(_EditListScreen):
             color_name_max=color_name_max,
             color_name_min=color_name_min,
             color_path=color_path,
+            text_color_fill=text_color_fill,
+            text_color_empty=text_color_empty,
             display_order=order,
+            side=side,
         )
         self._finalize_edit(entry, True)
 
@@ -3228,6 +3330,8 @@ class ProgressBarEditScreen(_EditListScreen):
 
     def _hide_form(self) -> None:
         self._stop_preview_timer()
+        self._form_source_pkg = ""
+        self._form_color_mode = ""
         super()._hide_form()
 
     def _start_preview_timer(self) -> None:
@@ -3259,7 +3363,7 @@ class ProgressBarEditScreen(_EditListScreen):
         """Render animated preview bars from current form settings."""
         from rich.text import Text
 
-        from .progressbars import BarConfig, bar_color_at
+        from .progressbars import BarConfig, bar_color_at, resolve_text_color_hex
         from .client_repl_render import _vital_bar
 
         # Triangular wave 0→1→0 with ease-in-out
@@ -3268,32 +3372,41 @@ class ProgressBarEditScreen(_EditListScreen):
             t = 2.0 - t
         fraction = self._ease_in_out(t)
 
-        bar_w = 24
+        try:
+            w = self.query_one("#pb-preview-bar", Static).size.width
+            bar_w = w - 2 if w > 12 else 24
+        except NoMatches:
+            bar_w = 24
         cur = int(fraction * 1000)
         mx = 1000
         name = self.query_one("#pb-name", Input).value.strip() or "bar"
 
         # Build BarConfig from form
         color_mode = self._get_color_mode()
-        if color_mode == "custom":
-            max_c = self._get_select_value("#pb-color-max", "green")
-            min_c = self._get_select_value("#pb-color-min", "red")
-            path = (
-                "longest"
-                if self.query_one("#pb-path-longest", RadioButton).value
-                else "shortest"
-            )
-            cfg = BarConfig(
-                name, "", "", "", color_mode="custom",
-                color_name_max=max_c, color_name_min=min_c, color_path=path,
-            )
-        else:
-            cfg = BarConfig(name, "", "", "")
+        max_c = self._get_select_value("#pb-color-max", "success")
+        min_c = self._get_select_value("#pb-color-min", "error")
+        path = (
+            "longest"
+            if self.query_one("#pb-path-longest", RadioButton).value
+            else "shortest"
+        )
+        cfg = BarConfig(
+            name, "", "", "", color_mode=color_mode,
+            color_name_max=max_c, color_name_min=min_c, color_path=path,
+        )
+
+        text_fill_val = self._get_select_value("#pb-text-min", "auto")
+        text_empty_val = self._get_select_value("#pb-text-max", "auto")
+        text_fill = resolve_text_color_hex(text_fill_val)
+        text_empty = resolve_text_color_hex(text_empty_val)
 
         # 1) Toolbar-style bar via _vital_bar (SGR → ANSI → Rich Text)
         kind = name.lower()
         color = bar_color_at(fraction, cfg)
-        fragments = _vital_bar(cur, mx, bar_w, kind, color_override=color)
+        fragments = _vital_bar(
+            cur, mx, bar_w, kind, color_override=color,
+            text_fill_color=text_fill, text_empty_color=text_empty,
+        )
         ansi_str = "".join(sgr + text for sgr, text in fragments) + "\x1b[0m"
         try:
             bar_text = Text.from_ansi(ansi_str)
@@ -3301,21 +3414,25 @@ class ProgressBarEditScreen(_EditListScreen):
         except NoMatches:
             pass
 
-        # 2) Color gradient bar using bar_color_at LERP
+        # 2) Static color gradient showing the full min→max spectrum
         steps = bar_w + 2
         gradient_parts: list[str] = []
         for i in range(steps):
             f = i / max(1, steps - 1)
             c = bar_color_at(f, cfg)
             gradient_parts.append(f"[on {c}] [/]")
-        pct = int(round(fraction * 100))
-        gradient_str = "".join(gradient_parts) + f" {pct}%"
         try:
-            self.query_one("#pb-preview-gradient", Static).update(gradient_str)
+            self.query_one("#pb-preview-gradient", Static).update(
+                "".join(gradient_parts)
+            )
         except NoMatches:
             pass
 
-    def _swap_color_options(self, is_custom: bool, preserve_max: str = "", preserve_min: str = "") -> None:
+    def _swap_color_options(
+        self, is_custom: bool,
+        preserve_max: str = "", preserve_min: str = "",
+        preserve_text_fill: str = "auto", preserve_text_empty: str = "auto",
+    ) -> None:
         """Swap color dropdown options for theme vs custom mode."""
         options = self._color_options() if is_custom else self._theme_color_options()
         max_sel = self.query_one("#pb-color-max", Select)
@@ -3323,7 +3440,6 @@ class ProgressBarEditScreen(_EditListScreen):
         max_sel.set_options(options)
         min_sel.set_options(options)
         if preserve_max:
-            # Check if current value exists in new options
             vals = {v for _, v in options}
             if preserve_max in vals:
                 max_sel.value = preserve_max
@@ -3335,16 +3451,29 @@ class ProgressBarEditScreen(_EditListScreen):
                 min_sel.value = preserve_min
             else:
                 min_sel.value = "error" if not is_custom else "red"
+        text_options = self._text_color_options(is_custom)
+        text_min_sel = self.query_one("#pb-text-min", Select)
+        text_max_sel = self.query_one("#pb-text-max", Select)
+        text_min_sel.set_options(text_options)
+        text_max_sel.set_options(text_options)
+        text_vals = {v for _, v in text_options}
+        text_min_sel.value = preserve_text_fill if preserve_text_fill in text_vals else "auto"
+        text_max_sel.value = preserve_text_empty if preserve_text_empty in text_vals else "auto"
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Toggle custom color fields and swap color options when mode changes."""
         if event.radio_set.id == "pb-color-mode":
             is_custom = self.query_one("#pb-mode-custom", RadioButton).value
-            self.query_one("#pb-color-row2").display = is_custom
+            new_mode = "custom" if is_custom else "theme"
+            if new_mode == self._form_color_mode:
+                return
+            self._form_color_mode = new_mode
             self._swap_color_options(
                 is_custom,
                 preserve_max=self._get_select_value("#pb-color-max", ""),
                 preserve_min=self._get_select_value("#pb-color-min", ""),
+                preserve_text_fill=self._get_select_value("#pb-text-min", "auto"),
+                preserve_text_empty=self._get_select_value("#pb-text-max", "auto"),
             )
 
     def _populate_field_selects(
@@ -3384,7 +3513,8 @@ class ProgressBarEditScreen(_EditListScreen):
             if self._populating_form:
                 return
             val = event.value
-            if isinstance(val, str):
+            if isinstance(val, str) and val != self._form_source_pkg:
+                self._form_source_pkg = val
                 self._populate_field_selects(val)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -3418,8 +3548,11 @@ class ProgressBarEditScreen(_EditListScreen):
 
         detected = detect_progressbars(gmcp_data)
         existing = {(b.gmcp_package, b.value_field, b.max_field) for b in self._bars}
+        existing_names = {b.name for b in self._bars}
         added = 0
         for bar in detected:
+            if not bar.gmcp_package and bar.name in existing_names:
+                continue
             key = (bar.gmcp_package, bar.value_field, bar.max_field)
             if key not in existing:
                 self._bars.append(_ProgressBarTuple(*bar))
@@ -4199,6 +4332,23 @@ class _EditorApp(App[None]):
         self._editor_screen = screen
         self._session_key = session_key
 
+    def _print_error_renderables(self) -> None:
+        """Print error tracebacks to stdout after alt screen exit.
+
+        Textual's default writes to ``error_console`` (stderr).  In the
+        telix subprocess stderr may not translate ``\\n`` to ``\\r\\n``
+        correctly, producing staircase output.  Writing to a fresh
+        stdout-based Rich console avoids the issue.
+        """
+        if not self._exit_renderables:
+            return
+        from rich.console import Console
+
+        console = Console(file=sys.stdout, markup=False, highlight=False)
+        for renderable in self._exit_renderables:
+            console.print(renderable)
+        self._exit_renderables.clear()
+
     def _set_pointer_shape(self, shape: str) -> None:
         """
         Disable pointer shape changes to prevent WriterThread deadlock.
@@ -4340,26 +4490,50 @@ def _log_child_diagnostics() -> None:
 
 def _run_editor_app(app: _EditorApp) -> None:
     """
-    Run a Textual editor app, resetting the terminal on crash.
+    Run a Textual editor app, displaying errors in the terminal on crash.
 
-    If the app raises an exception, the terminal is reset to cooked mode so the traceback is
-    readable, and the user is prompted to press RETURN before control returns to the parent REPL.
+    Textual handles some exceptions internally (e.g. compose errors) —
+    it renders a traceback in the alt screen, then exits with return
+    code 1.  Once the alt screen is torn down the traceback is lost.
+
+    This wrapper catches both raised exceptions and Textual-handled
+    errors, resets the terminal to normal mode, displays the traceback,
+    and prompts the user before exiting.
     """
     try:
         app.run()
     except BaseException:
-        import traceback
+        import traceback as tb_mod
 
-        sys.stdout.write(_TERMINAL_CLEANUP + "\r\n")
+        sys.stdout.write(_TERMINAL_CLEANUP)
         sys.stdout.flush()
-        traceback.print_exc()
-        sys.stderr.write("\r\nPress RETURN to continue...\r\n")
-        sys.stderr.flush()
-        try:
-            input()
-        except EOFError:
-            pass
+        tb_mod.print_exc()
+        _pause_before_exit()
         raise
+    if app.return_code and app.return_code != 0:
+        app._print_error_renderables()
+        _pause_before_exit()
+        sys.exit(app.return_code)
+
+
+def _pause_before_exit() -> None:
+    """Prompt user to press RETURN so they can read error output."""
+    import tty
+    import termios
+
+    sys.stdout.write("Press RETURN to continue...\r\n")
+    sys.stdout.flush()
+    fd = sys.stdin.fileno()
+    try:
+        os.set_blocking(fd, True)
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            os.read(fd, 1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except (OSError, termios.error, EOFError):
+        pass
 
 
 def edit_macros_main(

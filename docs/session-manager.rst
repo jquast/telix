@@ -11,7 +11,7 @@ which may be set accordingly to preference of the remote system (BBS or MUD):
 - ICE colors (BBS)
 - vga color matching (BBS)
 - raw (BBS) or line mode (MUDs)
-- Advance REPL (MUDs)
+- Advanced REPL (MUDs)
 
 To connect to a system, use the mouse to click the selected entry, or select using keyboard and press return.
 

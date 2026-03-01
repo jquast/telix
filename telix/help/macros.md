@@ -46,6 +46,17 @@ The form provides insert buttons for common backtick commands.
 **Fast Travel** and **Slow Travel** open the room picker to select a
 destination.  Others insert a template you can edit.
 
+### Toggle Macros
+
+A toggle macro alternates between two commands on each press.  Enable
+the **Toggle** switch in the form to turn a macro into a toggle.
+
+- **On command** (the "Text" field) — sent on the first press
+- **Off command** — sent on the second press, then back to On, etc.
+
+Toggle macros always start in the "on" state when the session begins.
+The current toggle state is not saved to disk.
+
 ### Example Macros
 
 | Key | Text | Notes |
@@ -56,3 +67,4 @@ destination.  Others insert a template you can edit.
 | F4 | `3n;2e;look` | Navigate and look |
 | Ctrl+R | `` `return fast` `` | Return to macro start room |
 | F3 | `` `autodiscover 50` `` | Explore 50 unvisited exits |
+| F5 | `survey on` / `survey off` | Toggle macro — alternates each press |

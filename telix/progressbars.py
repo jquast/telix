@@ -17,12 +17,16 @@ from ._paths import _atomic_json_write
 
 __all__ = (
     "BarConfig",
+    "TRAVEL_BAR_NAME",
     "load_progressbars",
     "save_progressbars",
     "detect_progressbars",
     "bar_color_at",
+    "resolve_text_color_hex",
     "CURATED_COLORS",
 )
+
+TRAVEL_BAR_NAME = "<Travel>"  #: Name of the built-in travel progress bar.
 
 
 class BarConfig(NamedTuple):
@@ -37,7 +41,10 @@ class BarConfig(NamedTuple):
     color_name_max: str = "success"
     color_name_min: str = "error"
     color_path: str = "shortest"
+    text_color_fill: str = "auto"
+    text_color_empty: str = "auto"
     display_order: int = 0
+    side: str = "left"
 
 
 #: All Rich named colors for the custom color picker.
@@ -160,7 +167,21 @@ def detect_progressbars(gmcp_data: dict[str, Any]) -> list[BarConfig]:
     """
     if not gmcp_data:
         return []
-    bars: list[BarConfig] = []
+    bars: list[BarConfig] = [
+        BarConfig(
+            name=TRAVEL_BAR_NAME,
+            gmcp_package="",
+            value_field="",
+            max_field="",
+            enabled=True,
+            color_mode="custom",
+            color_name_max="dark_cyan",
+            color_name_min="dark_orange",
+            color_path="shortest",
+            display_order=0,
+            side="right",
+        ),
+    ]
     seen: set[tuple[str, str, str]] = set()
 
     # Standard vitals first.
@@ -185,6 +206,19 @@ def get_theme_color_hex(name: str) -> Optional[str]:
     """
     theme_colors = get_theme_colors()
     return theme_colors.get(name)
+
+
+def resolve_text_color_hex(name: str) -> Optional[str]:
+    """
+    Resolve a text color name to ``#rrggbb``, or ``None`` for ``"auto"``.
+
+    :param name: Color name or ``"auto"`` for default behavior.
+    :returns: Hex color string, or ``None`` if *name* is ``"auto"``.
+    """
+    if name == "auto":
+        return None
+    r, g, b = _resolve_color_rgb(name)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def _resolve_color_rgb(name: str) -> tuple[int, int, int]:
@@ -374,13 +408,16 @@ def _dict_to_bar(entry: dict[str, Any], idx: int) -> BarConfig:
         color_name_max=str(entry.get("color_name_max", "green")),
         color_name_min=str(entry.get("color_name_min", "red")),
         color_path=str(entry.get("color_path", "shortest")),
+        text_color_fill=str(entry.get("text_color_fill", "auto")),
+        text_color_empty=str(entry.get("text_color_empty", "auto")),
         display_order=int(entry.get("display_order", idx)),
+        side=str(entry.get("side", "left")),
     )
 
 
 def _bar_to_dict(bar: BarConfig) -> dict[str, Any]:
     """Convert a :class:`BarConfig` to a JSON-serializable dict."""
-    return {
+    result: dict[str, Any] = {
         "name": bar.name,
         "gmcp_package": bar.gmcp_package,
         "value_field": bar.value_field,
@@ -392,3 +429,10 @@ def _bar_to_dict(bar: BarConfig) -> dict[str, Any]:
         "color_path": bar.color_path,
         "display_order": bar.display_order,
     }
+    if bar.side != "left":
+        result["side"] = bar.side
+    if bar.text_color_fill != "auto":
+        result["text_color_fill"] = bar.text_color_fill
+    if bar.text_color_empty != "auto":
+        result["text_color_empty"] = bar.text_color_empty
+    return result

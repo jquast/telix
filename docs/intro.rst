@@ -15,10 +15,10 @@ Features
 --------
 
 - **Session manager** with a bundled directory of 1000+ MUD and BBS servers
-- **Advanced Telnet** — SSL/TLS, NAWS, GMCP, MCCP, BINARY, SGA, ECHO, EOR, GA and more
-- **BBS/Scene Art** — CP437, PETSCII, ATASCII, iCE colors, 24-bit color
-- **MUD Support** — macros, autoreplies, highlights, room mapping, fast/slow travel,
-  random walk, autodiscover, and chat
+- **Advanced MUD Features** like macros, autoreplies, highlights, room mapping, fast/slow travel,
+  random walk, autodiscover, progress bars, and chat
+- **Advanced Telnet** with SSL/TLS, NAWS, GMCP, MCCP, BINARY, SGA, ECHO, EOR, GA and more
+- **BBS/Scene Art** support for CP437, PETSCII, ATASCII, iCE colors, 24-bit color
 
 Installation
 ------------

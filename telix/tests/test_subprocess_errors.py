@@ -49,11 +49,13 @@ def _make_ctx() -> SessionContext:
 
 class TestLaunchTuiEditorError:
     @pytest.mark.usefixtures("_stub_terminal")
-    def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
+    def test_error_prompt_on_nonzero_with_stderr(self, monkeypatch: Any) -> None:
         from telix.client_repl_dialogs import _launch_tui_editor
 
-        fail_result = subprocess.CompletedProcess(args=[], returncode=1)
-        monkeypatch.setattr("subprocess.run", lambda cmd, check=False: fail_result)
+        fail_result = subprocess.CompletedProcess(
+            args=[], returncode=1, stderr=b"NameError: something\n",
+        )
+        monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
 
         written: list[str] = []
@@ -69,14 +71,35 @@ class TestLaunchTuiEditorError:
             _launch_tui_editor("macros", _make_ctx())
 
         assert any("Press RETURN" in s for s in written)
+        assert any("NameError" in s for s in written)
         mock_input.assert_called_once()
+
+    @pytest.mark.usefixtures("_stub_terminal")
+    def test_no_prompt_on_nonzero_without_stderr(self, monkeypatch: Any) -> None:
+        from telix.client_repl_dialogs import _launch_tui_editor
+
+        fail_result = subprocess.CompletedProcess(args=[], returncode=1)
+        monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
+        monkeypatch.setattr("os.path.exists", lambda p: False)
+
+        written: list[str] = []
+        monkeypatch.setattr(
+            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
+        )
+        monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
+        monkeypatch.setattr(
+            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
+        )
+
+        _launch_tui_editor("macros", _make_ctx())
+        assert not any("Press RETURN" in s for s in written)
 
     @pytest.mark.usefixtures("_stub_terminal")
     def test_no_prompt_on_success(self, monkeypatch: Any) -> None:
         from telix.client_repl_dialogs import _launch_tui_editor
 
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
-        monkeypatch.setattr("subprocess.run", lambda cmd, check=False: ok_result)
+        monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: ok_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
 
         written: list[str] = []
@@ -97,8 +120,10 @@ class TestLaunchChatViewerError:
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
         from telix.client_repl_dialogs import _launch_chat_viewer
 
-        fail_result = subprocess.CompletedProcess(args=[], returncode=1)
-        monkeypatch.setattr("subprocess.run", lambda cmd, check=False: fail_result)
+        fail_result = subprocess.CompletedProcess(
+            args=[], returncode=1, stderr=b"Error\n",
+        )
+        monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
 
         written: list[str] = []
         monkeypatch.setattr(
@@ -121,8 +146,10 @@ class TestLaunchRoomBrowserError:
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
         from telix.client_repl_dialogs import _launch_room_browser
 
-        fail_result = subprocess.CompletedProcess(args=[], returncode=1)
-        monkeypatch.setattr("subprocess.run", lambda cmd, check=False: fail_result)
+        fail_result = subprocess.CompletedProcess(
+            args=[], returncode=1, stderr=b"Error\n",
+        )
+        monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
 
         written: list[str] = []

@@ -1638,6 +1638,8 @@ async def test_status_text_during_delay():
     engine.feed("go\n")
     await asyncio.sleep(0.05)
     assert "delay" in engine.status_text
+    assert engine.until_progress is not None
+    assert 0.0 <= engine.until_progress <= 1.0
     engine.cancel()
     assert engine.status_text == ""
 

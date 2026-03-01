@@ -23,17 +23,38 @@ a GMCP package field pair (value + max) to a colored bar display.
 - **Max Field** — field name for the maximum value (e.g. `maxhp`)
 - **Color Mode** — `Theme` uses your TUI theme accent color;
   `Custom` lets you choose specific max/min colors
-- **Max Color** — color at 100% (custom mode only)
-- **Min Color** — color at 0% (custom mode only)
+- **Max Color** — bar color at 100% (custom mode only)
+- **Min Color** — bar color at 0% (custom mode only)
+- **Text Color** — foreground color for text overlaid on the bar.
+  `auto` (default) uses dark text on the filled portion and grey on
+  the empty portion.  Choose a theme or custom color to override.
 - **Path** — `Shortest` or `Longest` hue arc between colors
 - **Preview** — live preview of the bar at the chosen percentage
 - **Value %** — preview percentage (0-100)
+
+### Side
+
+Each bar has a **Side** setting (`Left` or `Right`) that controls
+which side of the toolbar it appears on.  GMCP bars default to
+`Left`; the built-in `<Travel>` bar defaults to `Right`.
+
+### Built-in `<Travel>` Bar
+
+The `<Travel>` bar is a built-in entry that displays progress for
+randomwalk and autodiscover operations.  It is automatically
+included when you press **Detect** and cannot be duplicated.
+
+Unlike GMCP bars, the `<Travel>` bar has no GMCP source — its
+Source, Value, and Max fields are disabled in the editor.  You
+can still customize its colors, color path, side, and enabled
+state like any other bar.
 
 ### Auto-Detection
 
 Press **Detect** to scan GMCP data for value/max field pairs.
 Detection looks for:
 
+- The built-in `<Travel>` bar (always included)
 - Standard HP/MP/XP aliases in `Char.Vitals` and `Char.Status`
 - `MaxSomething` / `Something` pairs
 - `SomethingMax` / `Something` pairs

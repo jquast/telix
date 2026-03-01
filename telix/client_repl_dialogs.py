@@ -392,6 +392,28 @@ def _show_help(
         _restore_after_subprocess(replay_buf)
 
 
+def _pause_on_subprocess_error(result: Optional[Any]) -> None:
+    """Pause so the user can read any error output before screen repaint.
+
+    When the TUI subprocess exits with a non-zero return code its traceback
+    is already on screen (written by the child's ``_run_editor_app``).
+    This moves the cursor below the output and waits for the user to press
+    RETURN before ``_restore_after_subprocess`` clears and repaints.
+    """
+    if result is None or result.returncode == 0:
+        return
+    from .client_repl import _get_term
+
+    term = _get_term()
+    sys.stdout.write(term.move_yx(term.height - 1, 0))
+    sys.stdout.write("\r\nPress RETURN to continue...\r\n")
+    sys.stdout.flush()
+    try:
+        input()
+    except EOFError:
+        pass
+
+
 def _launch_tui_editor(
     editor_type: str, ctx: "SessionContext", replay_buf: Optional[Any] = None
 ) -> None:
@@ -510,10 +532,7 @@ def _launch_tui_editor(
         log.warning("could not launch TUI editor subprocess")
     finally:
         _editor_active = False
-        if result is not None and result.returncode != 0:
-            sys.stdout.write("\x1b[0m\r\n\r\nPress RETURN to continue...\r\n")
-            sys.stdout.flush()
-            input()
+        _pause_on_subprocess_error(result)
         _restore_after_subprocess(replay_buf)
 
     if editor_type == "macros":
@@ -669,10 +688,7 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
         log.warning("could not launch chat viewer subprocess")
     finally:
         _editor_active = False
-        if result is not None and result.returncode != 0:
-            sys.stdout.write("\x1b[0m\r\n\r\nPress RETURN to continue...\r\n")
-            sys.stdout.flush()
-            input()
+        _pause_on_subprocess_error(result)
         _restore_after_subprocess(replay_buf)
         if capture_file:
             try:
@@ -753,10 +769,7 @@ def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None
         log.warning("could not launch room browser subprocess")
     finally:
         _editor_active = False
-        if result is not None and result.returncode != 0:
-            sys.stdout.write("\x1b[0m\r\n\r\nPress RETURN to continue...\r\n")
-            sys.stdout.flush()
-            input()
+        _pause_on_subprocess_error(result)
         _restore_after_subprocess(replay_buf)
 
     room_graph = ctx.room_graph
