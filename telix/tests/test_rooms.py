@@ -728,6 +728,24 @@ def test_find_branches_skips_blocked(store: RoomStore) -> None:
     assert not any(t == "B" for _, _, t in branches)
 
 
+def test_find_branches_dfs_deepest_first(store: RoomStore) -> None:
+    store.update_room({"num": "A", "exits": {"east": "B"}})
+    store.update_room({"num": "B", "exits": {"east": "C", "north": "Y"}})
+    store.update_room({"num": "C", "exits": {"north": "Z"}})
+    branches = store.find_branches("A", strategy="dfs")
+    gateways = [gw for gw, _, _ in branches]
+    assert gateways.index("C") < gateways.index("B")
+
+
+def test_find_branches_bfs_nearest_first(store: RoomStore) -> None:
+    store.update_room({"num": "A", "exits": {"east": "B"}})
+    store.update_room({"num": "B", "exits": {"east": "C", "north": "Y"}})
+    store.update_room({"num": "C", "exits": {"north": "Z"}})
+    branches = store.find_branches("A", strategy="bfs")
+    gateways = [gw for gw, _, _ in branches]
+    assert gateways.index("B") < gateways.index("C")
+
+
 def test_room_summaries_includes_new_fields(store: RoomStore) -> None:
     store.update_room({"num": "1", "name": "Room", "area": "zone"})
     store.toggle_marked("1")

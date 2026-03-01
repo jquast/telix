@@ -100,6 +100,7 @@ from .client_repl_dialogs import (  # noqa: F401
     _confirm_dialog,
     _launch_tui_editor,
     _randomwalk_dialog,
+    _autodiscover_dialog,
     _launch_chat_viewer,
     _reload_autoreplies,
     _launch_room_browser,
@@ -917,6 +918,10 @@ if sys.platform != "win32":
             self.stdout.write(colored.encode())
             self.replay_buf.append(colored.encode())
             self.stdout.write(self.blessed_term.save.encode())
+            ts = self.ctx.typescript_file
+            if ts is not None:
+                ts.write(cmd + "\r\n")
+                ts.flush()
             cursor_col = self.editor.display.cursor
             self.stdout.write(self.blessed_term.move_yx(self.scroll.input_row, cursor_col).encode())
 
@@ -1071,24 +1076,16 @@ if sys.platform != "win32":
                 if task is not None:
                     task.cancel()
                 return
-            ok = _confirm_dialog(
-                "Autodiscover",
-                "Autodiscover explores exits from nearby rooms "
-                "that lead to unvisited places. It will travel "
-                "to each frontier exit, check the room, then "
-                "return before trying the next branch.",
-                warning=(
-                    "WARNING: This can lead to dangerous areas, "
-                    "death traps, or aggressive monsters! Your "
-                    "character may die. Use with caution."
-                ),
-                replay_buf=self.replay_buf,
+            cmd = _autodiscover_dialog(
+                replay_buf=self.replay_buf, session_key=self.ctx.session_key
             )
-            if not ok:
+            if cmd is None:
                 return
-            t = asyncio.ensure_future(_autodiscover(self.ctx, self.telnet_writer.log))
-            t.add_done_callback(self._on_walk_done)
-            self.ctx.discover_task = t
+            task = asyncio.ensure_future(
+                _handle_travel_commands([cmd], self.ctx, self.telnet_writer.log)
+            )
+            task.add_done_callback(self._on_walk_done)
+            self.ctx.discover_task = task
 
         def _resume_last_walk(self) -> None:
             """Resume the most recent walk (autodiscover, randomwalk, or travel)."""
@@ -1109,7 +1106,10 @@ if sys.platform != "win32":
                         task.cancel()
                     return
                 t = asyncio.ensure_future(
-                    _autodiscover(self.ctx, self.telnet_writer.log, resume=True)
+                    _autodiscover(
+                        self.ctx, self.telnet_writer.log, resume=True,
+                        strategy=self.ctx.last_walk_strategy,
+                    )
                 )
                 t.add_done_callback(self._on_walk_done)
                 self.ctx.discover_task = t
@@ -1448,11 +1448,6 @@ if sys.platform != "win32":
                 self._refresh_autoreply_engine()
                 self._refresh_highlight_engine()
                 is_prompt = self.prompt_pending
-                if self.autoreply_engine is not None:
-                    self.autoreply_engine.feed(out)
-                    if self.prompt_pending:
-                        self.prompt_pending = False
-                        self.autoreply_engine.on_prompt()
                 if self._dialogs_mod._editor_active:
                     self._dialogs_mod._editor_buffer.append(out.encode())
                     continue
@@ -1481,6 +1476,11 @@ if sys.platform != "win32":
                     self.stdout.write(encoded)
                     self.replay_buf.append(encoded)
                 self.stdout.write(bt.save.encode())
+                if self.autoreply_engine is not None:
+                    self.autoreply_engine.feed(out)
+                    if is_prompt:
+                        self.autoreply_engine.on_prompt()
+                        self.prompt_pending = False
                 cq_s = self.ctx.command_queue
                 ac_s = self.ctx.active_command
                 ac_elapsed = _monotonic() - self.ctx.active_command_time
@@ -1597,8 +1597,11 @@ if sys.platform != "win32":
                             _save_history_entry(line, self.history_file)
 
                         ts = self.ctx.typescript_file
-                        if ts is not None and not self.telnet_writer.will_echo:
-                            ts.write(line + "\r\n")
+                        if ts is not None:
+                            if self.telnet_writer.will_echo:
+                                ts.write("\r\n")
+                            else:
+                                ts.write(line + "\r\n")
                             ts.flush()
 
                         is_pw = self.telnet_writer.will_echo

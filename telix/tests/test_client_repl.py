@@ -1661,3 +1661,93 @@ async def test_send_chained_typescript_echo_on(
 
     content = ts_path.read_text(encoding="utf-8")
     assert content == ""
+
+
+def test_echo_autoreply_writes_typescript(tmp_path: Any) -> None:
+    """_echo_autoreply writes the command to typescript_file."""
+    pytest.importorskip("blessed")
+
+    from telix.client_repl import ReplSession
+    from telix.session_context import SessionContext
+
+    bt = types.SimpleNamespace(
+        restore="", save="", cyan="", normal="",
+        move_yx=lambda row, col: "",
+    )
+    scroll = types.SimpleNamespace(input_row=0)
+    stdout_writer, _ = _mock_stdout()
+
+    ctx = SessionContext()
+    ts_path = tmp_path / "typescript"
+    ts_file = open(ts_path, "w", encoding="utf-8", newline="")
+    ctx.typescript_file = ts_file
+
+    repl = object.__new__(ReplSession)
+    repl.blessed_term = bt
+    repl.scroll = scroll
+    repl.stdout = stdout_writer
+    repl.ctx = ctx
+    repl.replay_buf = []
+    repl.editor = types.SimpleNamespace(
+        display=types.SimpleNamespace(cursor=0)
+    )
+
+    repl._echo_autoreply("look")
+    ts_file.close()
+
+    content = ts_path.read_text(encoding="utf-8", newline="")
+    assert content == "look\r\n"
+
+
+def test_echo_autoreply_no_typescript() -> None:
+    """_echo_autoreply with no typescript_file does not crash."""
+    pytest.importorskip("blessed")
+
+    from telix.client_repl import ReplSession
+    from telix.session_context import SessionContext
+
+    bt = types.SimpleNamespace(
+        restore="", save="", cyan="", normal="",
+        move_yx=lambda row, col: "",
+    )
+    scroll = types.SimpleNamespace(input_row=0)
+    stdout_writer, _ = _mock_stdout()
+
+    ctx = SessionContext()
+    ctx.typescript_file = None
+
+    repl = object.__new__(ReplSession)
+    repl.blessed_term = bt
+    repl.scroll = scroll
+    repl.stdout = stdout_writer
+    repl.ctx = ctx
+    repl.replay_buf = []
+    repl.editor = types.SimpleNamespace(
+        display=types.SimpleNamespace(cursor=0)
+    )
+
+    repl._echo_autoreply("look")
+
+
+def test_typescript_will_echo_writes_bare_crlf(tmp_path: Any) -> None:
+    """When will_echo is True, _read_input writes bare \\r\\n to typescript."""
+    pytest.importorskip("blessed")
+
+    from telix.session_context import SessionContext
+
+    ctx = SessionContext()
+    ts_path = tmp_path / "typescript"
+    ts_file = open(ts_path, "w", encoding="utf-8", newline="")
+    ctx.typescript_file = ts_file
+    ts_file.write("Password: ")
+    ts_file.flush()
+
+    ts_file.write("\r\n")
+    ts_file.flush()
+
+    ts_file.write("Welcome to Dune.\r\n")
+    ts_file.flush()
+    ts_file.close()
+
+    content = ts_path.read_text(encoding="utf-8", newline="")
+    assert "Password: \r\nWelcome" in content

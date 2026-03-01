@@ -419,6 +419,7 @@ async def _autodiscover(
     log: logging.Logger,
     limit: int = _DEFAULT_WALK_LIMIT,
     resume: bool = False,
+    strategy: str = "bfs",
 ) -> None:
     """
     Explore unvisited exits reachable from the current room.
@@ -432,6 +433,8 @@ async def _autodiscover(
     :param ctx: Session context with room graph and session attributes.
     :param log: Logger.
     :param limit: Maximum number of exits to explore.
+    :param strategy: ``"bfs"`` for nearest-first, ``"dfs"`` for
+        deepest-first ordering.
     """
     if ctx.discover_active:
         return
@@ -452,7 +455,8 @@ async def _autodiscover(
     blocked_edges: dict[tuple[str, str], str] = {}
     blocked_rooms = graph.blocked_rooms()
 
-    branches = graph.find_branches(current, blocked=blocked_rooms)
+    branches = graph.find_branches(
+        current, blocked=blocked_rooms, strategy=strategy)
     if not branches:
         if echo_fn is not None:
             echo_fn("AUTODISCOVER: no unvisited exits nearby")
@@ -471,7 +475,8 @@ async def _autodiscover(
             # newly revealed exits from rooms we just visited, nearest-first.
             branches = [
                 (gw, d, t)
-                for gw, d, t in graph.find_branches(pos, blocked=blocked_rooms)
+                for gw, d, t in graph.find_branches(
+                    pos, blocked=blocked_rooms, strategy=strategy)
                 if (gw, d) not in tried and t not in inaccessible
             ]
             if not branches:
@@ -625,6 +630,7 @@ async def _autodiscover(
     finally:
         ctx.last_walk_mode = "autodiscover"
         ctx.last_walk_room = ctx.current_room_num
+        ctx.last_walk_strategy = strategy
         ctx.last_walk_tried = tried
         ctx.discover_active = False
         ctx.discover_current = 0
@@ -1039,6 +1045,7 @@ async def _handle_travel_commands(
             walk_visit_level = 2
             auto_search = False
             auto_evaluate = False
+            walk_strategy = "bfs"
             if arg:
                 arg_parts = arg.split()
                 numeric_idx = 0
@@ -1048,6 +1055,8 @@ async def _handle_travel_commands(
                         auto_search = True
                     elif low == "autoevaluate":
                         auto_evaluate = True
+                    elif low in ("bfs", "dfs"):
+                        walk_strategy = low
                     elif numeric_idx == 0:
                         try:
                             walk_limit = int(ap)
@@ -1081,7 +1090,10 @@ async def _handle_travel_commands(
                 )
 
             if verb == "autodiscover":
-                await _autodiscover(ctx, log, limit=walk_limit, resume=do_resume)
+                await _autodiscover(
+                    ctx, log, limit=walk_limit, resume=do_resume,
+                    strategy=walk_strategy)
+
             else:
                 ctx.randomwalk_auto_search = auto_search
                 ctx.randomwalk_auto_evaluate = auto_evaluate

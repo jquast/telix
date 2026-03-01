@@ -211,6 +211,92 @@ def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") 
             pass
 
 
+def _autodiscover_dialog(
+    replay_buf: Optional[Any] = None, session_key: str = ""
+) -> Optional[str]:
+    """
+    Show the autodiscover dialog with BFS/DFS strategy selection.
+
+    Loads saved strategy preference from *session_key* (if provided) as
+    default, and saves the user's choice back on confirmation.
+
+    :param replay_buf: Optional replay buffer for screen repaint.
+    :param session_key: Session key for loading/saving preferences.
+    :returns: Command string (e.g. ``"`autodiscover bfs`"``) on
+        confirm, or ``None`` on cancel.
+    """
+    import json as _json
+    import tempfile
+    import subprocess
+
+    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+
+    default_strategy = "bfs"
+    if session_key:
+        from .rooms import load_prefs
+
+        prefs = load_prefs(session_key)
+        saved = prefs.get("autodiscover_strategy", "bfs")
+        if saved in ("bfs", "dfs"):
+            default_strategy = str(saved)
+
+    fd, result_path = tempfile.mkstemp(suffix=".json", prefix="autodiscover-")
+    os.close(fd)
+
+    logfile = _get_logfile_path()
+    cmd = [
+        sys.executable,
+        "-c",
+        "import sys; from telix.client_tui import autodiscover_dialog_main; "
+        "autodiscover_dialog_main(result_file=sys.argv[1],"
+        " default_strategy=sys.argv[2],"
+        " logfile=sys.argv[3])",
+        result_path,
+        default_strategy,
+        logfile,
+    ]
+
+    global _editor_active  # noqa: PLW0603
+    log = logging.getLogger(__name__)
+    log.debug("autodiscover_dialog: launching subprocess")
+    blessed_term = _get_term()
+    sys.stdout.write(_terminal_cleanup())
+    sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
+    sys.stdout.flush()
+    sys.stderr.flush()
+    sys.__stderr__.flush()
+    _editor_active = True
+    try:
+        with _blocking_fds():
+            subprocess.run(cmd, check=False)
+    except FileNotFoundError:
+        pass
+    finally:
+        _editor_active = False
+        _restore_after_subprocess(replay_buf)
+
+    try:
+        with open(result_path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        if not data.get("confirmed", False):
+            return None
+        if session_key:
+            from .rooms import load_prefs as _load_prefs
+            from .rooms import save_prefs
+
+            save_data = _load_prefs(session_key)
+            save_data["autodiscover_strategy"] = str(data.get("strategy", default_strategy))
+            save_prefs(session_key, save_data)
+        return str(data.get("command", f"`autodiscover {default_strategy}`"))
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            os.unlink(result_path)
+        except OSError:
+            pass
+
+
 def _strip_md(text: str) -> str:
     """Strip markdown bold/code markers from text."""
     import re

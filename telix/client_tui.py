@@ -78,6 +78,7 @@ _ENCODINGS = (
 from ._paths import DATA_DIR, CONFIG_DIR, SESSIONS_FILE  # noqa: E402
 
 DEFAULTS_KEY = "__defaults__"
+_BATCH_SIZE = 100
 
 
 # Map CLI flag names (without leading --) to TUI widget IDs.
@@ -250,6 +251,9 @@ class SessionConfig:
     # Environment
     send_environ: str = "TERM,LANG,COLUMNS,LINES,COLORTERM"
 
+    # Compression: None = passive (accept if offered), True = request, False = reject
+    compression: bool | None = None
+
     # Advanced
     always_will: str = ""  # comma-separated option names
     always_do: str = ""
@@ -356,6 +360,11 @@ def build_command(config: SessionConfig) -> list[str]:
         if getattr(config, attr) != default:
             cmd.append(flag)
 
+    if config.compression is True:
+        cmd.append("--compression")
+    elif config.compression is False:
+        cmd.append("--no-compression")
+
     if config.connect_timeout > 0 and config.connect_timeout != 10.0:
         cmd.extend(["--connect-timeout", str(config.connect_timeout)])
 
@@ -434,6 +443,8 @@ class SessionListScreen(Screen[None]):
         """Initialize session list with empty session dict."""
         super().__init__()
         self._sessions: dict[str, SessionConfig] = {}
+        self._pending_rows: list[tuple[str, SessionConfig]] = []
+        self._refresh_gen: int = 0
 
     def compose(self) -> ComposeResult:
         """Build the session list layout."""
@@ -459,6 +470,7 @@ class SessionListScreen(Screen[None]):
             save_sessions(self._sessions)
         table = self.query_one("#session-table", DataTable)
         table.cursor_type = "row"
+        table.add_column(" ", width=4, key="icon")
         table.add_columns("Host/Name", "Port", "Enc", "Last", "Flags")
         self._refresh_table()
 
@@ -466,8 +478,6 @@ class SessionListScreen(Screen[None]):
     def _flags(cfg: SessionConfig) -> str:
         """Return short flag codes summarizing non-default session options."""
         parts: list[str] = []
-        if cfg.bookmarked:
-            parts.append("*")
         if cfg.ssl:
             parts.append("ssl")
         if cfg.mode == "raw":
@@ -488,7 +498,23 @@ class SessionListScreen(Screen[None]):
             parts.append("ts")
         return " ".join(parts)
 
+    def _add_rows(self, table: DataTable, items: list[tuple[str, SessionConfig]]) -> None:
+        """Add a list of ``(key, cfg)`` pairs as rows to *table*."""
+        for key, cfg in items:
+            table.add_row(
+                "\u257e" if cfg.bookmarked else "",
+                cfg.name or cfg.host,
+                str(cfg.port),
+                cfg.encoding,
+                _relative_time(cfg.last_connected),
+                self._flags(cfg),
+                key=key,
+            )
+
     def _refresh_table(self, search: str = "") -> None:
+        """Rebuild the session table, loading rows in batches."""
+        self._refresh_gen += 1
+        gen = self._refresh_gen
         table = self.query_one("#session-table", DataTable)
         table.clear()
         needle = search.strip().lower()
@@ -499,15 +525,24 @@ class SessionListScreen(Screen[None]):
                  f"{cfg.name} {cfg.host} {cfg.port} {cfg.encoding}".lower())
         ]
         items.sort(key=lambda kc: (not kc[1].bookmarked, (kc[1].name or kc[1].host).lower()))
-        for key, cfg in items:
-            table.add_row(
-                cfg.name or cfg.host,
-                str(cfg.port),
-                cfg.encoding,
-                _relative_time(cfg.last_connected),
-                self._flags(cfg),
-                key=key,
-            )
+        first, rest = items[:_BATCH_SIZE], items[_BATCH_SIZE:]
+        self._add_rows(table, first)
+        self._pending_rows = rest
+        if rest:
+            self.call_later(self._load_next_batch, gen)
+
+    def _load_next_batch(self, gen: int) -> None:
+        """Add the next batch of rows; bail if a newer refresh has started."""
+        if gen != self._refresh_gen:
+            return
+        table = self.query_one("#session-table", DataTable)
+        batch, self._pending_rows = (
+            self._pending_rows[:_BATCH_SIZE],
+            self._pending_rows[_BATCH_SIZE:],
+        )
+        self._add_rows(table, batch)
+        if self._pending_rows:
+            self.call_later(self._load_next_batch, gen)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Filter session table when search input changes."""
@@ -777,10 +812,22 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
     #port {
         max-width: 14;
     }
+    #ssl-compress-row {
+        height: auto;
+    }
+    #compression-col {
+        width: auto;
+        max-width: 19;
+        height: auto;
+    }
+    #ssl-timeout-col {
+        width: 1fr;
+        height: auto;
+        padding-left: 2;
+    }
     #timeout-label {
         width: 11;
         padding-top: 1;
-        padding-left: 4;
     }
     #connect-timeout {
         max-width: 13;
@@ -880,11 +927,26 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                 Input(value=str(cfg.port), placeholder="23", id="port"),
                 classes="field-row",
             )
-        with Horizontal(classes="switch-row"):
-            yield Label("SSL/TLS", classes="field-label")
-            yield Switch(value=cfg.ssl, id="ssl")
-            yield Label("Timeout", id="timeout-label")
-            yield Input(value=str(cfg.connect_timeout), id="connect-timeout")
+        with Horizontal(id="ssl-compress-row"):
+            with Vertical(id="compression-col"):
+                yield Label("MCCP Compression")
+                with RadioSet(id="compression-radio"):
+                    yield RadioButton(
+                        "Passive", value=cfg.compression is None, id="compress-passive"
+                    )
+                    yield RadioButton(
+                        "Yes", value=cfg.compression is True, id="compress-yes"
+                    )
+                    yield RadioButton(
+                        "No", value=cfg.compression is False, id="compress-no"
+                    )
+            with Vertical(id="ssl-timeout-col"):
+                with Horizontal(classes="switch-row"):
+                    yield Label("SSL/TLS", classes="field-label")
+                    yield Switch(value=cfg.ssl, id="ssl")
+                with Horizontal(classes="switch-row"):
+                    yield Label("Timeout", id="timeout-label")
+                    yield Input(value=str(cfg.connect_timeout), id="connect-timeout")
 
     def _compose_terminal_tab(self, cfg: SessionConfig) -> ComposeResult:
         """Yield widgets for the Terminal tab pane."""
@@ -1005,6 +1067,10 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
             except NoMatches:
                 pass
         self._update_palette_preview()
+        for radio_set in self.query(RadioSet):
+            idx = radio_set.pressed_index
+            if idx >= 0:
+                radio_set._selected = idx
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         """Disable REPL switch when raw mode is selected."""
@@ -1178,6 +1244,13 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
         cfg.ice_colors = self.query_one("#ice-colors", Switch).value
 
         cfg.connect_timeout = _float_val(self.query_one("#connect-timeout", Input).value, 10.0)
+
+        if self.query_one("#compress-yes", RadioButton).value:
+            cfg.compression = True
+        elif self.query_one("#compress-no", RadioButton).value:
+            cfg.compression = False
+        else:
+            cfg.compression = None
 
         cfg.send_environ = (
             self.query_one("#send-environ", Input).value.strip()
@@ -4100,6 +4173,149 @@ def randomwalk_dialog_main(
         default_visit_level=int(default_visit_level),
         default_auto_search=default_auto_search == "1",
         default_auto_evaluate=default_auto_evaluate == "1",
+    )
+    app = _EditorApp(screen)
+    app.run()
+
+
+class _AutodiscoverDialogScreen(Screen[bool]):
+    """Autodiscover confirmation dialog with BFS/DFS strategy selection."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    DEFAULT_CSS = """
+    _AutodiscoverDialogScreen {
+        align: center middle;
+    }
+    #ad-dialog {
+        width: 100%;
+        height: 100%;
+        border: round $surface-lighten-2;
+        background: $surface;
+        padding: 1 2;
+    }
+    #ad-title {
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #ad-body {
+        margin-bottom: 1;
+    }
+    #ad-warning {
+        color: $error;
+        margin-bottom: 1;
+    }
+    #ad-strategy-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .ad-strategy {
+        width: 1fr;
+        height: auto;
+    }
+    #ad-buttons {
+        height: 3;
+        align-horizontal: right;
+    }
+    #ad-buttons Button {
+        width: auto;
+        min-width: 12;
+        margin-left: 1;
+    }
+    """
+
+    def __init__(
+        self,
+        result_file: str = "",
+        default_strategy: str = "bfs",
+    ) -> None:
+        super().__init__()
+        self._result_file = result_file
+        self._default_strategy = default_strategy
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="ad-dialog"):
+            yield Static("Autodiscover", id="ad-title")
+            yield Static(
+                "Autodiscover explores exits from nearby rooms "
+                "that lead to unvisited places. It will travel "
+                "to each frontier exit, check the room, then "
+                "return before trying the next branch.",
+                id="ad-body",
+            )
+            yield Static(
+                "WARNING: This can lead to dangerous areas, "
+                "death traps, or aggressive monsters! Your "
+                "character may die. Use with caution.",
+                id="ad-warning",
+            )
+            with Horizontal(id="ad-strategy-row"):
+                with RadioSet(id="ad-strategy-set"):
+                    yield RadioButton(
+                        "BFS: explore nearest exits first",
+                        id="ad-bfs",
+                        value=(self._default_strategy == "bfs"),
+                    )
+                    yield RadioButton(
+                        "DFS: explore farthest exits first",
+                        id="ad-dfs",
+                        value=(self._default_strategy == "dfs"),
+                    )
+            with Horizontal(id="ad-buttons"):
+                yield Button("Cancel", variant="default", id="ad-cancel")
+                yield Button("OK", variant="success", id="ad-ok")
+
+    def on_mount(self) -> None:
+        """Focus the OK button on mount."""
+        self.query_one("#ad-ok", Button).focus()
+
+    def _get_strategy(self) -> str:
+        """Return the selected strategy string."""
+        if self.query_one("#ad-dfs", RadioButton).value:
+            return "dfs"
+        return "bfs"
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle OK and Cancel button presses."""
+        if event.button.id == "ad-ok":
+            self._write_result(True, self._get_strategy())
+            self.dismiss(True)
+        elif event.button.id == "ad-cancel":
+            self._write_result(False, self._default_strategy)
+            self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        """Cancel the dialog and write default values."""
+        self._write_result(False, self._default_strategy)
+        self.dismiss(False)
+
+    def _write_result(self, confirmed: bool, strategy: str) -> None:
+        """Write result JSON to disk for the parent process."""
+        if not self._result_file:
+            return
+        cmd = f"`autodiscover {strategy}`"
+        result = json.dumps({
+            "confirmed": confirmed,
+            "strategy": strategy,
+            "command": cmd,
+        })
+        with open(self._result_file, "w", encoding="utf-8") as f:
+            f.write(result)
+
+
+def autodiscover_dialog_main(
+    result_file: str = "",
+    default_strategy: str = "bfs",
+    logfile: str = "",
+) -> None:
+    """Launch standalone autodiscover dialog TUI."""
+    _restore_blocking_fds(logfile)
+    _log_child_diagnostics()
+    _patch_writer_thread_queue()
+    screen = _AutodiscoverDialogScreen(
+        result_file=result_file,
+        default_strategy=default_strategy,
     )
     app = _EditorApp(screen)
     app.run()

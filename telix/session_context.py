@@ -74,6 +74,7 @@ class SessionContext(TelnetSessionContext):
         # walk resume state
         self.last_walk_mode: str = ""
         self.last_walk_room: str = ""
+        self.last_walk_strategy: str = "bfs"
         self.last_walk_visited: set[str] = set()
         self.last_walk_tried: set[tuple[str, str]] = set()
 

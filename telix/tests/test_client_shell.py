@@ -38,6 +38,23 @@ class TestBuildSessionKey:
         writer.get_extra_info.return_value = ("192.168.1.1", 23)
         assert _build_session_key(writer) == "192.168.1.1:23"
 
+    def test_prefers_hostname_from_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "sys.argv", ["telix", "--shell=telix.client_shell.telix_client_shell",
+                         "dunemud.net", "6788"]
+        )
+        writer = MagicMock()
+        writer.get_extra_info.return_value = ("138.197.134.82", 6788)
+        assert _build_session_key(writer) == "dunemud.net:6788"
+
+    def test_falls_back_to_peername_without_host_arg(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("sys.argv", ["telix"])
+        writer = MagicMock()
+        writer.get_extra_info.return_value = ("10.0.0.1", 23)
+        assert _build_session_key(writer) == "10.0.0.1:23"
+
 
 class TestLoadConfigs:
     def test_empty_dirs(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:

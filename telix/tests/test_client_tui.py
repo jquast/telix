@@ -20,6 +20,7 @@ from telix.client_tui import (  # noqa: E402
     MacroEditScreen,
     TelnetSessionApp,
     AutoreplyEditScreen,
+    SessionListScreen,
     _int_val,
     tui_main,
     _float_val,
@@ -32,6 +33,7 @@ from telix.client_tui import (  # noqa: E402
     _get_help_topic,
     _CommandHelpScreen,
     _RandomwalkDialogScreen,
+    _AutodiscoverDialogScreen,
 )
 
 
@@ -52,6 +54,7 @@ def test_session_config_defaults() -> None:
     assert cfg.speed == 38400
     assert cfg.ssl is False
     assert cfg.no_repl is False
+    assert cfg.compression is None
 
 
 def test_session_config_roundtrip() -> None:
@@ -204,6 +207,29 @@ def test_persistence_corrupted_json(tui_tmp_paths, monkeypatch) -> None:
     monkeypatch.setattr("telix.client_tui.SESSIONS_FILE", sessions_file)
     with pytest.raises(Exception):
         load_sessions()
+
+
+@pytest.mark.parametrize(
+    "compression,expected_flag,absent_flag",
+    [
+        (True, "--compression", "--no-compression"),
+        (False, "--no-compression", "--compression"),
+    ],
+)
+def test_build_command_compression(
+    compression: bool, expected_flag: str, absent_flag: str
+) -> None:
+    cfg = SessionConfig(host="h", port=23, compression=compression)
+    cmd = build_command(cfg)
+    assert expected_flag in cmd
+    assert absent_flag not in cmd
+
+
+def test_build_command_compression_passive_omitted() -> None:
+    cfg = SessionConfig(host="h", port=23, compression=None)
+    cmd = build_command(cfg)
+    assert "--compression" not in cmd
+    assert "--no-compression" not in cmd
 
 
 def test_build_command_missing_host() -> None:
@@ -480,3 +506,65 @@ def test_randomwalk_dialog_command_no_flags(tmp_path: Any) -> None:
     with open(result_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 2`"
+
+
+def test_autodiscover_dialog_writes_bfs(tmp_path: Any) -> None:
+    import json
+
+    result_file = str(tmp_path / "result.json")
+    screen = _AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
+    screen._write_result(True, "bfs")
+
+    with open(result_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["confirmed"] is True
+    assert data["strategy"] == "bfs"
+    assert data["command"] == "`autodiscover bfs`"
+
+
+def test_autodiscover_dialog_writes_dfs(tmp_path: Any) -> None:
+    import json
+
+    result_file = str(tmp_path / "result.json")
+    screen = _AutodiscoverDialogScreen(result_file=result_file, default_strategy="dfs")
+    screen._write_result(True, "dfs")
+
+    with open(result_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["confirmed"] is True
+    assert data["strategy"] == "dfs"
+    assert data["command"] == "`autodiscover dfs`"
+
+
+def test_autodiscover_dialog_cancel(tmp_path: Any) -> None:
+    import json
+
+    result_file = str(tmp_path / "result.json")
+    screen = _AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
+    screen._write_result(False, "bfs")
+
+    with open(result_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["confirmed"] is False
+
+
+def test_autodiscover_dialog_default_strategy() -> None:
+    screen = _AutodiscoverDialogScreen(default_strategy="dfs")
+    assert screen._default_strategy == "dfs"
+
+
+def _make_sessions(n: int) -> dict[str, SessionConfig]:
+    sessions: dict[str, SessionConfig] = {}
+    for i in range(n):
+        key = f"s{i:04d}"
+        sessions[key] = SessionConfig(name=key, host=f"{key}.example.com")
+    return sessions
+
+
+def test_stale_generation_skips_batch(tui_tmp_paths: Any) -> None:
+    screen = SessionListScreen()
+    screen._sessions = _make_sessions(5)
+    screen._pending_rows = list(screen._sessions.items())[:3]
+    screen._refresh_gen = 5
+    screen._load_next_batch(gen=4)
+    assert len(screen._pending_rows) == 3

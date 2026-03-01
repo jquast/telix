@@ -430,7 +430,8 @@ class RoomStore:
         return [self._row_to_room(r) for r in rows]
 
     def find_branches(
-        self, src: str, limit: int = 99, blocked: frozenset[str] = frozenset()
+        self, src: str, limit: int = 99, blocked: frozenset[str] = frozenset(),
+        strategy: str = "bfs",
     ) -> list[tuple[str, str, str]]:
         """
         Find exits from known rooms leading to unvisited or unknown rooms.
@@ -438,6 +439,8 @@ class RoomStore:
         :param src: Source room number to search from.
         :param limit: Maximum number of branches to return.
         :param blocked: Room numbers to treat as impassable.
+        :param strategy: ``"bfs"`` for nearest-first, ``"dfs"`` for
+            deepest-first ordering.
         :returns: ``[(gateway_room_num, direction, target_num), ...]``
             sorted by BFS distance from *src*.
         """
@@ -462,7 +465,8 @@ class RoomStore:
                     visited.add(target)
                     queue.append((target, dist + 1))
 
-        branches.sort(key=lambda b: b[0])
+        _reverse = strategy == "dfs"
+        branches.sort(key=lambda b: b[0], reverse=_reverse)
         # Shuffle branches within each distance tier so autodiscover
         # does not deterministically prefer one direction.
         shuffled: list[tuple[int, str, str, str]] = []

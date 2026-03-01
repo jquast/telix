@@ -38,7 +38,22 @@ __all__ = ("telix_client_shell",)
 
 
 def _build_session_key(writer: Union[TelnetWriter, TelnetWriterUnicode]) -> str:
-    """Derive ``host:port`` session key from the writer's peername."""
+    """Derive ``host:port`` session key from CLI arguments or peername.
+
+    Prefers the original hostname from ``sys.argv`` over the resolved IP
+    from :func:`socket.getpeername`, so that session-specific files
+    (history, rooms, macros, etc.) are keyed by the human-readable
+    hostname used to connect.
+    """
+    import sys
+
+    try:
+        from telnetlib3.client import _get_argument_parser
+        args = _get_argument_parser().parse_known_args(sys.argv[1:])[0]
+        if args.host:
+            return f"{args.host}:{args.port}"
+    except (SystemExit, Exception):
+        pass
     peername = writer.get_extra_info("peername")
     if peername:
         return f"{peername[0]}:{peername[1]}"
