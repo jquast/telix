@@ -29,6 +29,7 @@ Common defaults:
 - ``autoreplies.json``
 - ``macros.json``
 - ``highlights.json``
+- ``progressbars.json`` -- progress bar toolbar configuration
 
 ``$XDG_DATA_HOME/telix/`` contains per-session data using a SHA-256 slug
 of ``host:port``:
@@ -36,3 +37,4 @@ of ``host:port``:
 - ``history-<hash>``
 - ``rooms-<hash>.db``
 - ``chat-<hash>.json``
+- ``gmcp-<hash>.json`` -- rolling GMCP data snapshot with per-package timestamps

@@ -54,6 +54,25 @@ def history_path(session_key: str) -> str:
     return os.path.join(DATA_DIR, f"history-{safe_session_slug(session_key)}")
 
 
+def gmcp_snapshot_path(session_key: str) -> str:
+    """
+    Return per-session GMCP snapshot file path.
+
+    :param session_key: Session identifier, typically ``host:port``.
+    :returns: Absolute path under :data:`DATA_DIR`.
+    """
+    return os.path.join(DATA_DIR, f"gmcp-{safe_session_slug(session_key)}.json")
+
+
+def progressbars_path() -> str:
+    """
+    Return the progress bars configuration file path.
+
+    :returns: Absolute path under :data:`CONFIG_DIR`.
+    """
+    return os.path.join(CONFIG_DIR, "progressbars.json")
+
+
 def chat_path(session_key: str) -> str:
     """
     Return per-session chat history file path.

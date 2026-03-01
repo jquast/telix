@@ -1630,7 +1630,8 @@ class _EditListScreen(Screen["bool | None"]):
                     callback=_on_confirm,
                 )
         elif suffix == "ok":
-            self._submit_form()
+            if self._form_visible:
+                self._submit_form()
         elif suffix == "cancel-form":
             self._hide_form()
         elif suffix == "save":
@@ -2455,6 +2456,7 @@ class _HighlightTuple(NamedTuple):
     stop_movement: bool = False
     builtin: bool = False
     case_sensitive: bool = False
+    multiline: bool = False
     captured: bool = False
     capture_name: str = "captures"
     captures: tuple[dict[str, str], ...] = ()
@@ -2527,6 +2529,11 @@ class HighlightEditScreen(_EditListScreen):
                             cs.tooltip = "Case-sensitive pattern matching"
                             yield Label("Case Sensitive:", classes="toggle-label")
                             yield cs
+                            yield Label("", classes="toggle-gap")
+                            ml = Switch(value=False, id="highlight-multiline")
+                            ml.tooltip = "Match pattern across multiple lines"
+                            yield Label("Multiline:", classes="toggle-label")
+                            yield ml
                         with Horizontal(classes="field-row"):
                             cap_sw = Switch(value=False, id="highlight-captured")
                             cap_sw.tooltip = "Capture regex groups into variables"
@@ -2551,8 +2558,7 @@ class HighlightEditScreen(_EditListScreen):
                             with Vertical(id="highlight-captures-container"):
                                 pass
                             yield Button(
-                                "Add Capture", variant="default",
-                                id="highlight-add-capture",
+                                "Add Capture", variant="default", id="highlight-add-capture"
                             )
                         with Horizontal(id="highlight-form-buttons", classes="edit-form-buttons"):
                             yield Label(" ", classes="form-btn-spacer")
@@ -2610,6 +2616,7 @@ class HighlightEditScreen(_EditListScreen):
                     r.stop_movement,
                     r.builtin,
                     r.case_sensitive,
+                    r.multiline,
                     r.captured,
                     r.capture_name,
                     tuple(r.captures),
@@ -2641,6 +2648,8 @@ class HighlightEditScreen(_EditListScreen):
                 flags = (flags + " S") if flags else "S"
             if rule.case_sensitive:
                 flags = (flags + " CS") if flags else "CS"
+            if rule.multiline:
+                flags = (flags + " M") if flags else "M"
             if rule.captured:
                 flags = (flags + " C") if flags else "C"
             row_pos = len(self._filtered_indices) - 1
@@ -2662,6 +2671,7 @@ class HighlightEditScreen(_EditListScreen):
         stop_movement: bool = False,
         builtin: bool = False,
         case_sensitive: bool = False,
+        multiline: bool = False,
         captured: bool = False,
         capture_name: str = "captures",
         captures: tuple[dict[str, str], ...] = (),
@@ -2677,6 +2687,9 @@ class HighlightEditScreen(_EditListScreen):
         cs_sw = self.query_one("#highlight-case-sensitive", Switch)
         cs_sw.value = case_sensitive
         cs_sw.disabled = builtin
+        ml_sw = self.query_one("#highlight-multiline", Switch)
+        ml_sw.value = multiline
+        ml_sw.disabled = builtin
         cap_sw = self.query_one("#highlight-captured", Switch)
         cap_sw.value = captured
         cap_sw.disabled = builtin
@@ -2684,9 +2697,7 @@ class HighlightEditScreen(_EditListScreen):
         container = self.query_one("#highlight-captures-container", Vertical)
         container.remove_children()
         for cap in captures:
-            self._add_capture_row(
-                container, cap.get("key", "KeyName"), cap.get("value", r"\1")
-            )
+            self._add_capture_row(container, cap.get("key", "KeyName"), cap.get("value", r"\1"))
         cap_fields = self.query_one("#highlight-capture-fields", Vertical)
         cap_fields.display = captured
         self.query_one("#highlight-search", Input).display = False
@@ -2727,6 +2738,7 @@ class HighlightEditScreen(_EditListScreen):
         enabled = self.query_one("#highlight-enabled", Switch).value
         stop_movement = self.query_one("#highlight-stop-movement", Switch).value
         case_sensitive = self.query_one("#highlight-case-sensitive", Switch).value
+        multiline = self.query_one("#highlight-multiline", Switch).value
         if pattern_val:
             try:
                 _re.compile(pattern_val)
@@ -2769,8 +2781,16 @@ class HighlightEditScreen(_EditListScreen):
         if self._editing_idx is not None:
             builtin = self._rules[self._editing_idx].builtin
         entry = _HighlightTuple(
-            pattern_val, highlight_val, enabled, stop_movement, builtin,
-            case_sensitive, captured, capture_name, tuple(captures_list),
+            pattern_val,
+            highlight_val,
+            enabled,
+            stop_movement,
+            builtin,
+            case_sensitive,
+            multiline,
+            captured,
+            capture_name,
+            tuple(captures_list),
         )
         self._finalize_edit(entry, bool(pattern_val and highlight_val))
 
@@ -2818,12 +2838,609 @@ class HighlightEditScreen(_EditListScreen):
                     stop_movement=t.stop_movement,
                     builtin=t.builtin,
                     case_sensitive=t.case_sensitive,
+                    multiline=t.multiline,
                     captured=t.captured,
                     capture_name=t.capture_name,
                     captures=list(t.captures),
                 )
             )
         save_highlights(self._path, rules, self._session_key)
+
+
+class _ProgressBarTuple(NamedTuple):
+    """Lightweight tuple for progress bar configs in the TUI editor."""
+
+    name: str = ""
+    gmcp_package: str = ""
+    value_field: str = ""
+    max_field: str = ""
+    enabled: bool = True
+    color_mode: str = "theme"
+    color_name_max: str = "success"
+    color_name_min: str = "error"
+    color_path: str = "shortest"
+    display_order: int = 0
+
+
+class ProgressBarEditScreen(_EditListScreen):
+    """Editor screen for GMCP progress bar configuration."""
+
+    _growable_keys: list[str] = ["name"]
+
+    CSS = """
+    #progressbar-form { padding: 0 0 0 4; }
+    #progressbar-form .form-label { width: 12; }
+    #progressbar-form Input { max-width: 50; }
+    #progressbar-form Select { max-width: 50; }
+    #pb-gmcp-select { max-width: 18; }
+    #pb-value-select { max-width: 18; }
+    #pb-max-select { max-width: 18; }
+    #pb-color-swatch-max { width: 4; height: 1; padding-top: 1; }
+    #pb-color-swatch-min { width: 4; height: 1; padding-top: 1; }
+    #pb-color-row1 { height: auto; margin: 0; }
+    #pb-color-row2 { height: auto; margin: 0; }
+    #pb-color-mode { max-width: 20; }
+    #pb-color-max { width: 20; }
+    #pb-color-min { width: 20; }
+    #pb-color-path { max-width: 20; }
+    #pb-preview-bar { height: 1; margin: 0 0 0 12; }
+    #pb-preview-gradient { height: 1; margin: 0 0 0 12; }
+    """
+
+    def __init__(self, path: str, session_key: str = "", gmcp_snapshot_path: str = "") -> None:
+        """Initialize progress bar editor."""
+        super().__init__()
+        self._path = path
+        self._session_key = session_key
+        self._gmcp_snapshot_path = gmcp_snapshot_path
+        self._bars: list[_ProgressBarTuple] = []
+        self._gmcp_packages: list[str] = []
+        self._gmcp_fields: dict[str, list[str]] = {}
+        self._preview_timer: Any = None
+        self._preview_phase: float = 0.0
+        self._populating_form: bool = False
+
+    @property
+    def _prefix(self) -> str:
+        return "progressbar"
+
+    @property
+    def _noun(self) -> str:
+        return "Progress Bar"
+
+    @property
+    def _items(self) -> list[Any]:
+        return self._bars
+
+    def _item_label(self, idx: int) -> str:
+        if idx < len(self._bars):
+            return self._bars[idx].name
+        return ""
+
+    def _load_gmcp_packages(self) -> None:
+        """Load GMCP package names and field names from the snapshot file."""
+        if not self._gmcp_snapshot_path:
+            return
+        if not os.path.exists(self._gmcp_snapshot_path):
+            return
+        with open(self._gmcp_snapshot_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        packages = data.get("packages", {}) if isinstance(data, dict) else {}
+        if packages:
+            self._gmcp_packages = sorted(packages.keys())
+            for pkg_name, pkg_info in packages.items():
+                pkg_data = pkg_info.get("data", {}) if isinstance(pkg_info, dict) else {}
+                if isinstance(pkg_data, dict):
+                    self._gmcp_fields[pkg_name] = sorted(pkg_data.keys())
+
+    def compose(self) -> ComposeResult:
+        """Build the progress bar editor widget tree."""
+        pfx = "progressbar"
+        with Vertical(id=f"{pfx}-panel", classes="edit-panel"):
+            with Horizontal(id=f"{pfx}-body", classes="edit-body"):
+                with Vertical(id=f"{pfx}-button-col", classes="edit-button-col"):
+                    yield Button("Add", variant="success", id=f"{pfx}-add")
+                    yield Button("Edit", variant="warning", id=f"{pfx}-edit")
+                    yield Button("Copy", id=f"{pfx}-copy", classes="edit-copy")
+                    yield Button("Detect", variant="primary", id=f"{pfx}-detect")
+                    yield Button("Help", variant="success", id=f"{pfx}-help")
+                    yield Button("Save", variant="primary", id=f"{pfx}-save")
+                    yield Button("Cancel", id=f"{pfx}-close")
+                with Vertical(id=f"{pfx}-right", classes="edit-right"):
+                    yield Input(
+                        placeholder="Search bars\u2026", id=f"{pfx}-search", classes="edit-search"
+                    )
+                    yield DataTable(id=f"{pfx}-table", classes="edit-table")
+                    with VerticalScroll(id=f"{pfx}-form", classes="edit-form"):
+                        with Horizontal(classes="field-row"):
+                            yield Label("Name", classes="form-label")
+                            yield Input(placeholder="bar name", id="pb-name")
+                            yield Label("", classes="toggle-gap")
+                            yield Label("Enabled:", classes="toggle-label")
+                            yield Switch(value=True, id="pb-enabled")
+                        with Horizontal(classes="field-row"):
+                            yield Label("Source", classes="form-label")
+                            yield Select[str](
+                                [], id="pb-gmcp-select", allow_blank=True,
+                                prompt="Select source\u2026",
+                            )
+                        with Horizontal(classes="field-row"):
+                            yield Label("Val/Max", classes="form-label")
+                            yield Select[str](
+                                [], id="pb-value-select", allow_blank=True,
+                                prompt="Value field\u2026",
+                            )
+                            yield Label("", classes="form-gap")
+                            yield Select[str](
+                                [], id="pb-max-select", allow_blank=True,
+                                prompt="Max field\u2026",
+                            )
+                        with Horizontal(id="pb-color-row1", classes="field-row"):
+                            yield Label("Color Mode", classes="form-label")
+                            with RadioSet(id="pb-color-mode"):
+                                yield RadioButton("Theme", id="pb-mode-theme", value=True)
+                                yield RadioButton("Custom", id="pb-mode-custom")
+                            yield Label("", id="pb-color-gap1", classes="form-gap")
+                            yield Select[str](
+                                self._color_options(),
+                                id="pb-color-min",
+                                value="red",
+                                allow_blank=False,
+                            )
+                            yield Static("", id="pb-color-swatch-min")
+                        with Horizontal(id="pb-color-row2", classes="field-row"):
+                            yield Label("Path", classes="form-label")
+                            with RadioSet(id="pb-color-path"):
+                                yield RadioButton("Shortest", id="pb-path-shortest", value=True)
+                                yield RadioButton("Longest", id="pb-path-longest")
+                            yield Label("", classes="form-gap")
+                            yield Select[str](
+                                self._color_options(),
+                                id="pb-color-max",
+                                value="green",
+                                allow_blank=False,
+                            )
+                            yield Static("", id="pb-color-swatch-max")
+                        yield Static("", id="pb-preview-bar")
+                        yield Static("", id="pb-preview-gradient")
+                        with Horizontal(id=f"{pfx}-form-buttons", classes="edit-form-buttons"):
+                            yield Label(" ", classes="form-btn-spacer")
+                            yield Button("Cancel", variant="default", id=f"{pfx}-cancel-form")
+                            yield Button("OK", variant="success", id=f"{pfx}-ok")
+                    yield Static("", id=f"{pfx}-count")
+        yield Footer()
+
+    @staticmethod
+    def _color_options() -> "list[tuple[Text, str]]":
+        """Build Select options from all Rich named colors with swatches."""
+        from rich.text import Text
+
+        from .progressbars import CURATED_COLORS
+
+        options: list[tuple[Text, str]] = []
+        for c in CURATED_COLORS:
+            label = Text()
+            label.append("\u2588 ", style=c)
+            label.append(c)
+            options.append((label, c))
+        return options
+
+    @staticmethod
+    def _theme_color_options() -> "list[tuple[Text, str]]":
+        """Build Select options from Textual theme colors with swatches."""
+        from rich.text import Text
+
+        from .progressbars import get_theme_colors
+
+        options: list[tuple[Text, str]] = []
+        for name, hex_val in get_theme_colors().items():
+            label = Text()
+            label.append("\u2588 ", style=hex_val[:7])
+            label.append(name)
+            options.append((label, name))
+        return options
+
+    def on_mount(self) -> None:
+        """Configure table columns and load bars from file."""
+        table = self.query_one("#progressbar-table", DataTable)
+        table.cursor_type = "row"
+        term_w = shutil.get_terminal_size(fallback=(80, 24)).columns
+        name_w = min(20, max(12, 12 + (term_w - 80)))
+        table.add_column("#", width=4, key="num")
+        table.add_column("Name", width=name_w, key="name")
+        table.add_column("Source", width=20, key="source")
+        table.add_column("Value", width=14, key="value")
+        table.add_column("Max", width=14, key="max")
+        table.add_column("Enabled", width=8, key="enabled")
+        table.add_column("Color", width=8, key="color")
+        self._load_gmcp_packages()
+        self._load_from_file()
+        self._do_detect(silent=True)
+        self._refresh_table()
+        self.query_one("#progressbar-form").display = False
+
+    def _load_from_file(self) -> None:
+        if not os.path.exists(self._path):
+            return
+        from .progressbars import load_progressbars
+
+        bars = load_progressbars(self._path, self._session_key)
+        self._bars = [_ProgressBarTuple(*b) for b in bars]
+
+    def _matches_search(self, idx: int, query: str) -> bool:
+        bar = self._bars[idx]
+        q = query.lower()
+        return q in bar.name.lower() or q in bar.gmcp_package.lower()
+
+    @staticmethod
+    def _color_swatch(bar: _ProgressBarTuple) -> "Text":
+        """Build a gradient-colored label for the Color column."""
+        from rich.text import Text
+
+        from .progressbars import BarConfig, bar_color_at
+
+        cfg = BarConfig(
+            bar.name, bar.gmcp_package, bar.value_field, bar.max_field,
+            color_mode=bar.color_mode, color_name_max=bar.color_name_max,
+            color_name_min=bar.color_name_min, color_path=bar.color_path,
+        )
+        label = " theme " if bar.color_mode == "theme" else " custom"
+        swatch = Text()
+        for i, ch in enumerate(label):
+            f = i / max(1, len(label) - 1)
+            c = bar_color_at(f, cfg)
+            swatch.append(ch, style=f"bold {c}")
+        return swatch
+
+    def _refresh_table(self) -> None:
+        table = self.query_one("#progressbar-table", DataTable)
+        table.clear()
+        q = self._search_query
+        self._filtered_indices = []
+        for i, bar in enumerate(self._bars):
+            if q and not self._matches_search(i, q):
+                continue
+            self._filtered_indices.append(i)
+            enabled = "Yes" if bar.enabled else "No"
+            display_name = bar.name if len(bar.name) <= 19 else bar.name[:18] + "\u2026"
+            val_f = bar.value_field if len(bar.value_field) <= 13 else bar.value_field[:12] + "\u2026"
+            max_f = bar.max_field if len(bar.max_field) <= 13 else bar.max_field[:12] + "\u2026"
+            swatch = self._color_swatch(bar)
+            row_pos = len(self._filtered_indices) - 1
+            table.add_row(
+                str(i + 1), display_name, bar.gmcp_package,
+                val_f, max_f,
+                enabled, swatch, key=str(row_pos),
+            )
+        n_total = len(self._bars)
+        n_shown = len(self._filtered_indices)
+        label = self.query_one("#progressbar-count", Static)
+        if q:
+            label.update(f"{n_shown:,}/{n_total:,} Progress Bars")
+        else:
+            label.update(f"{n_total:,} Progress Bars")
+        self.call_after_refresh(self._fit_growable_columns)
+
+    def _show_form(
+        self,
+        name: str = "",
+        gmcp_package: str = "",
+        value_field: str = "",
+        max_field: str = "",
+        enabled: bool = True,
+        color_mode: str = "theme",
+        color_name_max: str = "green",
+        color_name_min: str = "red",
+        color_path: str = "shortest",
+        display_order: int = 0,
+    ) -> None:
+        self._populating_form = True
+        self.query_one("#pb-name", Input).value = name
+        self.query_one("#pb-enabled", Switch).value = enabled
+        # Populate source dropdown
+        pkg_options = [(p, p) for p in self._gmcp_packages]
+        src_sel = self.query_one("#pb-gmcp-select", Select)
+        src_sel.set_options(pkg_options)
+        if gmcp_package and gmcp_package in self._gmcp_packages:
+            src_sel.value = gmcp_package
+        elif gmcp_package:
+            src_sel.set_options(pkg_options + [(gmcp_package, gmcp_package)])
+            src_sel.value = gmcp_package
+        # Populate value/max field dropdowns
+        self._populate_field_selects(gmcp_package, value_field, max_field)
+        self._populating_form = False
+        # Color mode — use RadioSet._selected to avoid both-highlighted state
+        is_custom = color_mode == "custom"
+        mode_set = self.query_one("#pb-color-mode", RadioSet)
+        mode_set._selected = 1 if is_custom else 0
+        # Color selects — populate with theme or custom options
+        self._swap_color_options(is_custom, preserve_max=color_name_max, preserve_min=color_name_min)
+        self.query_one("#pb-color-max", Select).value = color_name_max
+        self.query_one("#pb-color-min", Select).value = color_name_min
+        # Color path — use RadioSet._selected to avoid both-highlighted state
+        is_longest = color_path == "longest"
+        path_set = self.query_one("#pb-color-path", RadioSet)
+        path_set._selected = 1 if is_longest else 0
+        # Path row only visible for custom mode
+        self.query_one("#pb-color-row2").display = is_custom
+        # Show form + start preview animation
+        self.query_one("#progressbar-search", Input).display = False
+        self.query_one("#progressbar-table").display = False
+        self.query_one("#progressbar-form").display = True
+        self._set_action_buttons_disabled(True)
+        self._preview_phase = 0.0
+        self._start_preview_timer()
+        self.query_one("#pb-name", Input).focus()
+
+    def _submit_form(self) -> None:
+        name = self.query_one("#pb-name", Input).value.strip()
+        if not name:
+            self.notify("Name is required.", severity="error")
+            return
+        enabled = self.query_one("#pb-enabled", Switch).value
+        gmcp_pkg = self._get_select_value("#pb-gmcp-select", "")
+        value_field = self._get_select_value("#pb-value-select", "")
+        max_field = self._get_select_value("#pb-max-select", "")
+        color_mode = self._get_color_mode()
+        color_name_max = self._get_select_value("#pb-color-max", "green")
+        color_name_min = self._get_select_value("#pb-color-min", "red")
+        color_path = (
+            "longest" if self.query_one("#pb-path-longest", RadioButton).value else "shortest"
+        )
+        order = 0
+        if self._editing_idx is not None:
+            order = self._bars[self._editing_idx].display_order
+        entry = _ProgressBarTuple(
+            name=name,
+            gmcp_package=gmcp_pkg,
+            value_field=value_field,
+            max_field=max_field,
+            enabled=enabled,
+            color_mode=color_mode,
+            color_name_max=color_name_max,
+            color_name_min=color_name_min,
+            color_path=color_path,
+            display_order=order,
+        )
+        self._finalize_edit(entry, True)
+
+    def _get_color_mode(self) -> str:
+        """Return the selected color mode string."""
+        if self.query_one("#pb-mode-custom", RadioButton).value:
+            return "custom"
+        return "theme"
+
+    def _get_select_value(self, sel_id: str, default: str) -> str:
+        """Return a Select widget's value as str."""
+        sel = self.query_one(sel_id, Select)
+        val = sel.value
+        if isinstance(val, str):
+            return val
+        return default
+
+    def _update_swatch(self, widget_id: str, color_name: str) -> None:
+        """Update a color swatch Static with a colored block."""
+        try:
+            swatch = self.query_one(widget_id, Static)
+            swatch.update(f"[on {color_name}]    [/]")
+        except NoMatches:
+            pass
+
+    def _hide_form(self) -> None:
+        self._stop_preview_timer()
+        super()._hide_form()
+
+    def _start_preview_timer(self) -> None:
+        """Start the animated preview at ~15 fps."""
+        self._stop_preview_timer()
+        self._preview_phase = 0.0
+        self._preview_timer = self.set_interval(1.0 / 15.0, self._tick_preview)
+
+    def _stop_preview_timer(self) -> None:
+        """Stop the animated preview."""
+        if self._preview_timer is not None:
+            self._preview_timer.stop()
+            self._preview_timer = None
+
+    def _tick_preview(self) -> None:
+        """Advance the preview animation phase and redraw."""
+        self._preview_phase += (1.0 / 15.0) / 13.5
+        if self._preview_phase >= 1.0:
+            self._preview_phase -= 1.0
+        self._update_preview()
+
+    @staticmethod
+    def _ease_in_out(t: float) -> float:
+        """Smooth ease-in-out: very slow at ends, faster in middle."""
+        # Quintic smootherstep for pronounced dwell at 0% and 100%
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+    def _update_preview(self) -> None:
+        """Render animated preview bars from current form settings."""
+        from rich.text import Text
+
+        from .progressbars import BarConfig, bar_color_at
+        from .client_repl_render import _vital_bar
+
+        # Triangular wave 0→1→0 with ease-in-out
+        t = self._preview_phase * 2.0
+        if t > 1.0:
+            t = 2.0 - t
+        fraction = self._ease_in_out(t)
+
+        bar_w = 24
+        cur = int(fraction * 1000)
+        mx = 1000
+        name = self.query_one("#pb-name", Input).value.strip() or "bar"
+
+        # Build BarConfig from form
+        color_mode = self._get_color_mode()
+        if color_mode == "custom":
+            max_c = self._get_select_value("#pb-color-max", "green")
+            min_c = self._get_select_value("#pb-color-min", "red")
+            path = (
+                "longest"
+                if self.query_one("#pb-path-longest", RadioButton).value
+                else "shortest"
+            )
+            cfg = BarConfig(
+                name, "", "", "", color_mode="custom",
+                color_name_max=max_c, color_name_min=min_c, color_path=path,
+            )
+        else:
+            cfg = BarConfig(name, "", "", "")
+
+        # 1) Toolbar-style bar via _vital_bar (SGR → ANSI → Rich Text)
+        kind = name.lower()
+        color = bar_color_at(fraction, cfg)
+        fragments = _vital_bar(cur, mx, bar_w, kind, color_override=color)
+        ansi_str = "".join(sgr + text for sgr, text in fragments) + "\x1b[0m"
+        try:
+            bar_text = Text.from_ansi(ansi_str)
+            self.query_one("#pb-preview-bar", Static).update(bar_text)
+        except NoMatches:
+            pass
+
+        # 2) Color gradient bar using bar_color_at LERP
+        steps = bar_w + 2
+        gradient_parts: list[str] = []
+        for i in range(steps):
+            f = i / max(1, steps - 1)
+            c = bar_color_at(f, cfg)
+            gradient_parts.append(f"[on {c}] [/]")
+        pct = int(round(fraction * 100))
+        gradient_str = "".join(gradient_parts) + f" {pct}%"
+        try:
+            self.query_one("#pb-preview-gradient", Static).update(gradient_str)
+        except NoMatches:
+            pass
+
+    def _swap_color_options(self, is_custom: bool, preserve_max: str = "", preserve_min: str = "") -> None:
+        """Swap color dropdown options for theme vs custom mode."""
+        options = self._color_options() if is_custom else self._theme_color_options()
+        max_sel = self.query_one("#pb-color-max", Select)
+        min_sel = self.query_one("#pb-color-min", Select)
+        max_sel.set_options(options)
+        min_sel.set_options(options)
+        if preserve_max:
+            # Check if current value exists in new options
+            vals = {v for _, v in options}
+            if preserve_max in vals:
+                max_sel.value = preserve_max
+            else:
+                max_sel.value = "success" if not is_custom else "green"
+        if preserve_min:
+            vals = {v for _, v in options}
+            if preserve_min in vals:
+                min_sel.value = preserve_min
+            else:
+                min_sel.value = "error" if not is_custom else "red"
+
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        """Toggle custom color fields and swap color options when mode changes."""
+        if event.radio_set.id == "pb-color-mode":
+            is_custom = self.query_one("#pb-mode-custom", RadioButton).value
+            self.query_one("#pb-color-row2").display = is_custom
+            self._swap_color_options(
+                is_custom,
+                preserve_max=self._get_select_value("#pb-color-max", ""),
+                preserve_min=self._get_select_value("#pb-color-min", ""),
+            )
+
+    def _populate_field_selects(
+        self, pkg_name: str, value_field: str = "", max_field: str = "",
+    ) -> None:
+        """Populate value/max field Select widgets from GMCP snapshot fields."""
+        fields = self._gmcp_fields.get(pkg_name, [])
+        field_opts = [(f, f) for f in fields]
+        val_sel = self.query_one("#pb-value-select", Select)
+        max_sel = self.query_one("#pb-max-select", Select)
+        # Add current values if not already in the list
+        val_opts = list(field_opts)
+        max_opts = list(field_opts)
+        if value_field and value_field not in fields:
+            val_opts.append((value_field, value_field))
+        if max_field and max_field not in fields:
+            max_opts.append((max_field, max_field))
+        val_sel.set_options(val_opts)
+        max_sel.set_options(max_opts)
+        if value_field:
+            val_sel.value = value_field
+        if max_field:
+            max_sel.value = max_field
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Update swatch when a color changes, update fields when source changes."""
+        sel_id = event.select.id
+        if sel_id == "pb-color-max":
+            val = event.value
+            if isinstance(val, str):
+                self._update_swatch("#pb-color-swatch-max", val)
+        elif sel_id == "pb-color-min":
+            val = event.value
+            if isinstance(val, str):
+                self._update_swatch("#pb-color-swatch-min", val)
+        elif sel_id == "pb-gmcp-select":
+            if self._populating_form:
+                return
+            val = event.value
+            if isinstance(val, str):
+                self._populate_field_selects(val)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes."""
+        if event.input.id == f"{self._prefix}-search":
+            self._search_query = event.value
+            self._refresh_table()
+
+    def _on_extra_button(self, suffix: str, btn: str) -> None:
+        """Handle the Detect button."""
+        if suffix == "detect":
+            self._do_detect()
+
+    def _do_detect(self, silent: bool = False) -> None:
+        """Auto-detect progress bars from GMCP snapshot."""
+        if not self._gmcp_snapshot_path:
+            if not silent:
+                self.notify("No GMCP snapshot available.", severity="warning")
+            return
+        if not os.path.exists(self._gmcp_snapshot_path):
+            if not silent:
+                self.notify("GMCP snapshot file not found.", severity="warning")
+            return
+        with open(self._gmcp_snapshot_path, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        packages = raw.get("packages", {}) if isinstance(raw, dict) else {}
+        gmcp_data = {
+            pkg: info.get("data", info) for pkg, info in packages.items() if isinstance(info, dict)
+        }
+        from .progressbars import detect_progressbars
+
+        detected = detect_progressbars(gmcp_data)
+        existing = {(b.gmcp_package, b.value_field, b.max_field) for b in self._bars}
+        added = 0
+        for bar in detected:
+            key = (bar.gmcp_package, bar.value_field, bar.max_field)
+            if key not in existing:
+                self._bars.append(_ProgressBarTuple(*bar))
+                existing.add(key)
+                added += 1
+        if added:
+            self._refresh_table()
+            if not silent:
+                self.notify(f"Detected {added} new bar(s).")
+        elif not silent:
+            self.notify("No new bars detected.")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route button presses to base class."""
+        super().on_button_pressed(event)
+
+    def _save_to_file(self) -> None:
+        from .progressbars import BarConfig, save_progressbars
+
+        bars = [BarConfig(*t) for t in self._bars]
+        save_progressbars(self._path, self._session_key, bars)
 
 
 _NAME_COL_BASE = 35
@@ -3722,11 +4339,11 @@ def _log_child_diagnostics() -> None:
 
 
 def _run_editor_app(app: _EditorApp) -> None:
-    """Run a Textual editor app, resetting the terminal on crash.
+    """
+    Run a Textual editor app, resetting the terminal on crash.
 
-    If the app raises an exception, the terminal is reset to cooked mode
-    so the traceback is readable, and the user is prompted to press RETURN
-    before control returns to the parent REPL.
+    If the app raises an exception, the terminal is reset to cooked mode so the traceback is
+    readable, and the user is prompted to press RETURN before control returns to the parent REPL.
     """
     try:
         app.run()
@@ -3789,6 +4406,22 @@ def edit_highlights_main(path: str, session_key: str = "", logfile: str = "") ->
     _patch_writer_thread_queue()
     app = _EditorApp(
         HighlightEditScreen(path=path, session_key=session_key), session_key=session_key
+    )
+    _run_editor_app(app)
+
+
+def edit_progressbars_main(
+    path: str, session_key: str = "", gmcp_snapshot_path: str = "", logfile: str = ""
+) -> None:
+    """Launch standalone progress bar editor TUI."""
+    _restore_blocking_fds(logfile)
+    _log_child_diagnostics()
+    _patch_writer_thread_queue()
+    app = _EditorApp(
+        ProgressBarEditScreen(
+            path=path, session_key=session_key, gmcp_snapshot_path=gmcp_snapshot_path
+        ),
+        session_key=session_key,
     )
     _run_editor_app(app)
 
@@ -4000,7 +4633,7 @@ class _ChatViewerScreen(Screen[None]):
                 if talker:
                     for prefix in (f"{talker} : ", f"{talker}: ", f"{talker} "):
                         if body.startswith(prefix):
-                            body = body[len(prefix):]
+                            body = body[len(prefix) :]
                             break
                     line.append(f"{talker}: ", style="bold")
                 line.append_text(RichText.from_ansi(body))
@@ -4199,13 +4832,13 @@ class _RandomwalkDialogScreen(Screen[bool]):
     #rw-body {
         margin-bottom: 1;
     }
-    #rw-options-row {
-        height: 3;
+    #rw-options-col {
+        height: auto;
         margin-bottom: 1;
     }
     .rw-option {
-        width: 1fr;
         height: 3;
+        margin-bottom: 1;
     }
     .rw-option Label {
         padding-top: 1;
@@ -4257,7 +4890,7 @@ class _RandomwalkDialogScreen(Screen[bool]):
                 "required number of times.",
                 id="rw-body",
             )
-            with Horizontal(id="rw-options-row"):
+            with Vertical(id="rw-options-col"):
                 with Horizontal(classes="rw-option"):
                     lbl = Label("Visit level:")
                     lbl.tooltip = (

@@ -293,15 +293,16 @@ _NORMAL_BG_RGB = (26, 0, 0)
 _AUTOREPLY_BG_RGB = (26, 18, 0)
 CURSOR_COLOR_RGB = (255 - _NORMAL_BG_RGB[0], 255 - _NORMAL_BG_RGB[1], 255 - _NORMAL_BG_RGB[2])
 _CURSOR_AR_RGB = (
-    255 - _AUTOREPLY_BG_RGB[0], 255 - _AUTOREPLY_BG_RGB[1], 255 - _AUTOREPLY_BG_RGB[2]
+    255 - _AUTOREPLY_BG_RGB[0],
+    255 - _AUTOREPLY_BG_RGB[1],
+    255 - _AUTOREPLY_BG_RGB[2],
 )
 CURSOR_COLOR_OSC: str = (
     f"\x1b]12;rgb:{CURSOR_COLOR_RGB[0]:02x}/{CURSOR_COLOR_RGB[1]:02x}"
     f"/{CURSOR_COLOR_RGB[2]:02x}\x07"
 )
 _CURSOR_AR_OSC: str = (
-    f"\x1b]12;rgb:{_CURSOR_AR_RGB[0]:02x}/{_CURSOR_AR_RGB[1]:02x}"
-    f"/{_CURSOR_AR_RGB[2]:02x}\x07"
+    f"\x1b]12;rgb:{_CURSOR_AR_RGB[0]:02x}/{_CURSOR_AR_RGB[1]:02x}" f"/{_CURSOR_AR_RGB[2]:02x}\x07"
 )
 CURSOR_COLOR_RESET_OSC: str = "\x1b]112\x07"  # OSC 112 -- reset to default
 
@@ -539,7 +540,8 @@ def _sgr_bg(hexcolor: str) -> str:
 
 
 def _vital_bar(
-    current: Any, maximum: Any, width: int, kind: str, flash_elapsed: float = -1.0
+    current: Any, maximum: Any, width: int, kind: str, flash_elapsed: float = -1.0,
+    color_override: Optional[str] = None,
 ) -> "List[Tuple[str, str]]":
     """
     Build a labelled progress-bar with sextant bookends and overlaid text.
@@ -549,6 +551,8 @@ def _vital_bar(
     bar for a rounded appearance.
 
     :param flash_elapsed: Seconds since flash start; negative means no flash.
+    :param color_override: If set, use this ``#rrggbb`` color instead of
+        computing from *kind*.
     """
     try:
         cur = int(current)
@@ -569,8 +573,9 @@ def _vital_bar(
 
     filled = int(round(frac * width))
     pct = int(round(frac * 100))
+    kind_lower = kind.lower()
 
-    bar_color = _vital_color(frac, kind)
+    bar_color = color_override if color_override else _vital_color(frac, kind_lower)
     if 0.0 <= flash_elapsed < _FLASH_DURATION:
         fill_bg = _flash_color(bar_color, flash_elapsed)
         empty_bg = _flash_color("#2a2a2a", flash_elapsed)
@@ -582,14 +587,15 @@ def _vital_bar(
         filled_sgr = _sgr_fg("#101010") + _sgr_bg(bar_color)
         empty_sgr = _sgr_fg("#666666") + _sgr_bg("#2a2a2a")
 
-    suffix = {
+    _builtin_suffix = {
         "hp": " hp",
         "mp": " mp",
         "xp": " xp",
         "wander": " AW",
         "randomwalk": " random walk",
         "discover": " discover",
-    }.get(kind, "")
+    }
+    suffix = _builtin_suffix.get(kind_lower, f" {kind}" if kind else "")
     if mx > 0:
         left_part = _segmented(f"{_fmt_value(cur)}/{_fmt_value(mx)}")
         right_part = _segmented(f"{pct}%") + suffix
@@ -770,10 +776,14 @@ def _fill_toolbar(
         grow_idx += 1
         params = slot.grow_params
         assert params is not None
-        if len(params) == 4:
-            raw, maxval, kind, flash_elapsed = params
+        if len(params) in (4, 5):
+            raw, maxval, kind, flash_elapsed = params[:4]
+            c_override = params[4] if len(params) > 4 else None
             inner = slot.width - 2 + bonus
-            frags = _vital_bar(raw, maxval, inner, kind, flash_elapsed=flash_elapsed)
+            frags = _vital_bar(
+                raw, maxval, inner, kind,
+                flash_elapsed=flash_elapsed, color_override=c_override,
+            )
             new_w = sum(_wcswidth(t) for _, t in frags)
             return slot._replace(width=new_w, fragments=frags)
         if len(params) == 1:
@@ -910,6 +920,7 @@ class ToolbarRenderer:
         self.hp = VitalTracker()
         self.mp = VitalTracker()
         self.xp = XPTracker()
+        self._bar_trackers: dict[str, VitalTracker] = {}
 
     def render(self, autoreply_engine: Any) -> bool:
         """
@@ -920,6 +931,7 @@ class ToolbarRenderer:
         """
         if not self._ensure_gmcp_ready():
             return False
+        self.ctx.mark_gmcp_dirty()
 
         engine = autoreply_engine
         ar_active = engine is not None and (engine.exclusive_active or engine.reply_pending)
@@ -966,36 +978,11 @@ class ToolbarRenderer:
             if isinstance(status, dict):
                 self._status_slots(status, slots)
 
-            vitals = gmcp_data.get("Char.Vitals")
-            if isinstance(vitals, dict):
-                hp = vitals.get("hp", vitals.get("HP"))
-                maxhp = vitals.get("maxhp", vitals.get("maxHP", vitals.get("max_hp")))
-                if hp is not None:
-                    if self._vital_slot(self.hp, hp, maxhp, _BAR_WIDTH, "hp", 1, 2, now, slots):
-                        needs_reflash = True
-
-                mp = vitals.get(
-                    "mp", vitals.get("MP", vitals.get("mana", vitals.get("sp", vitals.get("SP"))))
-                )
-                maxmp = vitals.get(
-                    "maxmp",
-                    vitals.get(
-                        "maxMP", vitals.get("max_mp", vitals.get("maxsp", vitals.get("maxSP")))
-                    ),
-                )
-                if mp is not None:
-                    if self._vital_slot(self.mp, mp, maxmp, _BAR_WIDTH, "mp", 4, 3, now, slots):
-                        needs_reflash = True
-
-            if isinstance(status, dict):
-                xp_raw = status.get("xp", status.get("XP", status.get("experience")))
-                maxxp = status.get(
-                    "maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp")))
-                )
-                if xp_raw is not None:
-                    if self._vital_slot(self.xp, xp_raw, maxxp, _BAR_WIDTH, "xp", 5, 4, now, slots):
-                        needs_reflash = True
-                    self._xp_eta_slot(maxxp, now, slots)
+            bar_configs = self.ctx.progressbar_configs
+            if bar_configs:
+                needs_reflash = self._config_driven_bars(gmcp_data, bar_configs, now, slots)
+            else:
+                needs_reflash = self._default_bars(gmcp_data, now, slots)
 
             room_info = gmcp_data.get("Room.Info", gmcp_data.get("Room.Name"))
             if isinstance(room_info, dict):
@@ -1023,6 +1010,83 @@ class ToolbarRenderer:
 
         self._right_slot(engine, ar_active, discover_active, randomwalk_active, slots)
         return slots, needs_reflash
+
+    def _default_bars(
+        self, gmcp_data: dict[str, Any], now: float, slots: List[_ToolbarSlot]
+    ) -> bool:
+        """Build HP/MP/XP bars using hardcoded aliases (backward compat)."""
+        needs_reflash = False
+        vitals = gmcp_data.get("Char.Vitals")
+        if isinstance(vitals, dict):
+            hp = vitals.get("hp", vitals.get("HP"))
+            maxhp = vitals.get("maxhp", vitals.get("maxHP", vitals.get("max_hp")))
+            if hp is not None:
+                if self._vital_slot(self.hp, hp, maxhp, _BAR_WIDTH, "hp", 1, 2, now, slots):
+                    needs_reflash = True
+            mp = vitals.get(
+                "mp", vitals.get("MP", vitals.get("mana", vitals.get("sp", vitals.get("SP"))))
+            )
+            maxmp = vitals.get(
+                "maxmp",
+                vitals.get("maxMP", vitals.get("max_mp", vitals.get("maxsp", vitals.get("maxSP")))),
+            )
+            if mp is not None:
+                if self._vital_slot(self.mp, mp, maxmp, _BAR_WIDTH, "mp", 4, 3, now, slots):
+                    needs_reflash = True
+        status = gmcp_data.get("Char.Status")
+        if isinstance(status, dict):
+            xp_raw = status.get("xp", status.get("XP", status.get("experience")))
+            maxxp = status.get(
+                "maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp")))
+            )
+            if xp_raw is not None:
+                if self._vital_slot(self.xp, xp_raw, maxxp, _BAR_WIDTH, "xp", 5, 4, now, slots):
+                    needs_reflash = True
+                self._xp_eta_slot(maxxp, now, slots)
+        return needs_reflash
+
+    def _config_driven_bars(
+        self,
+        gmcp_data: dict[str, Any],
+        bar_configs: list[Any],
+        now: float,
+        slots: List[_ToolbarSlot],
+    ) -> bool:
+        """Build vital bar slots from user-configured progress bar list."""
+        from .progressbars import bar_color_at
+
+        needs_reflash = False
+        for i, cfg in enumerate(bar_configs):
+            if not cfg.enabled:
+                continue
+            pkg_data = gmcp_data.get(cfg.gmcp_package)
+            if not isinstance(pkg_data, dict):
+                continue
+            raw = pkg_data.get(cfg.value_field)
+            if raw is None:
+                continue
+            maxval = pkg_data.get(cfg.max_field)
+            tracker = self._bar_trackers.get(cfg.name)
+            if tracker is None:
+                tracker = VitalTracker()
+                self._bar_trackers[cfg.name] = tracker
+            kind = cfg.name
+            priority = i + 1
+            order = cfg.display_order if cfg.display_order else i + 2
+            # Compute color from config (theme or custom).
+            try:
+                mx = int(maxval) if maxval is not None else 0
+                cur = int(raw)
+                frac = max(0.0, min(1.0, cur / mx)) if mx > 0 else 1.0
+            except (TypeError, ValueError):
+                frac = 1.0
+            color = bar_color_at(frac, cfg)
+            if self._vital_slot(
+                tracker, raw, maxval, _BAR_WIDTH, kind, priority, order, now, slots,
+                color_override=color,
+            ):
+                needs_reflash = True
+        return needs_reflash
 
     def _status_slots(self, status: dict[str, Any], slots: List[_ToolbarSlot]) -> None:
         """Add Level and Money slots from ``Char.Status``."""
@@ -1070,6 +1134,7 @@ class ToolbarRenderer:
         order: int,
         now: float,
         slots: List[_ToolbarSlot],
+        color_override: Optional[str] = None,
     ) -> bool:
         """
         Update *tracker* and append a vital bar slot.
@@ -1078,7 +1143,10 @@ class ToolbarRenderer:
         """
         flash_elapsed = tracker.update(raw, now)
         needs_reflash = flash_elapsed >= 0.0
-        frags = _vital_bar(raw, maxval, width, kind, flash_elapsed=flash_elapsed)
+        frags = _vital_bar(
+            raw, maxval, width, kind,
+            flash_elapsed=flash_elapsed, color_override=color_override,
+        )
         frags_w = sum(_wcswidth(t) for _, t in frags)
         slots.append(
             _ToolbarSlot(
@@ -1090,7 +1158,7 @@ class ToolbarRenderer:
                 min_width=0,
                 label="",
                 growable=True,
-                grow_params=(raw, maxval, kind, flash_elapsed),
+                grow_params=(raw, maxval, kind, flash_elapsed, color_override),
             )
         )
         return needs_reflash

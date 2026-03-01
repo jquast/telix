@@ -10,6 +10,8 @@
 | **F8** | Edit macros (TUI editor) |
 | **F9** | Edit autoreplies (TUI editor) |
 | **Shift+F9** | Toggle autoreplies on/off |
+| **F10** | Chat viewer / captures |
+| **F11** | Edit progress bars (TUI editor) |
 | **Ctrl+L** | Repaint screen |
 | **Ctrl+]** | Disconnect |
 

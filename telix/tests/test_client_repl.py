@@ -1488,6 +1488,9 @@ class _MockHighlightEngine:
         self.calls.append(line)
         return f"[{line}]", True
 
+    def process_block(self, block: str) -> tuple[str, bool]:
+        return block, False
+
 
 class TestLineHoldBuffer:
     def _make_buf(self, engine: Any = None):  # -> _LineHoldBuffer

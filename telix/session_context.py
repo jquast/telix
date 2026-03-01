@@ -101,6 +101,12 @@ class SessionContext(TelnetSessionContext):
         # GMCP
         self.gmcp_data: dict[str, Any] = {}
         self.on_gmcp_ready: Optional[Callable[[], None]] = None
+        self.gmcp_snapshot_file: str = ""
+        self._gmcp_dirty: bool = False
+
+        # progress bars
+        self.progressbar_configs: list[Any] = []
+        self.progressbars_file: str = ""
 
         # highlight captures
         self.captures: dict[str, int] = {}
@@ -147,6 +153,11 @@ class SessionContext(TelnetSessionContext):
         self._autoreplies_dirty = True
         self._schedule_flush()
 
+    def mark_gmcp_dirty(self) -> None:
+        """Mark GMCP snapshot as needing a save and schedule a debounced flush."""
+        self._gmcp_dirty = True
+        self._schedule_flush()
+
     def _schedule_flush(self) -> None:
         """Schedule :meth:`flush_timestamps` after 30 seconds if not already pending."""
         if self._save_timer is not None:
@@ -174,6 +185,11 @@ class SessionContext(TelnetSessionContext):
 
             save_autoreplies(self.autoreplies_file, self.autoreply_rules, self.session_key)
             self._autoreplies_dirty = False
+        if self._gmcp_dirty and self.gmcp_snapshot_file and self.gmcp_data:
+            from .gmcp_snapshot import save_gmcp_snapshot
+
+            save_gmcp_snapshot(self.gmcp_snapshot_file, self.session_key, self.gmcp_data)
+            self._gmcp_dirty = False
 
     def close(self) -> None:
         """Cancel pending tasks and flush dirty timestamps."""

@@ -105,6 +105,7 @@ from .client_repl_dialogs import (  # noqa: F401
     _reload_autoreplies,
     _autodiscover_dialog,
     _launch_room_browser,
+    _reload_progressbars,
 )
 from .client_repl_commands import (  # noqa: F401
     _REPEAT_RE,
@@ -791,6 +792,7 @@ if sys.platform != "win32":
             engine = self._get_engine()
             if engine is None or not engine.enabled:
                 return text
+            text, _ = engine.process_block(text)
             parts = text.split("\n")
             result: list[str] = []
             for i, part in enumerate(parts):
@@ -1165,6 +1167,9 @@ if sys.platform != "win32":
             )
             self.dispatch.register(
                 "KEY_F10", lambda: _launch_chat_viewer(self.ctx, self.replay_buf)
+            )
+            self.dispatch.register(
+                "KEY_F11", lambda: _launch_tui_editor("progressbars", self.ctx, self.replay_buf)
             )
             self.toolbar.schedule_eta_refresh(
                 self.loop, self.autoreply_engine, self.editor, self.blessed_term

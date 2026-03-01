@@ -31,4 +31,6 @@ def get_help(topic: str) -> str:
         return _read_topic("room-mapping")
     if topic == "keybindings":
         return _read_topic("keybindings")
+    if topic == "progressbar":
+        return _read_topic("progressbars")
     raise ValueError(f"unknown help topic: {topic!r}")

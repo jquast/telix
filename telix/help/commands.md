@@ -41,9 +41,17 @@ Pause execution for a duration.
 
 ### When (Condition Gate)
 
-Stop the command chain unless a GMCP vital condition is met.
-Use **`HP%`** / **`MP%`** for percentages of max, or **`HP`** / **`MP`**
-for raw values.
+Stop the command chain unless a condition is met.  Conditions check
+GMCP vitals first, then fall back to **captured variables** from
+highlight rules.
+
+Use **`HP%`** / **`MP%`** for GMCP vital percentages, **`HP`** / **`MP`**
+for raw GMCP values, or any captured variable name (e.g.
+**`Adrenaline`**, **`Adrenaline%`**).
+
+For percentage conditions on captured variables, the engine looks up
+`VariableName` (current) and `MaxVariableName` (max) and computes
+the percentage.
 
 | Example | Effect |
 |---------|--------|
@@ -51,6 +59,8 @@ for raw values.
 | `` `when MP%>50` `` | Continue only if MP is above 50% of max |
 | `` `when HP>=500` `` | Continue only if HP is at least 500 |
 | `` `when MP>200` `` | Continue only if MP is above 200 |
+| `` `when Adrenaline>100` `` | Continue only if captured Adrenaline > 100 |
+| `` `when Adrenaline%>50` `` | Continue only if Adrenaline/MaxAdrenaline > 50% |
 
 Operators: `>=`, `<=`, `>`, `<`, `=`
 

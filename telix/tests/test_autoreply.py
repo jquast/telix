@@ -1188,8 +1188,7 @@ def test_check_condition_captures(when, captures, ok):
 
 def test_check_condition_captures_gmcp_priority():
     ctx = types.SimpleNamespace(
-        gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}},
-        captures={"HP": 20},
+        gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={"HP": 20}
     )
     ok, desc = check_condition({"HP": ">50"}, ctx)
     assert ok is True

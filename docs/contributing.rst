@@ -34,7 +34,7 @@ Module map::
     │
     ├── autoreply.py            Pattern-triggered automatic responses
     ├── macros.py               Key-bound macro definitions
-    ├── highlighter.py          Regex-based output highlighting
+    ├── highlighter.py          Regex-based output highlighting + captures
     ├── rooms.py                GMCP Room.Info graph store (SQLite)
     ├── chat.py                 GMCP Comm.Channel.Text persistence
     ├── directory.py            Bundled MUD/BBS directory loader
@@ -71,7 +71,9 @@ several stages before reaching the terminal:
 
 5. **Highlight engine** — ``emit_now`` lines are run through the
    highlight engine before display; held-back text flushed by the
-   timer is written raw (no highlights).
+   timer is written raw (no highlights).  Rules with ``captured=True``
+   extract regex groups into ``ctx.captures`` (for ``when`` conditions)
+   and log matched lines to ``ctx.capture_log`` (for the Capture Window).
 
 6. **Screen output** — The REPL saves/restores the cursor position
    via VT100 DECSC (``\x1b7``) / DECRC (``\x1b8``), writes to
@@ -120,6 +122,12 @@ Every ``TelnetWriter`` has a ``.ctx`` attribute that defaults to a
 ``TelnetSessionContext``, adding MUD-specific state (rooms, macros,
 highlights, chat, etc.).  The shell callback creates a ``SessionContext``
 and assigns it to ``writer.ctx``.
+
+telix's ``SessionContext`` also provides ``captures`` (a flat
+``dict[str, int]`` of captured variables) and ``capture_log`` (a
+``dict[str, list[dict]]`` of per-channel capture history), populated by
+the highlight engine and consumed by the ``when`` condition checker and
+the Capture Window (F10).
 
 ``TelnetSessionContext`` (defined in ``telnetlib3/_session_context.py``)
 provides the attributes that ``telnetlib3.client_shell`` uses:

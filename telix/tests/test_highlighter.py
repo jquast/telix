@@ -343,6 +343,109 @@ def _make_capture_rule(
     )
 
 
+class TestMultilineHighlight:
+
+    def test_multiline_default_false(self):
+        rule = _make_rule("foo")
+        assert rule.multiline is False
+
+    def test_process_block_no_ml_rules(self):
+        engine = HighlightEngine([_make_rule("foo")], [], _mock_term())
+        text = "line one\nline two\n"
+        result, matched = engine.process_block(text)
+        assert result == text
+        assert matched is False
+
+    def test_process_block_matches(self):
+        rule = HighlightRule(
+            pattern=re.compile(r"echoes:\n.*hijacked", _RE_FLAGS),
+            highlight="bold_red",
+            multiline=True,
+        )
+        engine = HighlightEngine([rule], [], _mock_term())
+        text = "The hearer echoes:\nLytol hijacked the spire\n"
+        result, matched = engine.process_block(text)
+        assert matched is True
+        assert "\x1b[1;31m" in result
+
+    def test_process_block_cr_normalization(self):
+        rule = HighlightRule(
+            pattern=re.compile(r"echoes:\n.*hijacked", _RE_FLAGS),
+            highlight="bold_red",
+            multiline=True,
+        )
+        engine = HighlightEngine([rule], [], _mock_term())
+        text = "The hearer echoes:\r\nLytol hijacked the spire\n"
+        result, matched = engine.process_block(text)
+        assert matched is True
+        assert "\x1b[1;31m" in result
+
+    def test_singleline_unaffected(self):
+        sl_rule = _make_rule("danger", "bold_red")
+        ml_rule = HighlightRule(
+            pattern=re.compile(r"echoes:\n.*hijacked", _RE_FLAGS),
+            highlight="bold_red",
+            multiline=True,
+        )
+        engine = HighlightEngine([sl_rule, ml_rule], [], _mock_term())
+        result, matched = engine.process_line("there is danger ahead")
+        assert matched is True
+        assert "\x1b[1;31m" in result
+
+    def test_ml_not_in_process_line(self):
+        rule = HighlightRule(
+            pattern=re.compile(r"echoes:\n.*hijacked", _RE_FLAGS),
+            highlight="bold_red",
+            multiline=True,
+        )
+        engine = HighlightEngine([rule], [], _mock_term())
+        result, matched = engine.process_line("The hearer echoes:")
+        assert matched is False
+
+    def test_json_roundtrip(self, tmp_path):
+        path = str(tmp_path / "highlights.json")
+        rules = [
+            HighlightRule(
+                pattern=re.compile(r"echoes:\n.*hijacked", _RE_FLAGS),
+                highlight="bold_red",
+                multiline=True,
+            )
+        ]
+        save_highlights(path, rules, "test:23")
+        loaded = load_highlights(path, "test:23")
+        assert len(loaded) == 1
+        assert loaded[0].multiline is True
+
+    def test_false_omitted_from_json(self, tmp_path):
+        path = str(tmp_path / "highlights.json")
+        rules = [_make_rule("danger")]
+        save_highlights(path, rules, "test:23")
+        with open(path) as fh:
+            data = json.load(fh)
+        entry = data["test:23"]["highlights"][0]
+        assert "multiline" not in entry
+
+    def test_multiline_capture(self):
+        rule = HighlightRule(
+            pattern=re.compile(r"echoes:\n(\w+) hijacked", _RE_FLAGS),
+            highlight="bold_red",
+            multiline=True,
+            captured=True,
+            capture_name="captures",
+        )
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        text = "The hearer echoes:\nLytol hijacked the spire\n"
+        result, matched = engine.process_block(text)
+        assert matched is True
+        assert "captures" in ctx.capture_log
+        assert len(ctx.capture_log["captures"]) == 1
+
+
 class TestHighlightCaptures:
 
     def test_capture_basic(self):
@@ -379,10 +482,7 @@ class TestHighlightCaptures:
         assert ctx.captures == {}
 
     def test_capture_non_integer_skipped(self):
-        rule = _make_capture_rule(
-            r"Name: (\w+)",
-            captures=[{"key": "Name", "value": r"\1"}],
-        )
+        rule = _make_capture_rule(r"Name: (\w+)", captures=[{"key": "Name", "value": r"\1"}])
         ctx = MagicMock()
         ctx.captures = {}
         ctx.capture_log = {}
@@ -412,10 +512,7 @@ class TestHighlightCaptures:
                 r"HP: (\d+)/(\d+)",
                 captured=True,
                 capture_name="vitals",
-                captures=[
-                    {"key": "HP", "value": r"\1"},
-                    {"key": "MaxHP", "value": r"\2"},
-                ],
+                captures=[{"key": "HP", "value": r"\1"}, {"key": "MaxHP", "value": r"\2"}],
             )
         ]
         save_highlights(path, rules, "test:23")
@@ -429,10 +526,7 @@ class TestHighlightCaptures:
         ]
 
     def test_capture_custom_channel(self):
-        rule = _make_capture_rule(
-            r"(\w+) tells you: (.+)",
-            capture_name="tells",
-        )
+        rule = _make_capture_rule(r"(\w+) tells you: (.+)", capture_name="tells")
         ctx = MagicMock()
         ctx.captures = {}
         ctx.capture_log = {}
@@ -445,10 +539,7 @@ class TestHighlightCaptures:
         assert "captures" not in ctx.capture_log
 
     def test_capture_dynamic_channel_name(self):
-        rule = _make_capture_rule(
-            r"(\w+) replies: (.*)$",
-            capture_name=r"\1",
-        )
+        rule = _make_capture_rule(r"(\w+) replies: (.*)$", capture_name=r"\1")
         ctx = MagicMock()
         ctx.captures = {}
         ctx.capture_log = {}

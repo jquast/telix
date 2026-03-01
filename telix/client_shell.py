@@ -97,6 +97,17 @@ def _load_configs(ctx: SessionContext) -> None:
 
         ctx.highlight_rules = load_highlights(highlights_path, session_key)
 
+    # progress bars
+    progressbars_path = os.path.join(config_dir, "progressbars.json")
+    ctx.progressbars_file = progressbars_path
+    if os.path.isfile(progressbars_path):
+        from .progressbars import load_progressbars
+
+        ctx.progressbar_configs = load_progressbars(progressbars_path, session_key)
+
+    # GMCP snapshot
+    ctx.gmcp_snapshot_file = _paths.gmcp_snapshot_path(session_key)
+
     # chat
     chat_file = _paths.chat_path(session_key)
     ctx.chat_file = chat_file

@@ -67,9 +67,13 @@ Patterns use Python's `re` module with flags `MULTILINE | DOTALL`
 
 ### Condition Gate
 
-The optional **Condition** field adds a vital gate: the rule only fires
-when the condition is satisfied.  Use **HP%** / **MP%** for percentages
-of max, or **HP** / **MP** for raw values.
+The optional **Condition** field adds a gate: the rule only fires
+when the condition is satisfied.  Conditions check GMCP vitals first,
+then fall back to **captured variables** from highlight rules.
+
+Use **HP%** / **MP%** for GMCP vital percentages, **HP** / **MP** for
+raw GMCP values, or any captured variable name (e.g. **Adrenaline**,
+**Adrenaline%**).
 
 | Condition | Meaning |
 |-----------|---------|
@@ -78,6 +82,8 @@ of max, or **HP** / **MP** for raw values.
 | HP% = 100 | Only fire when HP is exactly full |
 | HP >= 500 | Only fire when HP is at least 500 |
 | MP > 200 | Only fire when MP is above 200 |
+| Adrenaline > 100 | Only fire when captured Adrenaline is above 100 |
+| Adrenaline% > 50 | Only fire when Adrenaline/MaxAdrenaline is above 50% |
 
 ### Example Autoreplies
 

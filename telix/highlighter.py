@@ -67,6 +67,7 @@ class HighlightRule:
     stop_movement: bool = False
     builtin: bool = False
     case_sensitive: bool = False
+    multiline: bool = False
     captured: bool = False
     capture_name: str = "captures"
     captures: list[dict[str, str]] = field(default_factory=list)
@@ -98,6 +99,7 @@ def _parse_entries(entries: list[dict[str, Any]]) -> list[HighlightRule]:
         stop_movement = bool(entry.get("stop_movement", False))
         builtin = bool(entry.get("builtin", False))
         case_sensitive = bool(entry.get("case_sensitive", False))
+        multiline = bool(entry.get("multiline", False))
         captured = bool(entry.get("captured", False))
         capture_name = str(entry.get("capture_name", "captures"))
         captures_raw = entry.get("captures", [])
@@ -117,6 +119,7 @@ def _parse_entries(entries: list[dict[str, Any]]) -> list[HighlightRule]:
                 stop_movement=stop_movement,
                 builtin=builtin,
                 case_sensitive=case_sensitive,
+                multiline=multiline,
                 captured=captured,
                 capture_name=capture_name,
                 captures=captures,
@@ -165,9 +168,13 @@ def save_highlights(path: str, rules: list[HighlightRule], session_key: str) -> 
                 "stop_movement": r.stop_movement,
                 "builtin": r.builtin,
                 **({"case_sensitive": True} if r.case_sensitive else {}),
+                **({"multiline": True} if r.multiline else {}),
                 **({"captured": True} if r.captured else {}),
-                **({"capture_name": r.capture_name}
-                   if r.captured and r.capture_name != "captures" else {}),
+                **(
+                    {"capture_name": r.capture_name}
+                    if r.captured and r.capture_name != "captures"
+                    else {}
+                ),
                 **({"captures": r.captures} if r.captures else {}),
             }
             for r in rules
@@ -271,8 +278,11 @@ class HighlightEngine:
         self._term = term
         self._ctx = ctx
         self._rules = list(rules)
+        sl_rules = [r for r in rules if not r.multiline]
+        # Map single-line ruleset indices back to full _rules indices.
+        self._sl_indices = [i for i, r in enumerate(rules) if not r.multiline]
         self._ruleset = _CompiledRuleSet(
-            rules, autoreply_rules, autoreply_highlight, autoreply_enabled
+            sl_rules, autoreply_rules, autoreply_highlight, autoreply_enabled
         )
         self.enabled = True
         self._highlight_cache: dict[str, str] = {}
@@ -318,12 +328,19 @@ class HighlightEngine:
         Collect all highlight match spans from enabled rules.
 
         Delegates to the combined :class:`_CompiledRuleSet` for a single-pass
-        :meth:`finditer` over all patterns.
+        :meth:`finditer` over all patterns.  Remaps ``rule_idx`` from the
+        single-line subset back to the full ``_rules`` list.
 
         :returns: List of :data:`Span` tuples sorted by start position,
             with overlaps resolved (first rule wins).
         """
-        return self._ruleset.finditer(plain)
+        spans = self._ruleset.finditer(plain)
+        if not self._sl_indices:
+            return spans
+        return [
+            (s, e, hl, stop, (self._sl_indices[ri] if ri >= 0 else ri), m)
+            for s, e, hl, stop, ri, m in spans
+        ]
 
     def _extract_captures(self, spans: list[Span], plain: str) -> None:
         r"""
@@ -340,6 +357,7 @@ class HighlightEngine:
         if ctx is None:
             return
         from datetime import datetime, timezone
+
         _group_ref = re.compile(r"\\(\d+)")
         for _s, _e, _hl, _stop, rule_idx, match in spans:
             if rule_idx < 0 or match is None:
@@ -355,9 +373,7 @@ class HighlightEngine:
             # Resolve group refs in channel name (e.g. \1 -> "Bob").
             channel = rule.capture_name
             if rematch is not None and _group_ref.search(channel):
-                channel = _group_ref.sub(
-                    lambda m2: rematch.group(int(m2.group(1))) or "", channel,
-                )
+                channel = _group_ref.sub(lambda m2: rematch.group(int(m2.group(1))) or "", channel)
             entry = {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "line": plain,
@@ -372,8 +388,7 @@ class HighlightEngine:
                 if not key or not value_tmpl:
                     continue
                 resolved = _group_ref.sub(
-                    lambda m2: rematch.group(int(m2.group(1))) or "",
-                    value_tmpl,
+                    lambda m2: rematch.group(int(m2.group(1))) or "", value_tmpl
                 )
                 try:
                     ctx.captures[key] = int(resolved)
@@ -477,3 +492,82 @@ class HighlightEngine:
                 output.append(restore)
 
         return "".join(output)
+
+    @staticmethod
+    def _normalize_plain(plain: str) -> tuple[str, list[int]]:
+        r"""
+        Strip ``\r``, return ``(normalized, position_map)``.
+
+        The position map translates indices in the normalized string back to their positions in the
+        original *plain* text.
+        """
+        pos_map = [i for i, ch in enumerate(plain) if ch != "\r"]
+        return plain.replace("\r", ""), pos_map
+
+    def process_block(self, block: str) -> tuple[str, bool]:
+        """
+        Apply multiline highlight rules to a full text block.
+
+        Only multiline rules participate.  If none are enabled, returns
+        the block unchanged.  After highlighting, SGR codes are propagated
+        across line boundaries so each line is self-contained.
+
+        :param block: Multi-line terminal output (may contain SGR sequences).
+        :returns: ``(highlighted_block, had_matches)``.
+        """
+        if not self.enabled:
+            return block, False
+
+        from wcwidth import propagate_sgr
+
+        ml_entries = [(i, r) for i, r in enumerate(self._rules) if r.multiline and r.enabled]
+        if not ml_entries:
+            return block, False
+
+        plain = strip_sequences(block)
+        if not plain:
+            return block, False
+
+        normalized, pos_map = self._normalize_plain(plain)
+
+        parts: list[str] = []
+        group_map: list[tuple[str, bool, int]] = []
+        for full_idx, rule in ml_entries:
+            gname = f"_ml{len(parts)}"
+            pat = rule.pattern.pattern
+            if rule.case_sensitive:
+                parts.append(f"(?P<{gname}>(?-i:{pat}))")
+            else:
+                parts.append(f"(?P<{gname}>{pat})")
+            group_map.append((rule.highlight, rule.stop_movement, full_idx))
+
+        combined = re.compile("|".join(parts), _RE_FLAGS)
+        spans: list[Span] = []
+        for m in combined.finditer(normalized):
+            gname = m.lastgroup
+            if gname is None:
+                continue
+            idx = int(gname[3:])
+            hl, stop, rule_idx = group_map[idx]
+            n_start, n_end = m.start(), m.end()
+            # Remap positions back through the \r-stripped pos_map.
+            orig_start = pos_map[n_start] if n_start < len(pos_map) else len(plain)
+            orig_end = (
+                pos_map[n_end - 1] + 1 if n_end > 0 and n_end - 1 < len(pos_map) else len(plain)
+            )
+            if spans and orig_start < spans[-1][1]:
+                continue
+            spans.append((orig_start, orig_end, hl, stop, rule_idx, m))
+
+        if not spans:
+            return block, False
+
+        self._extract_captures(spans, plain)
+        stop_notice = self._handle_stop_movement(spans)
+        rebuilt = self._rebuild_line(block, plain, spans)
+        if stop_notice:
+            rebuilt = rebuilt.rstrip("\r\n") + stop_notice + "\r\n"
+
+        lines = rebuilt.split("\n")
+        lines = propagate_sgr(lines)
+        return "\n".join(lines), True

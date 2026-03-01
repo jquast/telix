@@ -13,6 +13,8 @@ from ._paths import _safe_terminal_size
 if TYPE_CHECKING:
     from .session_context import SessionContext
 
+log = logging.getLogger(__name__)
+
 # Buffer for MUD data received while a TUI editor subprocess is running.
 # The asyncio _read_server loop continues receiving MUD data during editor
 # sessions; writing that data to the terminal fills the PTY buffer and
@@ -440,6 +442,26 @@ def _launch_tui_editor(
             session_key,
             logfile,
         ]
+    elif editor_type == "progressbars":
+        path = ctx.progressbars_file or os.path.join(_config_dir, "progressbars.json")
+        snap = ctx.gmcp_snapshot_file or ""
+        # Flush GMCP snapshot immediately so the editor subprocess can read it.
+        if snap and ctx.gmcp_data:
+            from .gmcp_snapshot import save_gmcp_snapshot
+
+            save_gmcp_snapshot(snap, session_key, ctx.gmcp_data)
+            ctx._gmcp_dirty = False
+        cmd = [
+            sys.executable,
+            "-c",
+            "import sys; from telix.client_tui import edit_progressbars_main; "
+            "edit_progressbars_main(sys.argv[1], sys.argv[2],"
+            " gmcp_snapshot_path=sys.argv[3], logfile=sys.argv[4])",
+            path,
+            session_key,
+            snap,
+            logfile,
+        ]
     else:
         path = ctx.autoreplies_file or os.path.join(_config_dir, "autoreplies.json")
         engine = ctx.autoreply_engine
@@ -498,6 +520,8 @@ def _launch_tui_editor(
         _reload_macros(ctx, path, session_key, log)
     elif editor_type == "highlights":
         _reload_highlights(ctx, path, session_key, log)
+    elif editor_type == "progressbars":
+        _reload_progressbars(ctx, path, session_key, log)
     else:
         _reload_autoreplies(ctx, path, session_key, log)
 
@@ -535,6 +559,23 @@ def _reload_autoreplies(
         log.info("reloaded %d autoreplies from %s", n_rules, path)
     except ValueError as exc:
         log.warning("failed to reload autoreplies: %s", exc)
+
+
+def _reload_progressbars(
+    ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
+) -> None:
+    """Reload progress bar configs from disk after editing."""
+    if not os.path.exists(path):
+        return
+    from .progressbars import load_progressbars
+
+    try:
+        ctx.progressbar_configs = load_progressbars(path, session_key)
+        ctx.progressbars_file = path
+        n_bars = len(ctx.progressbar_configs)
+        log.info("reloaded %d progress bars from %s", n_bars, path)
+    except (ValueError, FileNotFoundError):
+        log.warning("failed to reload progress bars from %s", path)
 
 
 def _reload_highlights(
