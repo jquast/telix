@@ -1472,7 +1472,7 @@ if sys.platform != "win32":
                     self._schedule_line_hold_flush()
                 if not emit_now and not self._dialogs_mod._editor_buffer:
                     continue
-                if emit_now:
+                if emit_now and not held_back:
                     self._cancel_line_hold_timer()
                 self.stdout.write(CURSOR_HIDE.encode())
                 self.stdout.write(bt.restore.encode())

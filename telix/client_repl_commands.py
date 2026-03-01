@@ -15,8 +15,13 @@ from .client_repl_render import _ELLIPSIS, _get_term, _wcswidth, _write_hint, _f
 
 _REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
 _BACKTICK_RE = re.compile(r"`[^`]*`")
+# NUL-bracketed sentinels for backslash-escaped separators (\; \| \` \\),
+# swapped in before splitting and restored afterward.
+_ESCAPE_RE = re.compile(r"\\([;|`\\])")
+_ESC_MAP = {";": "\x00ES\x00", "|": "\x00EP\x00", "`": "\x00EB\x00", "\\": "\x00EBS\x00"}
+_ESC_RESTORE = {v: k for k, v in _ESC_MAP.items()}
 
-_WHEN_RE = re.compile(r"^`when\s+(HP%?|MP%?)\s*(>=|<=|>|<|=)\s*(\d+)`$", re.IGNORECASE)
+_WHEN_RE = re.compile(r"^`when\s+(\w+%?)\s*(>=|<=|>|<|=)\s*(\d+)`$", re.IGNORECASE)
 _UNTIL_RE = re.compile(r"^`until(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
 _UNTILS_RE = re.compile(r"^`untils(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
 
@@ -48,6 +53,9 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
     ``;`` means *wait for GA/EOR* before the next command (default).
     ``|`` means *send immediately* without waiting.
 
+    Backslash-escaped separators (``\;``, ``\|``, ``\```) produce the
+    literal character without triggering a split.
+
     A segment like ``5e`` becomes ``['e', 'e', 'e', 'e', 'e']``.
     Only a leading integer followed immediately by an alphabetic
     character triggers expansion (e.g. ``5east`` -> 5 × ``east``).
@@ -56,13 +64,16 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
     :param line: Raw user input line.
     :returns: :class:`ExpandedCommands` with commands and immediate indices.
     """
+    # Protect backslash-escaped separators before any splitting.
+    escaped = _ESCAPE_RE.sub(lambda m: _ESC_MAP[m.group(1)], line)
+
     placeholders: list[str] = []
 
     def _replace_bt(m: re.Match[str]) -> str:
         placeholders.append(m.group(0))
         return f"\x00BT{len(placeholders) - 1}\x00"
 
-    protected = _BACKTICK_RE.sub(_replace_bt, line)
+    protected = _BACKTICK_RE.sub(_replace_bt, escaped)
 
     # Split on ; and | while capturing the separator.
     _SEP_RE = re.compile(r"([;|])")
@@ -110,6 +121,13 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
             result.append(stripped)
             if is_immediate:
                 immediate_indices.add(cmd_idx)
+
+    # Restore backslash-escaped characters in final commands.
+    for i, cmd in enumerate(result):
+        for placeholder, literal in _ESC_RESTORE.items():
+            if placeholder in cmd:
+                cmd = cmd.replace(placeholder, literal)
+        result[i] = cmd
 
     return ExpandedCommands(result, frozenset(immediate_indices))
 

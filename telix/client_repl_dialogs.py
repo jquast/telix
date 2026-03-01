@@ -556,11 +556,16 @@ def _reload_highlights(
 
 def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
     """
-    Launch the chat viewer TUI in a subprocess.
+    Launch the Capture Window TUI in a subprocess.
 
-    :param ctx: Session context with chat state.
+    Writes capture data (``ctx.captures`` and ``ctx.capture_log``) to a
+    temporary JSON file and passes its path to the subprocess.
+
+    :param ctx: Session context with chat and capture state.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
+    import json as _json
+    import tempfile
     import subprocess
 
     from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
@@ -569,9 +574,7 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
     if not session_key:
         return
 
-    chat_file = ctx.chat_file
-    if not chat_file:
-        return
+    chat_file = ctx.chat_file or ""
 
     ctx.chat_unread = 0
 
@@ -581,17 +584,29 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
         last_msg = ctx.chat_messages[-1]
         initial_channel = last_msg.get("channel", "")
 
+    # Write capture data to a temporary file for the subprocess.
+    capture_file = ""
+    captures = getattr(ctx, "captures", {})
+    capture_log = getattr(ctx, "capture_log", {})
+    if captures or capture_log:
+        fd, capture_file = tempfile.mkstemp(suffix=".json", prefix="captures-")
+        os.close(fd)
+        with open(capture_file, "w", encoding="utf-8") as fh:
+            _json.dump({"captures": captures, "capture_log": capture_log}, fh)
+
     logfile = _get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
         "import sys; from telix.client_tui import chat_viewer_main; "
         "chat_viewer_main(sys.argv[1], sys.argv[2],"
-        " initial_channel=sys.argv[3], logfile=sys.argv[4])",
+        " initial_channel=sys.argv[3], logfile=sys.argv[4],"
+        " capture_file=sys.argv[5])",
         chat_file,
         session_key,
         initial_channel,
         logfile,
+        capture_file,
     ]
 
     log = logging.getLogger(__name__)
@@ -618,6 +633,11 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
             sys.stdout.flush()
             input()
         _restore_after_subprocess(replay_buf)
+        if capture_file:
+            try:
+                os.unlink(capture_file)
+            except OSError:
+                pass
 
 
 def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:

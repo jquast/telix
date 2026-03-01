@@ -15,7 +15,7 @@ import re
 import json
 import logging
 from typing import TYPE_CHECKING, Any, Optional
-from dataclasses import dataclass
+from dataclasses import field, dataclass
 
 # 3rd party
 from wcwidth import iter_graphemes, iter_sequences, strip_sequences
@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
     from .autoreply import AutoreplyRule
     from .session_context import SessionContext
+
+# (start, end, highlight, stop_movement, rule_idx, match)
+Span = tuple[int, int, str, bool, int, Optional[re.Match[str]]]
 
 __all__ = (
     "HighlightRule",
@@ -64,6 +67,9 @@ class HighlightRule:
     stop_movement: bool = False
     builtin: bool = False
     case_sensitive: bool = False
+    captured: bool = False
+    capture_name: str = "captures"
+    captures: list[dict[str, str]] = field(default_factory=list)
 
 
 def validate_highlight(term: blessed.Terminal, name: str) -> bool:
@@ -92,6 +98,10 @@ def _parse_entries(entries: list[dict[str, Any]]) -> list[HighlightRule]:
         stop_movement = bool(entry.get("stop_movement", False))
         builtin = bool(entry.get("builtin", False))
         case_sensitive = bool(entry.get("case_sensitive", False))
+        captured = bool(entry.get("captured", False))
+        capture_name = str(entry.get("capture_name", "captures"))
+        captures_raw = entry.get("captures", [])
+        captures = list(captures_raw) if isinstance(captures_raw, list) else []
         flags = re.MULTILINE | re.DOTALL
         if not case_sensitive:
             flags |= re.IGNORECASE
@@ -107,6 +117,9 @@ def _parse_entries(entries: list[dict[str, Any]]) -> list[HighlightRule]:
                 stop_movement=stop_movement,
                 builtin=builtin,
                 case_sensitive=case_sensitive,
+                captured=captured,
+                capture_name=capture_name,
+                captures=captures,
             )
         )
     return rules
@@ -152,6 +165,10 @@ def save_highlights(path: str, rules: list[HighlightRule], session_key: str) -> 
                 "stop_movement": r.stop_movement,
                 "builtin": r.builtin,
                 **({"case_sensitive": True} if r.case_sensitive else {}),
+                **({"captured": True} if r.captured else {}),
+                **({"capture_name": r.capture_name}
+                   if r.captured and r.capture_name != "captures" else {}),
+                **({"captures": r.captures} if r.captures else {}),
             }
             for r in rules
         ]
@@ -179,7 +196,7 @@ class _CompiledRuleSet:
         autoreply_enabled: bool,
     ) -> None:
         parts: list[str] = []
-        self._group_map: list[tuple[str, bool]] = []
+        self._group_map: list[tuple[str, bool, int]] = []
 
         if autoreply_enabled:
             for ar in autoreply_rules:
@@ -187,9 +204,9 @@ class _CompiledRuleSet:
                     continue
                 gname = f"_hl{len(parts)}"
                 parts.append(f"(?P<{gname}>{ar.pattern.pattern})")
-                self._group_map.append((autoreply_highlight, False))
+                self._group_map.append((autoreply_highlight, False, -1))
 
-        for rule in rules:
+        for rule_i, rule in enumerate(rules):
             if not rule.enabled:
                 continue
             gname = f"_hl{len(parts)}"
@@ -198,7 +215,7 @@ class _CompiledRuleSet:
                 parts.append(f"(?P<{gname}>(?-i:{pat}))")
             else:
                 parts.append(f"(?P<{gname}>{pat})")
-            self._group_map.append((rule.highlight, rule.stop_movement))
+            self._group_map.append((rule.highlight, rule.stop_movement, rule_i))
 
         self._combined: Optional[re.Pattern[str]] = None
         if parts:
@@ -207,21 +224,21 @@ class _CompiledRuleSet:
             except re.error:
                 self._combined = None
 
-    def finditer(self, text: str) -> list[tuple[int, int, str, bool]]:
-        """Return non-overlapping ``(start, end, highlight, stop_movement)`` spans."""
+    def finditer(self, text: str) -> list[Span]:
+        """Return non-overlapping :data:`Span` tuples."""
         if self._combined is None:
             return []
-        spans: list[tuple[int, int, str, bool]] = []
+        spans: list[Span] = []
         for m in self._combined.finditer(text):
             gname = m.lastgroup
             if gname is None:
                 continue
             idx = int(gname[3:])
-            hl, stop = self._group_map[idx]
+            hl, stop, rule_idx = self._group_map[idx]
             start, end = m.start(), m.end()
             if spans and start < spans[-1][1]:
                 continue
-            spans.append((start, end, hl, stop))
+            spans.append((start, end, hl, stop, rule_idx, m))
         return spans
 
 
@@ -289,25 +306,81 @@ class HighlightEngine:
         if not spans:
             return line, False
 
+        self._extract_captures(spans, plain)
         stop_notice = self._handle_stop_movement(spans)
         rebuilt = self._rebuild_line(line, plain, spans)
         if stop_notice:
             rebuilt = rebuilt.rstrip("\r\n") + stop_notice + "\r\n"
         return rebuilt, True
 
-    def _collect_spans(self, plain: str) -> list[tuple[int, int, str, bool]]:
+    def _collect_spans(self, plain: str) -> list[Span]:
         """
         Collect all highlight match spans from enabled rules.
 
         Delegates to the combined :class:`_CompiledRuleSet` for a single-pass
         :meth:`finditer` over all patterns.
 
-        :returns: List of ``(start, end, highlight_name, stop_movement)``
-            sorted by start position, with overlaps resolved (first rule wins).
+        :returns: List of :data:`Span` tuples sorted by start position,
+            with overlaps resolved (first rule wins).
         """
         return self._ruleset.finditer(plain)
 
-    def _handle_stop_movement(self, spans: list[tuple[int, int, str, bool]]) -> Optional[str]:
+    def _extract_captures(self, spans: list[Span], plain: str) -> None:
+        r"""
+        Extract capture data from matched spans into ``ctx.captures`` and ``ctx.capture_log``.
+
+        For each span whose rule has ``captured=True``:
+
+        - The full matched line is always logged to ``ctx.capture_log[rule.capture_name]``.
+        - If the rule has a ``captures`` list, each entry's ``value`` template
+          (e.g. ``\1``) is resolved against a re-match of the rule's own pattern
+          on the matched text, and the integer result is stored in ``ctx.captures``.
+        """
+        ctx = self._ctx
+        if ctx is None:
+            return
+        from datetime import datetime, timezone
+        _group_ref = re.compile(r"\\(\d+)")
+        for _s, _e, _hl, _stop, rule_idx, match in spans:
+            if rule_idx < 0 or match is None:
+                continue
+            if rule_idx >= len(self._rules):
+                continue
+            rule = self._rules[rule_idx]
+            if not rule.captured:
+                continue
+            # Re-match with the rule's own pattern to get correct group numbers.
+            matched_text = match.group(0)
+            rematch = rule.pattern.search(matched_text)
+            # Resolve group refs in channel name (e.g. \1 -> "Bob").
+            channel = rule.capture_name
+            if rematch is not None and _group_ref.search(channel):
+                channel = _group_ref.sub(
+                    lambda m2: rematch.group(int(m2.group(1))) or "", channel,
+                )
+            entry = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "line": plain,
+                "highlight": rule.highlight,
+            }
+            ctx.capture_log.setdefault(channel, []).append(entry)
+            if not rule.captures or rematch is None:
+                continue
+            for cap in rule.captures:
+                key = cap.get("key", "")
+                value_tmpl = cap.get("value", "")
+                if not key or not value_tmpl:
+                    continue
+                resolved = _group_ref.sub(
+                    lambda m2: rematch.group(int(m2.group(1))) or "",
+                    value_tmpl,
+                )
+                try:
+                    ctx.captures[key] = int(resolved)
+                except (ValueError, TypeError):
+                    pass
+
+    def _handle_stop_movement(self, spans: list[Span]) -> Optional[str]:
         """
         Cancel discover/randomwalk tasks if any span has stop_movement.
 
@@ -317,7 +390,7 @@ class HighlightEngine:
         if ctx is None:
             return None
         cancelled: list[str] = []
-        for _s, _e, _hl, stop in spans:
+        for _s, _e, _hl, stop, _ri, _m in spans:
             if not stop:
                 continue
             if ctx.discover_active and ctx.discover_task is not None:
@@ -342,7 +415,7 @@ class HighlightEngine:
         modes = ", ".join(cancelled)
         return f" {cyan}[stop: {modes} cancelled]{normal}"
 
-    def _rebuild_line(self, line: str, plain: str, spans: list[tuple[int, int, str, bool]]) -> str:
+    def _rebuild_line(self, line: str, plain: str, spans: list[Span]) -> str:
         """
         Rebuild *line* injecting highlight SGR at matched spans.
 
@@ -368,7 +441,7 @@ class HighlightEngine:
 
             for grapheme in iter_graphemes(segment):
                 if span_idx < len(spans):
-                    s_start, s_end, hl_name, _stop = spans[span_idx]
+                    s_start, s_end, hl_name, _stop, _ri, _m = spans[span_idx]
 
                     if not in_highlight and plain_pos >= s_start:
                         saved_sgr = sgr_state
@@ -386,7 +459,7 @@ class HighlightEngine:
                         span_idx += 1
 
                         if span_idx < len(spans):
-                            s_start, s_end, hl_name, _stop = spans[span_idx]
+                            s_start, s_end, hl_name, _stop, _ri, _m = spans[span_idx]
                             if plain_pos >= s_start:
                                 saved_sgr = sgr_state
                                 hl_seq = self._get_highlight_seq(hl_name)

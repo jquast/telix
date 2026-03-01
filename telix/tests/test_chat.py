@@ -138,6 +138,23 @@ class TestChannelList:
         assert ctx.chat_channels[0]["name"] == "chat"
 
 
+class TestOnChatTextCallback:
+    def test_callback_appends_message(self, tmp_path: Any) -> None:
+        ctx = _make_ctx(tmp_path)
+        ctx.on_chat_text = lambda data: append_chat_msg(ctx, data)
+        ctx.on_chat_text(_sample_gmcp_msg(channel="tp", talker="Alice", text="hey"))
+        assert len(ctx.chat_messages) == 1
+        assert ctx.chat_messages[0]["talker"] == "Alice"
+        assert ctx.chat_unread == 1
+
+    def test_channels_callback_stores_list(self) -> None:
+        ctx = SessionContext(session_key="test:4000")
+        channels = [{"name": "chat"}, {"name": "tp"}]
+        ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
+        ctx.on_chat_channels(channels)
+        assert ctx.chat_channels == channels
+
+
 class TestChatPath:
     def test_chat_path_returns_string(self) -> None:
         from telix._paths import chat_path

@@ -141,7 +141,7 @@ class TestCompiledRuleSet:
         ]
         rs = _CompiledRuleSet([], ar_rules, "black_on_beige", True)
         spans = rs.finditer("foo and quux but not baz")
-        highlights = [(s, e, hl) for s, e, hl, _stop in spans]
+        highlights = [(s, e, hl) for s, e, hl, *_ in spans]
         assert ("foo", "black_on_beige") in [
             ("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights
         ]
@@ -325,3 +325,139 @@ class TestAutoreplyCaseInsensitive:
         assert rules[0].pattern.search("there is danger ahead") is not None
         assert rules[0].pattern.search("DANGER") is not None
         assert rules[0].pattern.search("Danger Zone") is not None
+
+
+def _make_capture_rule(
+    pattern: str,
+    highlight: str = "bold_red",
+    captured: bool = True,
+    capture_name: str = "captures",
+    captures: list[dict[str, str]] | None = None,
+) -> HighlightRule:
+    return HighlightRule(
+        pattern=re.compile(pattern, _RE_FLAGS),
+        highlight=highlight,
+        captured=captured,
+        capture_name=capture_name,
+        captures=captures or [],
+    )
+
+
+class TestHighlightCaptures:
+
+    def test_capture_basic(self):
+        rule = _make_capture_rule(
+            r"Adrenaline: (\d+)/(\d+)",
+            captures=[
+                {"key": "Adrenaline", "value": r"\1"},
+                {"key": "MaxAdrenaline", "value": r"\2"},
+            ],
+        )
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        engine.process_line("Adrenaline: 442/500")
+        assert ctx.captures["Adrenaline"] == 442
+        assert ctx.captures["MaxAdrenaline"] == 500
+
+    def test_capture_disabled(self):
+        rule = _make_capture_rule(
+            r"Adrenaline: (\d+)/(\d+)",
+            captured=False,
+            captures=[{"key": "Adrenaline", "value": r"\1"}],
+        )
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        engine.process_line("Adrenaline: 442/500")
+        assert ctx.captures == {}
+
+    def test_capture_non_integer_skipped(self):
+        rule = _make_capture_rule(
+            r"Name: (\w+)",
+            captures=[{"key": "Name", "value": r"\1"}],
+        )
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        engine.process_line("Name: Bob")
+        assert "Name" not in ctx.captures
+
+    def test_capture_line_logged(self):
+        rule = _make_capture_rule(r"tells you", capture_name="tells")
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        engine.process_line("Bob tells you: hello")
+        assert "tells" in ctx.capture_log
+        assert len(ctx.capture_log["tells"]) == 1
+        assert ctx.capture_log["tells"][0]["line"] == "Bob tells you: hello"
+
+    def test_capture_json_roundtrip(self, tmp_path):
+        path = str(tmp_path / "highlights.json")
+        rules = [
+            _make_capture_rule(
+                r"HP: (\d+)/(\d+)",
+                captured=True,
+                capture_name="vitals",
+                captures=[
+                    {"key": "HP", "value": r"\1"},
+                    {"key": "MaxHP", "value": r"\2"},
+                ],
+            )
+        ]
+        save_highlights(path, rules, "test:23")
+        loaded = load_highlights(path, "test:23")
+        assert len(loaded) == 1
+        assert loaded[0].captured is True
+        assert loaded[0].capture_name == "vitals"
+        assert loaded[0].captures == [
+            {"key": "HP", "value": r"\1"},
+            {"key": "MaxHP", "value": r"\2"},
+        ]
+
+    def test_capture_custom_channel(self):
+        rule = _make_capture_rule(
+            r"(\w+) tells you: (.+)",
+            capture_name="tells",
+        )
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        engine.process_line("Bob tells you: hello there")
+        engine.process_line("Alice tells you: hi")
+        assert len(ctx.capture_log["tells"]) == 2
+        assert "captures" not in ctx.capture_log
+
+    def test_capture_dynamic_channel_name(self):
+        rule = _make_capture_rule(
+            r"(\w+) replies: (.*)$",
+            capture_name=r"\1",
+        )
+        ctx = MagicMock()
+        ctx.captures = {}
+        ctx.capture_log = {}
+        ctx.discover_active = False
+        ctx.randomwalk_active = False
+        engine = HighlightEngine([rule], [], _mock_term(), ctx=ctx)
+        engine.process_line("Bob replies: hello there")
+        engine.process_line("Alice replies: hi")
+        assert "Bob" in ctx.capture_log
+        assert "Alice" in ctx.capture_log
+        assert len(ctx.capture_log["Bob"]) == 1
+        assert len(ctx.capture_log["Alice"]) == 1

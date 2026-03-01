@@ -10,9 +10,19 @@ A leading number repeats the command that follows it, separated by `;`
 | Syntax | Meaning |
 |--------|---------|
 | `get all;drop sword` | Send "get all", wait for prompt, then "drop sword" |
-| `cast heal|look` | Send "cast heal", then "look" immediately without waiting |
+| `cast heal\|look` | Send "cast heal", then "look" immediately without waiting |
 | `3n;2e` | Repeat prefix — expands to `n;n;n;e;e` |
 | `5attack` | Repeat prefix — expands to `attack;attack;attack;attack;attack` |
+
+### Escaping Separators
+
+Prefix `;`, `|`, or `` ` `` with `\` to include them literally:
+
+| Syntax | Meaning |
+|--------|---------|
+| `say hey \;)` | Send `say hey ;)` — the `\;` becomes a literal semicolon |
+| `say hmm \|` | Send `say hmm |` — the `\|` becomes a literal pipe |
+| `say \\o/` | Send `say \o/` — the `\\` becomes a literal backslash |
 
 ## Backtick Commands
 
@@ -64,8 +74,6 @@ Same as `until` but the pattern match is **case-sensitive**.
 | Example | Effect |
 |---------|--------|
 | `` `untils 2 DEAD` `` | Wait up to 2s for exactly "DEAD" |
-| `` `untils You dodge` `` | Wait up to 4s for "You dodge" |
-| `` `untils You get Keycard` `` | Wait up to 4s for exact case "You get Keycard" |
 
 ### Fast Travel / Slow Travel
 

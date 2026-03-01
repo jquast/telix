@@ -102,11 +102,17 @@ class SessionContext(TelnetSessionContext):
         self.gmcp_data: dict[str, Any] = {}
         self.on_gmcp_ready: Optional[Callable[[], None]] = None
 
+        # highlight captures
+        self.captures: dict[str, int] = {}
+        self.capture_log: dict[str, list[dict[str, Any]]] = {}
+
         # chat (GMCP Comm.Channel)
         self.chat_messages: list[dict[str, Any]] = []
         self.chat_unread: int = 0
         self.chat_channels: list[dict[str, Any]] = []
         self.chat_file: str = ""
+        self.on_chat_text: Optional[Callable[[dict[str, Any]], None]] = None
+        self.on_chat_channels: Optional[Callable[[list[dict[str, Any]]], None]] = None
 
         # rendering / input config
         # (raw_mode, ascii_eol, input_filter, color_filter, typescript_file

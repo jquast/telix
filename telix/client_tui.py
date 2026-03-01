@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import shutil
 import logging
 import datetime
 import subprocess
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 # 3rd party
 from textual import events
 from rich.style import Style
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.screen import Screen
 from textual.binding import Binding
 from textual.widgets import (
@@ -1518,7 +1519,10 @@ class _EditListScreen(Screen["bool | None"]):
         if self._form_visible:
             self._hide_form()
         else:
-            self.dismiss(None)
+            try:
+                self.dismiss(None)
+            except ScreenStackError:
+                self.app.exit()
 
     def action_reorder_hint(self) -> None:
         """Placeholder for reorder key binding hint."""
@@ -1633,9 +1637,15 @@ class _EditListScreen(Screen["bool | None"]):
             if self._form_visible:
                 self._submit_form()
             self._save_to_file()
-            self.dismiss(True)
+            try:
+                self.dismiss(True)
+            except ScreenStackError:
+                self.app.exit()
         elif suffix == "close":
-            self.dismiss(None)
+            try:
+                self.dismiss(None)
+            except ScreenStackError:
+                self.app.exit()
         elif suffix == "help":
             self.app.push_screen(_CommandHelpScreen(topic=self._prefix))
         else:
@@ -2445,6 +2455,9 @@ class _HighlightTuple(NamedTuple):
     stop_movement: bool = False
     builtin: bool = False
     case_sensitive: bool = False
+    captured: bool = False
+    capture_name: str = "captures"
+    captures: tuple[dict[str, str], ...] = ()
 
 
 class HighlightEditScreen(_EditListScreen):
@@ -2515,12 +2528,31 @@ class HighlightEditScreen(_EditListScreen):
                             yield Label("Case Sensitive:", classes="toggle-label")
                             yield cs
                         with Horizontal(classes="field-row"):
+                            cap_sw = Switch(value=False, id="highlight-captured")
+                            cap_sw.tooltip = "Capture regex groups into variables"
+                            yield Label("Captured:", classes="toggle-label")
+                            yield cap_sw
+                            yield Label("", classes="toggle-gap")
+                            yield Label("Capture Name:", classes="toggle-label")
+                            yield Input(
+                                value="captures",
+                                placeholder="channel name",
+                                id="highlight-capture-name",
+                            )
+                        with Horizontal(classes="field-row"):
                             yield Label("Pattern", classes="form-label-short")
                             yield Input(placeholder="regex pattern", id="highlight-pattern")
                         with Horizontal(classes="field-row"):
                             yield Label("Highlight", classes="form-label-short")
                             yield Input(
                                 placeholder="eg. blink_black_on_yellow", id="highlight-style"
+                            )
+                        with Vertical(id="highlight-capture-fields"):
+                            with Vertical(id="highlight-captures-container"):
+                                pass
+                            yield Button(
+                                "Add Capture", variant="default",
+                                id="highlight-add-capture",
                             )
                         with Horizontal(id="highlight-form-buttons", classes="edit-form-buttons"):
                             yield Label(" ", classes="form-btn-spacer")
@@ -2533,7 +2565,7 @@ class HighlightEditScreen(_EditListScreen):
         """Configure highlight table columns and load rules from file."""
         table = self.query_one("#highlight-table", DataTable)
         table.cursor_type = "row"
-        term_w = os.get_terminal_size(fallback=(80, 24)).columns
+        term_w = shutil.get_terminal_size(fallback=(80, 24)).columns
         pat_w = max(15, 15 + (term_w - 80))
         table.add_column("#", width=4, key="num")
         table.add_column("Pattern", width=pat_w, key="pattern")
@@ -2542,6 +2574,7 @@ class HighlightEditScreen(_EditListScreen):
         self._load_from_file()
         self._refresh_table()
         self.query_one("#highlight-form").display = False
+        self.query_one("#highlight-capture-fields").display = False
 
     _AUTOREPLY_PATTERN = "<Autoreply pattern>"
 
@@ -2577,6 +2610,9 @@ class HighlightEditScreen(_EditListScreen):
                     r.stop_movement,
                     r.builtin,
                     r.case_sensitive,
+                    r.captured,
+                    r.capture_name,
+                    tuple(r.captures),
                 )
                 for r in rules
             ]
@@ -2605,6 +2641,8 @@ class HighlightEditScreen(_EditListScreen):
                 flags = (flags + " S") if flags else "S"
             if rule.case_sensitive:
                 flags = (flags + " CS") if flags else "CS"
+            if rule.captured:
+                flags = (flags + " C") if flags else "C"
             row_pos = len(self._filtered_indices) - 1
             table.add_row(str(i + 1), rule.pattern, rule.highlight, flags.strip(), key=str(row_pos))
         n_total = len(self._rules)
@@ -2624,6 +2662,9 @@ class HighlightEditScreen(_EditListScreen):
         stop_movement: bool = False,
         builtin: bool = False,
         case_sensitive: bool = False,
+        captured: bool = False,
+        capture_name: str = "captures",
+        captures: tuple[dict[str, str], ...] = (),
     ) -> None:
         pat_input = self.query_one("#highlight-pattern", Input)
         pat_input.value = pattern_val
@@ -2636,6 +2677,18 @@ class HighlightEditScreen(_EditListScreen):
         cs_sw = self.query_one("#highlight-case-sensitive", Switch)
         cs_sw.value = case_sensitive
         cs_sw.disabled = builtin
+        cap_sw = self.query_one("#highlight-captured", Switch)
+        cap_sw.value = captured
+        cap_sw.disabled = builtin
+        self.query_one("#highlight-capture-name", Input).value = capture_name
+        container = self.query_one("#highlight-captures-container", Vertical)
+        container.remove_children()
+        for cap in captures:
+            self._add_capture_row(
+                container, cap.get("key", "KeyName"), cap.get("value", r"\1")
+            )
+        cap_fields = self.query_one("#highlight-capture-fields", Vertical)
+        cap_fields.display = captured
         self.query_one("#highlight-search", Input).display = False
         self.query_one("#highlight-table").display = False
         self.query_one("#highlight-form").display = True
@@ -2644,6 +2697,27 @@ class HighlightEditScreen(_EditListScreen):
             self.query_one("#highlight-style", Input).focus()
         else:
             pat_input.focus()
+
+    def _add_capture_row(
+        self, container: Vertical, key: str = "KeyName", value: str = r"\1"
+    ) -> None:
+        """Append a key/value capture row to the captures container."""
+        row_id = f"cap-row-{id(container)}-{len(container.children)}"
+        btn = Button("X", variant="error", classes="capture-remove")
+        btn.styles.width = 5
+        row = Horizontal(
+            Input(value=key, placeholder="Key", classes="capture-key"),
+            Input(value=value, placeholder="Value", classes="capture-value"),
+            btn,
+            id=row_id,
+            classes="capture-row",
+        )
+        container.mount(row)
+
+    def _on_captured_toggle(self, value: bool) -> None:
+        """Show or hide capture fields when Captured switch changes."""
+        cap_fields = self.query_one("#highlight-capture-fields", Vertical)
+        cap_fields.display = value
 
     def _submit_form(self) -> None:
         import re as _re
@@ -2678,13 +2752,32 @@ class HighlightEditScreen(_EditListScreen):
             if term is not None and not validate_highlight(term, highlight_val):
                 self.notify(f"Invalid highlight style: {highlight_val!r}", severity="error")
                 return
+        captured = self.query_one("#highlight-captured", Switch).value
+        capture_name = self.query_one("#highlight-capture-name", Input).value.strip()
+        if not capture_name:
+            capture_name = "captures"
+        captures_list: list[dict[str, str]] = []
+        container = self.query_one("#highlight-captures-container", Vertical)
+        for row in container.children:
+            inputs = list(row.query(Input))
+            if len(inputs) >= 2:
+                k = inputs[0].value.strip()
+                v = inputs[1].value.strip()
+                if k and v:
+                    captures_list.append({"key": k, "value": v})
         builtin = False
         if self._editing_idx is not None:
             builtin = self._rules[self._editing_idx].builtin
         entry = _HighlightTuple(
-            pattern_val, highlight_val, enabled, stop_movement, builtin, case_sensitive
+            pattern_val, highlight_val, enabled, stop_movement, builtin,
+            case_sensitive, captured, capture_name, tuple(captures_list),
         )
         self._finalize_edit(entry, bool(pattern_val and highlight_val))
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        """Toggle capture fields visibility when Captured switch changes."""
+        if event.switch.id == "highlight-captured":
+            self._on_captured_toggle(event.value)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses for add, edit, delete, save, and cancel."""
@@ -2694,6 +2787,16 @@ class HighlightEditScreen(_EditListScreen):
             if idx is not None and idx < len(self._rules) and self._rules[idx].builtin:
                 self.notify("Cannot delete the builtin autoreply highlight rule.")
                 return
+        if btn == "highlight-add-capture":
+            container = self.query_one("#highlight-captures-container", Vertical)
+            n = len(container.children)
+            self._add_capture_row(container, "KeyName", f"\\{n + 1}")
+            return
+        if "capture-remove" in (event.button.classes or set()):
+            row = event.button.parent
+            if row is not None:
+                row.remove()
+            return
         super().on_button_pressed(event)
 
     def _save_to_file(self) -> None:
@@ -2715,6 +2818,9 @@ class HighlightEditScreen(_EditListScreen):
                     stop_movement=t.stop_movement,
                     builtin=t.builtin,
                     case_sensitive=t.case_sensitive,
+                    captured=t.captured,
+                    capture_name=t.capture_name,
+                    captures=list(t.captures),
                 )
             )
         save_highlights(self._path, rules, self._session_key)
@@ -3615,6 +3721,30 @@ def _log_child_diagnostics() -> None:
     os.environ["TEXTUAL_DEBUG"] = "1"
 
 
+def _run_editor_app(app: _EditorApp) -> None:
+    """Run a Textual editor app, resetting the terminal on crash.
+
+    If the app raises an exception, the terminal is reset to cooked mode
+    so the traceback is readable, and the user is prompted to press RETURN
+    before control returns to the parent REPL.
+    """
+    try:
+        app.run()
+    except BaseException:
+        import traceback
+
+        sys.stdout.write(_TERMINAL_CLEANUP + "\r\n")
+        sys.stdout.flush()
+        traceback.print_exc()
+        sys.stderr.write("\r\nPress RETURN to continue...\r\n")
+        sys.stderr.flush()
+        try:
+            input()
+        except EOFError:
+            pass
+        raise
+
+
 def edit_macros_main(
     path: str,
     session_key: str = "",
@@ -3635,7 +3765,7 @@ def edit_macros_main(
         ),
         session_key=session_key,
     )
-    app.run()
+    _run_editor_app(app)
 
 
 def edit_autoreplies_main(
@@ -3649,7 +3779,7 @@ def edit_autoreplies_main(
         AutoreplyEditScreen(path=path, session_key=session_key, select_pattern=select_pattern),
         session_key=session_key,
     )
-    app.run()
+    _run_editor_app(app)
 
 
 def edit_highlights_main(path: str, session_key: str = "", logfile: str = "") -> None:
@@ -3660,7 +3790,7 @@ def edit_highlights_main(path: str, session_key: str = "", logfile: str = "") ->
     app = _EditorApp(
         HighlightEditScreen(path=path, session_key=session_key), session_key=session_key
     )
-    app.run()
+    _run_editor_app(app)
 
 
 def edit_rooms_main(
@@ -3683,7 +3813,7 @@ def edit_rooms_main(
         ),
         session_key=session_key,
     )
-    app.run()
+    _run_editor_app(app)
 
 
 def show_help_main(topic: str = "keybindings", logfile: str = "") -> None:
@@ -3692,11 +3822,11 @@ def show_help_main(topic: str = "keybindings", logfile: str = "") -> None:
     _log_child_diagnostics()
     _patch_writer_thread_queue()
     app = _EditorApp(_CommandHelpScreen(topic=topic))
-    app.run()
+    _run_editor_app(app)
 
 
 class _ChatViewerScreen(Screen[None]):
-    """Read-only GMCP chat history viewer."""
+    """Capture Window — unified viewer for GMCP chat and highlight captures."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "close", "Close", show=True),
@@ -3727,21 +3857,31 @@ class _ChatViewerScreen(Screen[None]):
     Footer FooterLabel { margin: 0; }
     """
 
-    def __init__(self, chat_file: str, session_key: str = "", initial_channel: str = "") -> None:
+    def __init__(
+        self,
+        chat_file: str,
+        session_key: str = "",
+        initial_channel: str = "",
+        capture_file: str = "",
+    ) -> None:
         """
         Initialize with path to chat history file.
 
         :param chat_file: Path to the chat JSON file.
         :param session_key: Session identifier.
         :param initial_channel: Channel to select on open (most recent activity).
+        :param capture_file: Path to a JSON file with capture data.
         """
         super().__init__()
         self._chat_file = chat_file
         self._session_key = session_key
         self._initial_channel = initial_channel
+        self._capture_file = capture_file
         self._messages: list[dict[str, Any]] = []
         self._channels: list[str] = []
         self._filter_idx: int = 0
+        self._captures: dict[str, int] = {}
+        self._capture_log: dict[str, list[dict[str, Any]]] = {}
 
     def compose(self) -> ComposeResult:
         """Build the chat viewer layout."""
@@ -3761,18 +3901,25 @@ class _ChatViewerScreen(Screen[None]):
         self._populate_log()
 
     def _load_messages(self) -> None:
-        """Read messages from the chat JSON file."""
-        if not self._chat_file or not os.path.exists(self._chat_file):
-            return
-        with open(self._chat_file, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, list):
-            self._messages = data
+        """Read messages from chat JSON and capture data files."""
+        if self._chat_file and os.path.exists(self._chat_file):
+            with open(self._chat_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, list):
+                self._messages = data
+        if self._capture_file and os.path.exists(self._capture_file):
+            with open(self._capture_file, "r", encoding="utf-8") as fh:
+                cap_data = json.load(fh)
+            if isinstance(cap_data, dict):
+                self._captures = cap_data.get("captures", {})
+                self._capture_log = cap_data.get("capture_log", {})
         channels: set[str] = set()
         for msg in self._messages:
             ch = msg.get("channel", "")
             if ch:
                 channels.add(ch)
+        for ch in self._capture_log:
+            channels.add(ch)
         self._channels = sorted(channels)
 
     def _channel_labels(self) -> list[str]:
@@ -3802,7 +3949,7 @@ class _ChatViewerScreen(Screen[None]):
         self.query_one("#chat-channel-bar", Static).update(channel_bar)
 
     def _populate_log(self, channel_filter: str = "") -> None:
-        """Fill the RichLog with chat messages, optionally filtered by channel."""
+        """Fill the RichLog with chat and capture messages, optionally filtered."""
         from rich.text import Text as RichText
         from textual.widgets import RichLog
 
@@ -3810,22 +3957,34 @@ class _ChatViewerScreen(Screen[None]):
             channel_filter = self._active_filter()
         log_widget: RichLog = self.query_one("#chat-log", RichLog)
         log_widget.clear()
+
+        # Show captures key/value table when viewing the "captures" channel
+        if channel_filter == "captures" and self._captures:
+            header = RichText("Current Captures:", style="bold underline")
+            log_widget.write(header)
+            for k, v in sorted(self._captures.items()):
+                log_widget.write(RichText(f"  {k}: {v}"))
+            log_widget.write(RichText(""))
+
+        # Merge GMCP chat messages and capture log entries by timestamp
+        all_entries: list[tuple[str, str, dict[str, Any]]] = []
         for msg in self._messages:
             ch = msg.get("channel", "")
             if channel_filter and ch != channel_filter:
                 continue
-            ts = msg.get("ts", "")
-            talker = msg.get("talker", "")
-            text_raw = msg.get("text", "").rstrip("\n")
-            body = text_raw
-            if talker:
-                for prefix in (f"{talker} : ", f"{talker}: ", f"{talker} "):
-                    if body.startswith(prefix):
-                        body = body[len(prefix) :]
-                        break
+            all_entries.append((msg.get("ts", ""), "chat", msg))
+        for ch, entries in self._capture_log.items():
+            if channel_filter and ch != channel_filter:
+                continue
+            for entry in entries:
+                all_entries.append((entry.get("ts", ""), "capture", {**entry, "channel": ch}))
+        all_entries.sort(key=lambda e: e[0])
+
+        for ts_val, source, msg in all_entries:
+            ch = msg.get("channel", "")
             line = RichText()
-            if ts:
-                short_ts = ts[11:16] if len(ts) >= 16 else ts
+            if ts_val:
+                short_ts = ts_val[11:16] if len(ts_val) >= 16 else ts_val
                 line.append(f"{short_ts} ", style="dim")
             if not channel_filter:
                 channel_ansi = msg.get("channel_ansi", "")
@@ -3834,9 +3993,24 @@ class _ChatViewerScreen(Screen[None]):
                     line.append(" ")
                 else:
                     line.append(f"[{ch}] ", style="bold cyan")
-            if talker:
-                line.append(f"{talker}: ", style="bold")
-            line.append_text(RichText.from_ansi(body))
+            if source == "chat":
+                talker = msg.get("talker", "")
+                text_raw = msg.get("text", "").rstrip("\n")
+                body = text_raw
+                if talker:
+                    for prefix in (f"{talker} : ", f"{talker}: ", f"{talker} "):
+                        if body.startswith(prefix):
+                            body = body[len(prefix):]
+                            break
+                    line.append(f"{talker}: ", style="bold")
+                line.append_text(RichText.from_ansi(body))
+            else:
+                line_text = msg.get("line", "")
+                hl_style = msg.get("highlight", "")
+                if hl_style:
+                    line.append(line_text, style=hl_style.replace("_", " "))
+                else:
+                    line.append_text(RichText.from_ansi(line_text))
             log_widget.write(line)
         log_widget.scroll_end(animate=False)
 
@@ -3871,15 +4045,22 @@ class _ChatViewerScreen(Screen[None]):
 
 
 def chat_viewer_main(
-    chat_file: str, session_key: str = "", initial_channel: str = "", logfile: str = ""
+    chat_file: str,
+    session_key: str = "",
+    initial_channel: str = "",
+    logfile: str = "",
+    capture_file: str = "",
 ) -> None:
-    """Launch standalone chat viewer TUI."""
+    """Launch standalone Capture Window TUI."""
     _restore_blocking_fds(logfile)
     _log_child_diagnostics()
     _patch_writer_thread_queue()
     app = _EditorApp(
         _ChatViewerScreen(
-            chat_file=chat_file, session_key=session_key, initial_channel=initial_channel
+            chat_file=chat_file,
+            session_key=session_key,
+            initial_channel=initial_channel,
+            capture_file=capture_file,
         ),
         session_key=session_key,
     )
@@ -3950,7 +4131,7 @@ class _ConfirmDialogScreen(Screen[bool]):
             if self._warning:
                 yield Static(self._warning, id="confirm-warning")
             with Horizontal(id="confirm-buttons"):
-                yield Button("Cancel", variant="default", id="confirm-cancel")
+                yield Button("Cancel", variant="error", id="confirm-cancel")
                 yield Button("OK", variant="success", id="confirm-ok")
 
     def on_mount(self) -> None:
@@ -4005,9 +4186,8 @@ class _RandomwalkDialogScreen(Screen[bool]):
         align: center middle;
     }
     #rw-dialog {
-        width: 79;
-        height: auto;
-        max-height: 80%;
+        width: 100%;
+        height: 100%;
         border: round $surface-lighten-2;
         background: $surface;
         padding: 1 2;
@@ -4096,8 +4276,8 @@ class _RandomwalkDialogScreen(Screen[bool]):
                     yield Switch(value=self._default_auto_evaluate, id="rw-auto-evaluate")
             yield Static("", id="rw-error")
             with Horizontal(id="rw-buttons"):
-                yield Button("Help", variant="default", id="rw-help")
-                yield Button("Cancel", variant="default", id="rw-cancel")
+                yield Button("Help", variant="primary", id="rw-help")
+                yield Button("Cancel", variant="error", id="rw-cancel")
                 yield Button("OK", variant="success", id="rw-ok")
 
     def on_mount(self) -> None:
@@ -4278,8 +4458,8 @@ class _AutodiscoverDialogScreen(Screen[bool]):
                         value=(self._default_strategy == "dfs"),
                     )
             with Horizontal(id="ad-buttons"):
-                yield Button("Help", variant="default", id="ad-help")
-                yield Button("Cancel", variant="default", id="ad-cancel")
+                yield Button("Help", variant="primary", id="ad-help")
+                yield Button("Cancel", variant="error", id="ad-cancel")
                 yield Button("OK", variant="success", id="ad-ok")
 
     def on_mount(self) -> None:

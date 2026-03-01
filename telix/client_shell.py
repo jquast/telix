@@ -105,6 +105,11 @@ def _load_configs(ctx: SessionContext) -> None:
 
         ctx.chat_messages = load_chat(chat_file)
 
+    from .chat import append_chat_msg
+
+    ctx.on_chat_text = lambda data: append_chat_msg(ctx, data)
+    ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
+
     # rooms
     from .rooms import rooms_path
 

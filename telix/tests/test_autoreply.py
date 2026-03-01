@@ -1169,6 +1169,32 @@ def test_check_condition_invalid_expr():
     assert ok is True
 
 
+@pytest.mark.parametrize(
+    "when, captures, ok",
+    [
+        ({"Adrenaline": ">50"}, {"Adrenaline": 100}, True),
+        ({"Adrenaline": ">50"}, {"Adrenaline": 30}, False),
+        ({"Adrenaline%": ">50"}, {"Adrenaline": 80, "MaxAdrenaline": 100}, True),
+        ({"Adrenaline%": ">50"}, {"Adrenaline": 30, "MaxAdrenaline": 100}, False),
+        ({"Unknown": ">50"}, {}, True),
+        ({"HP%": ">50"}, {}, True),
+    ],
+)
+def test_check_condition_captures(when, captures, ok):
+    ctx = types.SimpleNamespace(gmcp_data={}, captures=captures)
+    result, desc = check_condition(when, ctx)
+    assert result is ok
+
+
+def test_check_condition_captures_gmcp_priority():
+    ctx = types.SimpleNamespace(
+        gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}},
+        captures={"HP": 20},
+    )
+    ok, desc = check_condition({"HP": ">50"}, ctx)
+    assert ok is True
+
+
 def test_save_autoreplies_when_roundtrip(tmp_path):
     fp = tmp_path / "ar.json"
     rules = [

@@ -256,6 +256,11 @@ async def test_naws_restored_on_normal_exit() -> None:
         ("a\n;\nb", ["a", "b"]),
         ("  a  ;  b  ;  c  ", ["a", "b", "c"]),
         ("3n\n;\n2e", ["n", "n", "n", "e", "e"]),
+        (r"say hey \;)", ["say hey ;)"]),
+        (r"say whats up \|", ["say whats up |"]),
+        (r"say a\;b;look", ["say a;b", "look"]),
+        (r"say a\|b|look", ["say a|b", "look"]),
+        (r"say \\o/", [r"say \o/"]),
     ],
 )
 def test_expand_commands(line: str, expected: list[str]) -> None:
@@ -277,6 +282,8 @@ def test_expand_commands(line: str, expected: list[str]) -> None:
         ("a|b|c", ["a", "b", "c"], frozenset({1, 2})),
         ("cast heal|`when HP%>=100`", ["cast heal", "`when HP%>=100`"], frozenset({1})),
         ("", [], frozenset()),
+        (r"say \;|look", ["say ;", "look"], frozenset({1})),
+        (r"say \||look", ["say |", "look"], frozenset({1})),
     ],
 )
 def test_expand_commands_ex(

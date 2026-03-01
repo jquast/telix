@@ -145,6 +145,33 @@ async def test_on_gmcp_logs_info_when_enabled():
 
 
 @pytest.mark.asyncio
+async def test_on_gmcp_dispatches_chat_text_callback():
+    client, _ = _make_connected_client()
+    received = []
+    client.writer.ctx.on_chat_text = lambda data: received.append(data)
+    msg = {"channel": "chat", "talker": "Bob", "text": "hi\n"}
+    client._on_gmcp("Comm.Channel.Text", msg)
+    assert received == [msg]
+
+
+@pytest.mark.asyncio
+async def test_on_gmcp_dispatches_chat_channels_callback():
+    client, _ = _make_connected_client()
+    received = []
+    client.writer.ctx.on_chat_channels = lambda data: received.append(data)
+    channels = [{"name": "chat", "command": "chat"}]
+    client._on_gmcp("Comm.Channel.List", channels)
+    assert received == [channels]
+
+
+@pytest.mark.asyncio
+async def test_on_gmcp_no_callback_no_error():
+    client, _ = _make_connected_client()
+    client._on_gmcp("Comm.Channel.Text", {"channel": "chat", "text": "hi\n"})
+    client._on_gmcp("Comm.Channel.List", [])
+
+
+@pytest.mark.asyncio
 async def test_hello_sent_on_will_gmcp():
     client, transport = _make_connected_client()
     client.writer.always_do = {GMCP}

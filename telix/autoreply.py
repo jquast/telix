@@ -113,33 +113,45 @@ def _compare(value: int, op: str, threshold: int) -> bool:
 
 def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, str]:
     """
-    Check vital conditions against GMCP data on *ctx*.
+    Check vital conditions against GMCP data and captured variables on *ctx*.
 
-    :param when: Condition dict, e.g. ``{"HP%": ">50"}`` (percentage)
-        or ``{"HP": ">500"}`` (raw value).
-    :param ctx: Session context with ``gmcp_data`` attribute.
+    :param when: Condition dict, e.g. ``{"HP%": ">50"}`` (percentage),
+        ``{"HP": ">500"}`` (raw value), or ``{"Adrenaline": ">100"}``
+        (captured variable).
+    :param ctx: Session context with ``gmcp_data`` and ``captures`` attributes.
     :returns: ``(ok, failure_description)`` -- *ok* is ``False`` when a
         condition is not met; *failure_description* explains which.
     """
     if not when:
         return True, ""
     gmcp: Optional[dict[str, Any]] = ctx.gmcp_data if ctx is not None else None
-    if not gmcp:
-        return True, ""
-    vitals = gmcp.get("Char.Vitals")
-    if not isinstance(vitals, dict):
-        return True, ""
+    vitals: Optional[dict[str, Any]] = None
+    if gmcp:
+        v = gmcp.get("Char.Vitals")
+        vitals = v if isinstance(v, dict) else None
+    captures: dict[str, int] = getattr(ctx, "captures", {}) if ctx is not None else {}
     for key, expr in when.items():
         m = _COND_RE.match(expr.strip())
         if not m:
             continue
         op, threshold = m.group(1), int(m.group(2))
+        value: Optional[int] = None
+        unit = ""
         if key.endswith("%"):
-            value = _get_vital_pct(key, vitals)
+            if vitals is not None:
+                value = _get_vital_pct(key, vitals)
+            if value is None and captures:
+                base = key[:-1]
+                cur = captures.get(base)
+                mx = captures.get(f"Max{base}")
+                if cur is not None and mx is not None and mx > 0:
+                    value = int(cur * 100 / mx)
             unit = "%"
         else:
-            value = _get_vital_raw(key, vitals)
-            unit = ""
+            if vitals is not None:
+                value = _get_vital_raw(key, vitals)
+            if value is None and captures:
+                value = captures.get(key)
         if value is None:
             continue
         if not _compare(value, op, threshold):
