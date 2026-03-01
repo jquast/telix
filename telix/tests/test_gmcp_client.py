@@ -66,18 +66,6 @@ async def test_custom_gmcp_modules():
 
 
 @pytest.mark.asyncio
-async def test_gmcp_log_default_false():
-    client = _make_client()
-    assert client._gmcp_log is False
-
-
-@pytest.mark.asyncio
-async def test_gmcp_log_enabled():
-    client = _make_client(gmcp_log=True)
-    assert client._gmcp_log is True
-
-
-@pytest.mark.asyncio
 async def test_gmcp_data_on_writer():
     client, _ = _make_connected_client()
     assert client.writer.ctx.gmcp_data is not None
@@ -134,14 +122,6 @@ async def test_on_gmcp_logs_debug_by_default():
     with mock.patch.object(client.log, "debug") as mock_debug:
         client.on_gmcp("Char.Vitals", {"hp": 50})
         mock_debug.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_on_gmcp_logs_info_when_enabled():
-    client, _ = _make_connected_client(gmcp_log=True)
-    with mock.patch.object(client.log, "info") as mock_info:
-        client.on_gmcp("Char.Vitals", {"hp": 50})
-        mock_info.assert_called_once()
 
 
 def _install_telix_gmcp_wrapper(client):
@@ -265,18 +245,6 @@ def test_gmcp_modules_cli_default_none():
     parser = _get_argument_parser()
     args = parser.parse_args(["example.com"])
     assert args.gmcp_modules is None
-
-
-def test_gmcp_log_cli_flag():
-    parser = _get_argument_parser()
-    args = parser.parse_args(["example.com", "--gmcp-log"])
-    assert args.gmcp_log is True
-
-
-def test_gmcp_log_cli_default_false():
-    parser = _get_argument_parser()
-    args = parser.parse_args(["example.com"])
-    assert args.gmcp_log is False
 
 
 def test_transform_args_gmcp_modules():

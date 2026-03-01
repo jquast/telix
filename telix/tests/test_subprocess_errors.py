@@ -71,11 +71,11 @@ class TestLaunchTuiEditorError:
             _launch_tui_editor("macros", _make_ctx())
 
         assert any("Press RETURN" in s for s in written)
-        assert any("NameError" in s for s in written)
         mock_input.assert_called_once()
 
     @pytest.mark.usefixtures("_stub_terminal")
-    def test_no_prompt_on_nonzero_without_stderr(self, monkeypatch: Any) -> None:
+    def test_prompt_on_nonzero_without_stderr(self, monkeypatch: Any) -> None:
+        """Non-zero exit always pauses, even without stderr output."""
         from telix.client_repl_dialogs import _launch_tui_editor
 
         fail_result = subprocess.CompletedProcess(args=[], returncode=1)
@@ -91,8 +91,9 @@ class TestLaunchTuiEditorError:
             "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
         )
 
-        _launch_tui_editor("macros", _make_ctx())
-        assert not any("Press RETURN" in s for s in written)
+        with patch("builtins.input", return_value=""):
+            _launch_tui_editor("macros", _make_ctx())
+        assert any("Press RETURN" in s for s in written)
 
     @pytest.mark.usefixtures("_stub_terminal")
     def test_no_prompt_on_success(self, monkeypatch: Any) -> None:

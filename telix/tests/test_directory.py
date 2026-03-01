@@ -182,6 +182,14 @@ class TestParseLine:
 
 
 class TestParseFile:
+    @pytest.fixture(autouse=True)
+    def _import_parser(self) -> None:
+        tools_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tools"
+        )
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+
     def test_mudlist(self) -> None:
         from import_modem_xyz import parse_file
 

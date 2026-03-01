@@ -10,12 +10,14 @@ We welcome contributions via GitHub pull requests:
 Architecture
 ------------
 
-telix is a TUI telnet and MUD client layered on top of
-`telnetlib3 <https://github.com/jquast/telnetlib3>`_::
+telix is a TUI telnet and MUD client layered on top of `telnetlib3
+<https://github.com/jquast/telnetlib3>`_::
 
     telix  -->  telnetlib3  -->  wcwidth
       |
       +--> blessed, textual
+
+**telnetlib3 must never import from telix.** Use `writer.ctx` session context or callback hooks.
 
 Module map::
 
@@ -246,9 +248,26 @@ You can also set up a `pre-commit <https://pre-commit.com/>`_ hook::
 Style and Static Analysis
 -------------------------
 
+- use tox to run tests, linters, and formatters, to ensure requirements are met exactly.
 - Max line length: 100 characters
 - Sphinx-style reStructuredText docstrings
-- High test coverage expected (>50%); write tests first when fixing bugs
+- Average test coverage expected (~50%) 
+  - layout, design, and TUI interaction is not tested
+- Write tests first when fixing bugs (TDD).
+- Do not use "section dividers" or markers for code
+- Never use `assert x == y, "expected x, got y"` - pytest output is sufficient
+- Test function docstrings should be brief, factual statements of what is tested, not why or how
+- Tests should be self-documenting; avoid comments explaining why tests exist
+- Do not write defensive `try/except` blocks that swallow errors. Let exceptions
+  propagate to the caller unless there is a specific reason to handle them.
+- Never catch broad `Exception` or `OSError` just to log and return `None`.
+- Acceptable uses: `except ImportError` for optional dependencies, cleanup in
+  `finally` blocks, and boundary code that must not crash (e.g. top-level CLI).
+- After finishing writing tests, re-review if line length and complexity of tests can be reduced,
+  only enough to provide the same amount of coverage, joining related tests, and using parametrized
+  testing where possible to reduce length.
+- After a first draft of a medium to large change and testing has been successful, re-review if the
+  code can be made simpler, to reduce size and complexity.
 
 Run all linters::
 

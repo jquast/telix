@@ -911,6 +911,9 @@ class AutoreplyEngine:
                     now = time.monotonic()
                     self._until_start = now
                     self._until_deadline = now + delay
+                    cb = getattr(self._ctx, "on_autoreply_activity", None)
+                    if cb is not None:
+                        cb()
                     await asyncio.sleep(delay)
                     self._until_start = self._until_deadline = 0.0
                 continue
@@ -934,6 +937,9 @@ class AutoreplyEngine:
                 now = time.monotonic()
                 self._until_start = now
                 self._until_deadline = now + timeout
+                cb = getattr(self._ctx, "on_autoreply_activity", None)
+                if cb is not None:
+                    cb()
                 compiled = re.compile(pattern_str, re.IGNORECASE | re.MULTILINE | re.DOTALL)
                 match = await self._buffer.wait_for_pattern(compiled, timeout)
                 self._until_start = self._until_deadline = 0.0
@@ -951,6 +957,9 @@ class AutoreplyEngine:
                 now = time.monotonic()
                 self._until_start = now
                 self._until_deadline = now + timeout
+                cb = getattr(self._ctx, "on_autoreply_activity", None)
+                if cb is not None:
+                    cb()
                 # untils is case-SENSITIVE -- no IGNORECASE flag
                 compiled_cs = re.compile(pattern_str, re.MULTILINE | re.DOTALL)
                 match = await self._buffer.wait_for_pattern(compiled_cs, timeout)

@@ -932,6 +932,14 @@ if sys.platform != "win32":
             """Insert text into the line editor buffer."""
             self.editor.insert_text(text)
 
+        def _on_autoreply_activity(self) -> None:
+            """Kick the toolbar progress ticker when an autoreply delay starts."""
+            if self.autoreply_engine is None or self.scroll is None:
+                return
+            self.toolbar.schedule_until_progress(
+                self.loop, self.autoreply_engine, self.editor, self.blessed_term
+            )
+
         def _on_prompt_signal(self, _cmd: bytes) -> None:
             """
             Handle GA / EOR prompt signals.
@@ -1066,7 +1074,7 @@ if sys.platform != "win32":
                 return
             bt = self.blessed_term
             self._update_input_style()
-            self.stdout.write(CURSOR_HIDE.encode())
+            self.toolbar.hide_cursor()
             self.stdout.write(
                 self.editor.render(bt, self.scroll.input_row, self._input_width()).encode()
             )
@@ -1265,7 +1273,8 @@ if sys.platform != "win32":
 
             If the stoplight is animating, draw the sextant character at
             ``(row, col)`` and keep the terminal cursor hidden.  Otherwise
-            set the cursor color and show the normal terminal cursor.
+            set the cursor color and schedule the terminal cursor to show
+            after a short debounce delay.
             Also draws a right-aligned cancel hint when applicable.
             """
             bt = self.blessed_term
@@ -1278,7 +1287,7 @@ if sys.platform != "win32":
                 self.stdout.write(bt.move_yx(row, col).encode())
                 self.stdout.write(osc.encode())
                 self.stdout.write(style["cursor_sgr"].encode())
-                self.stdout.write(CURSOR_SHOW.encode())
+                self.toolbar.schedule_cursor_show(self.loop)
                 self.stdout.write(bt.normal.encode())
 
         def _on_resize_repaint(self, _rows: int, _cols: int) -> None:
@@ -1289,7 +1298,7 @@ if sys.platform != "win32":
             bt = _get_term()
             sr = self.scroll
             reserve = sr._reserve if sr is not None else _RESERVE_WITH_TOOLBAR
-            self.stdout.write(CURSOR_HIDE.encode())
+            self.toolbar.hide_cursor()
             self.stdout.write((bt.clear + bt.home + bt.move_yx(0, 0)).encode())
             data = self.replay_buf.replay()
             if data:
@@ -1309,7 +1318,7 @@ if sys.platform != "win32":
             self.stdout.write(_CURSOR_STYLES.get(cs, CURSOR_STEADY_BLOCK).encode())
             self.stdout.write(osc.encode())
             self.stdout.write(style["cursor_sgr"].encode())
-            self.stdout.write(CURSOR_SHOW.encode())
+            self.toolbar.schedule_cursor_show(self.loop)
 
         def _fire_resize(self) -> None:
             """Handle resize: update scroll region, NAWS, re-render UI."""
@@ -1325,7 +1334,7 @@ if sys.platform != "win32":
                 and not self.telnet_writer.is_closing()
             ):
                 self.telnet_writer._send_naws()
-            self.stdout.write(CURSOR_HIDE.encode())
+            self.toolbar.hide_cursor()
             self._update_input_style()
             self.stdout.write(
                 self.editor.render(bt, self.scroll.input_row, self._input_width()).encode()
@@ -1344,6 +1353,7 @@ if sys.platform != "win32":
             self.ctx.wait_for_prompt = self._wait_for_prompt
             self.ctx.echo_command = self._echo_autoreply
             self.ctx.prompt_ready = self.prompt_ready
+            self.ctx.on_autoreply_activity = self._on_autoreply_activity
 
             self._refresh_autoreply_engine()
             self._refresh_highlight_engine()
@@ -1421,6 +1431,7 @@ if sys.platform != "win32":
                 out = await self.telnet_reader.read(2**24)
                 if not out:
                     if self.telnet_reader.at_eof():
+                        local_close = self.server_done
                         self.server_done = True
                         self._cancel_line_hold_timer()
                         held = self._line_hold.flush_raw()
@@ -1437,7 +1448,11 @@ if sys.platform != "win32":
                             self.stdout.write(bt.save.encode())
                         _flush_color_filter(self.telnet_writer, self.stdout)
                         self.stdout.write(bt.restore.encode())
-                        self.stdout.write(b"\r\nConnection closed by foreign host.\r\n")
+                        if local_close:
+                            msg = b"\r\nConnection closed by client.\r\n"
+                        else:
+                            msg = b"\r\nConnection reset by peer.\r\n"
+                        self.stdout.write(msg + bt.clear_eos.encode())
                         return
                     if self.prompt_pending:
                         self._cancel_line_hold_timer()
@@ -1479,7 +1494,7 @@ if sys.platform != "win32":
                     continue
                 if emit_now and not held_back:
                     self._cancel_line_hold_timer()
-                self.stdout.write(CURSOR_HIDE.encode())
+                self.toolbar.hide_cursor()
                 self.stdout.write(bt.restore.encode())
                 if self._dialogs_mod._editor_buffer:
                     for chunk in self._dialogs_mod._editor_buffer:
@@ -1570,7 +1585,7 @@ if sys.platform != "win32":
                         result = action()
                         if asyncio.iscoroutine(result):
                             await result
-                        self.stdout.write(CURSOR_HIDE.encode())
+                        self.toolbar.hide_cursor()
                         self._update_input_style()
                         self.stdout.write(
                             self.editor.render(bt, scroll.input_row, self._input_width()).encode()
@@ -1588,7 +1603,7 @@ if sys.platform != "win32":
                         return
 
                     if result.interrupt:
-                        self.stdout.write(CURSOR_HIDE.encode())
+                        self.toolbar.hide_cursor()
                         self._update_input_style()
                         self.stdout.write(
                             self.editor.render(bt, scroll.input_row, self._input_width()).encode()
@@ -1688,7 +1703,7 @@ if sys.platform != "win32":
                             self.telnet_writer.write("\r\n")  # type: ignore[arg-type]
 
                     if result.changed:
-                        self.stdout.write(CURSOR_HIDE.encode())
+                        self.toolbar.hide_cursor()
                         cq2 = self.ctx.command_queue
                         if cq2 is not None:
                             ac_elapsed2 = _monotonic() - self.ctx.active_command_time
@@ -1721,6 +1736,10 @@ if sys.platform != "win32":
             if self.autoreply_engine is not None:
                 self.autoreply_engine.cancel()
             self.ctx.close()
+            if self.toolbar._cursor_show_handle is not None:
+                self.toolbar._cursor_show_handle.cancel()
+                self.toolbar._cursor_show_handle = None
+            self.toolbar._cursor_hidden = False
             self.stdout.write(CURSOR_DEFAULT.encode())
             self.stdout.write(CURSOR_COLOR_RESET_OSC.encode())
             if self.mode_switched:

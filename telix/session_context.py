@@ -120,6 +120,7 @@ class SessionContext(TelnetSessionContext):
         self.on_room_info: Optional[Callable[[dict[str, Any]], None]] = None
         self.on_chat_text: Optional[Callable[[dict[str, Any]], None]] = None
         self.on_chat_channels: Optional[Callable[[list[dict[str, Any]]], None]] = None
+        self.on_autoreply_activity: Optional[Callable[[], None]] = None
 
         # rendering / input config
         # (raw_mode, ascii_eol, input_filter, color_filter, typescript_file

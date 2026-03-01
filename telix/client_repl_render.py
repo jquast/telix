@@ -928,6 +928,35 @@ class ToolbarRenderer:
         self.mp = VitalTracker()
         self.xp = XPTracker()
         self._bar_trackers: dict[str, VitalTracker] = {}
+        self._cursor_show_handle: Optional[asyncio.TimerHandle] = None
+        self._cursor_hidden: bool = False
+
+    _CURSOR_SHOW_DELAY = 0.1
+
+    def hide_cursor(self) -> None:
+        """Hide the terminal cursor immediately, canceling any pending show."""
+        if self._cursor_show_handle is not None:
+            self._cursor_show_handle.cancel()
+            self._cursor_show_handle = None
+        if not self._cursor_hidden:
+            self.out.write(CURSOR_HIDE.encode())
+            self._cursor_hidden = True
+
+    def schedule_cursor_show(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Schedule the terminal cursor to be shown after a short delay.
+
+        Cancels any previously pending show so that rapid hide/show cycles
+        collapse into a single show at the end.
+        """
+        if self._cursor_show_handle is not None:
+            self._cursor_show_handle.cancel()
+
+        def _do_show() -> None:
+            self._cursor_show_handle = None
+            self._cursor_hidden = False
+            self.out.write(CURSOR_SHOW.encode())
+
+        self._cursor_show_handle = loop.call_later(self._CURSOR_SHOW_DELAY, _do_show)
 
     def render(self, autoreply_engine: Any) -> bool:
         """
@@ -1405,7 +1434,7 @@ class ToolbarRenderer:
         """Schedule repeating flash animation frames via ``loop.call_later``."""
 
         def _tick() -> None:
-            self.out.write(CURSOR_HIDE.encode())
+            self.hide_cursor()
             still = self.render(autoreply_engine)
             input_row = self.scroll.input_row
             engine = autoreply_engine
@@ -1448,7 +1477,7 @@ class ToolbarRenderer:
                 drew = self.cursor_light(bt, input_row, cursor_col, is_ar_bg)
                 if not drew:
                     self.out.write(bt.move_yx(input_row, cursor_col).encode())
-                    self.out.write(CURSOR_SHOW.encode())
+                    self.schedule_cursor_show(loop)
             else:
                 hint = _activity_hint(engine)
                 hint_w = len(hint) if hint else 0
@@ -1471,7 +1500,7 @@ class ToolbarRenderer:
                     self.out.write(bt.move_yx(input_row, cursor_col).encode())
                     self.out.write(osc.encode())
                     self.out.write(style["cursor_sgr"].encode())
-                    self.out.write(CURSOR_SHOW.encode())
+                    self.schedule_cursor_show(loop)
                     self.out.write(bt.normal.encode())
 
             if still:
@@ -1518,7 +1547,7 @@ class ToolbarRenderer:
             eta_text = frags[0][1] if frags else ""
             if eta_text != self._last_eta_text:
                 self._last_eta_text = eta_text
-                self.out.write(CURSOR_HIDE.encode())
+                self.hide_cursor()
                 self.render(autoreply_engine)
                 has_command = (
                     self.ctx.command_queue is not None or self.ctx.active_command is not None
@@ -1536,7 +1565,7 @@ class ToolbarRenderer:
                         self.out.write(bt.move_yx(input_row, cursor_col).encode())
                         self.out.write(osc.encode())
                         self.out.write(style["cursor_sgr"].encode())
-                        self.out.write(CURSOR_SHOW.encode())
+                        self.schedule_cursor_show(loop)
                         self.out.write(bt.normal.encode())
             loop.call_later(self._ETA_REFRESH_INTERVAL, _eta_tick)
 
@@ -1586,7 +1615,7 @@ class ToolbarRenderer:
             ar = engine is not None and (engine.exclusive_active or engine.reply_pending)
             is_ar_bg = self.ctx.discover_active or self.ctx.randomwalk_active or ar
             bg = _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else _STYLE_NORMAL["bg_sgr"]
-            self.out.write(CURSOR_HIDE.encode())
+            self.hide_cursor()
             self.out.write(bt.move_yx(self.scroll.input_row, col).encode())
             _write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
             has_command = self.ctx.command_queue is not None or self.ctx.active_command is not None
@@ -1600,7 +1629,7 @@ class ToolbarRenderer:
                     self.out.write(bt.move_yx(input_row, cursor_col).encode())
                     self.out.write(osc.encode())
                     self.out.write(style["cursor_sgr"].encode())
-                    self.out.write(CURSOR_SHOW.encode())
+                    self.schedule_cursor_show(loop)
                     self.out.write(bt.normal.encode())
             loop.call_later(self._PROGRESS_REFRESH_INTERVAL, _progress_tick)
 
