@@ -431,10 +431,12 @@ class SessionListScreen(Screen[None]):
     }
     #bookmark-btn {
         background: $accent;
+        color: $text;
         text-style: none;
     }
     #bookmark-btn:hover {
         background: $accent-lighten-1;
+        color: $text;
         text-style: none;
     }
     """
@@ -473,6 +475,8 @@ class SessionListScreen(Screen[None]):
         table.add_column(" ", width=4, key="icon")
         table.add_columns("Host/Name", "Port", "Enc", "Last", "Flags")
         self._refresh_table()
+        if table.row_count > 0:
+            table.focus()
 
     @staticmethod
     def _flags(cfg: SessionConfig) -> str:
@@ -524,7 +528,10 @@ class SessionListScreen(Screen[None]):
             and (not needle or needle in
                  f"{cfg.name} {cfg.host} {cfg.port} {cfg.encoding}".lower())
         ]
-        items.sort(key=lambda kc: (not kc[1].bookmarked, (kc[1].name or kc[1].host).lower()))
+        # Bookmarked first, then most recently connected first, then name.
+        items.sort(key=lambda kc: (kc[1].name or kc[1].host).lower())
+        items.sort(key=lambda kc: kc[1].last_connected or "", reverse=True)
+        items.sort(key=lambda kc: not kc[1].bookmarked)
         first, rest = items[:_BATCH_SIZE], items[_BATCH_SIZE:]
         self._add_rows(table, first)
         self._pending_rows = rest

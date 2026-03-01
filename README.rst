@@ -32,7 +32,7 @@ Requires Python 3.9+.
 Usage
 -----
 
-Launch the TUI session manager::
+Launch the Session Manager::
 
     telix
 
@@ -46,13 +46,3 @@ Documentation
 -------------
 
 Full documentation is available at https://telix.readthedocs.org/.
-
-Contributing
-------------
-
-See ``CONTRIBUTING.rst``.
-
-License
--------
-
-ISC.  See ``LICENSE.txt``.
