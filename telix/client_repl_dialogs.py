@@ -434,7 +434,9 @@ def show_help(macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp:
 
 def read_crash_file(crash_path: str) -> dict[str, Any] | None:
     """
-    Read crash data JSON from *crash_path* and delete the file.
+    Read crash data JSON from *crash_path*.
+
+    The caller is responsible for deciding whether to delete the file.
 
     :param crash_path: Path to the crash JSON file.
     :returns: Parsed crash data dict, or ``None`` on missing/invalid file.
@@ -444,27 +446,31 @@ def read_crash_file(crash_path: str) -> dict[str, Any] | None:
             return json.load(fh)
     except (OSError, ValueError):
         return None
-    finally:
-        try:
-            os.unlink(crash_path)
-        except OSError:
-            pass
 
 
-def format_crash_banner(crash_data: dict[str, Any], cmd: list[str]) -> str:
+def format_crash_banner(crash_data: dict[str, Any], cmd: list[str], crash_path: str, exit_code: int) -> str:
     r"""
     Format crash data as a display banner with ``\r\n`` line endings.
 
     :param crash_data: Dict with ``traceback``, ``pid``, ``source`` keys.
-    :param cmd: The subprocess command list for the "Reproduce:" line.
+    :param cmd: The subprocess command list.
+    :param crash_path: Path to the crash file (shown in the closing line).
+    :param exit_code: Subprocess exit code.
     :returns: Formatted banner string.
     """
-    pid = crash_data.get("pid", "?")
+    try:
+        width = os.get_terminal_size().columns
+    except OSError:
+        width = 80
     tb_text = crash_data.get("traceback", "")
     quoted_cmd = " ".join(shlex.quote(c) for c in cmd)
-    lines = ["", f"--- TUI subprocess (pid {pid}) crashed ---", f"Reproduce: {quoted_cmd}", ""]
+    cmd_footer = f" end of failed command (exit code={exit_code}) "
+    tb_footer = f" End of captured traceback: {crash_path} "
+    lines = ["", quoted_cmd, cmd_footer.center(width, "-"), ""]
     for line in tb_text.splitlines():
         lines.append(line)
+    lines.append("")
+    lines.append(tb_footer.center(width, "-"))
     lines.append("")
     return "\r\n".join(lines)
 
@@ -473,7 +479,8 @@ def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, r
     """
     Read crash file and inject a formatted banner into *replay_buf*.
 
-    On success (``returncode == 0``) or missing result, just clean up.
+    On success (``returncode == 0``) or missing result, clean up the
+    file.  On failure the file is preserved for post-mortem inspection.
 
     :param crash_path: Path to the crash JSON file.
     :param cmd: The subprocess command list.
@@ -492,7 +499,7 @@ def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, r
         for line in data.get("traceback", "").splitlines():
             log.error("%s", line)
         if replay_buf is not None:
-            banner = format_crash_banner(data, cmd)
+            banner = format_crash_banner(data, cmd, crash_path, result.returncode)
             replay_buf.append(banner.encode("utf-8"))
 
 

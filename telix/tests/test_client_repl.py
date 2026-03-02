@@ -1182,17 +1182,24 @@ class TestActivityHint:
         assert "[return to cancel]" in hint
         assert ELLIPSIS not in hint
 
-    def test_truncation_with_ellipsis(self):
+    def test_truncation_preserves_cancel_suffix(self):
         e = FakeEngine(status="until /a]very{long}pattern/", idx=5)
         hint = activity_hint(e, cols=30)
-        assert len(hint) <= 15
-        assert hint.endswith(ELLIPSIS)
+        assert "[return to cancel]" in hint
+        assert ELLIPSIS in hint
 
     def test_short_hint_not_truncated(self):
         e = FakeEngine(status="delay 1", idx=1)
         hint = activity_hint(e, cols=200)
         assert ELLIPSIS not in hint
         assert "[return to cancel]" in hint
+
+    def test_hint_fixed_width_with_cols(self):
+        e = FakeEngine(status="delay 1", idx=1)
+        hint1 = activity_hint(e, cols=120)
+        hint2 = activity_hint(e, cols=120)
+        assert len(hint1) == len(hint2)
+        assert hint1.endswith("[return to cancel]")
 
 
 def test_modem_dot_idle_before_trigger():

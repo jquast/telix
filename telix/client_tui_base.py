@@ -2063,6 +2063,12 @@ def run_editor_app(app: EditorApp) -> None:
     if app.return_code and app.return_code != 0:
         if crash_path:
             text = render_exit_renderables(app)
+            if not text.strip() and hasattr(app, "_exception") and app._exception:
+                import traceback as tb_mod2  # noqa: PLC0415
+
+                text = "".join(
+                    tb_mod2.format_exception(type(app._exception), app._exception, app._exception.__traceback__)
+                )
             write_crash_file(crash_path, text, "textual_exit")
             sys.exit(app.return_code)
         sys.stdout.write(TERMINAL_CLEANUP)

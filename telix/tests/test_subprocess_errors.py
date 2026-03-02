@@ -72,43 +72,55 @@ class TestWriteCrashFile:
 
 
 class TestReadCrashFile:
-    def test_returns_data_and_deletes(self):
+    def test_returns_data(self):
         fd, path = tempfile.mkstemp(suffix=".json", prefix="crash-test-")
         os.close(fd)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"traceback": "tb", "pid": 42, "source": "exception"}, fh)
-        result = read_crash_file(path)
-        assert result == {"traceback": "tb", "pid": 42, "source": "exception"}
-        assert not os.path.exists(path)
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"traceback": "tb", "pid": 42, "source": "exception"}, fh)
+            result = read_crash_file(path)
+            assert result == {"traceback": "tb", "pid": 42, "source": "exception"}
+            assert os.path.exists(path)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     def test_missing_file_returns_none(self):
         assert read_crash_file("/tmp/nonexistent-crash-file.json") is None
 
 
 class TestFormatCrashBanner:
-    def test_contains_pid_command_traceback(self):
+    def test_contains_command_traceback_and_bookends(self):
         data = {"traceback": "Traceback (most recent call last):\n  NameError: x", "pid": 12345}
         cmd = [sys.executable, "-c", "import sys"]
-        banner = format_crash_banner(data, cmd)
-        assert "pid 12345" in banner
+        banner = format_crash_banner(data, cmd, "/tmp/crash-test.json", 1)
         assert "NameError: x" in banner
-        assert "Reproduce:" in banner
         assert "import sys" in banner
+        assert "exit code=1" in banner
+        assert "/tmp/crash-test.json" in banner
         assert "\r\n" in banner
 
 
 class TestHandleCrashFile:
-    def test_injects_into_replay_buf(self):
+    def test_injects_into_replay_buf_and_preserves_file(self):
         fd, path = tempfile.mkstemp(suffix=".json", prefix="crash-test-")
         os.close(fd)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"traceback": "NameError: x", "pid": 99, "source": "exception"}, fh)
-        replay_buf = []
-        result = subprocess.CompletedProcess(args=[], returncode=1)
-        handle_crash_file(path, ["python", "-c", "pass"], replay_buf, result)
-        assert len(replay_buf) == 1
-        assert b"NameError: x" in replay_buf[0]
-        assert not os.path.exists(path)
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"traceback": "NameError: x", "pid": 99, "source": "exception"}, fh)
+            replay_buf = []
+            result = subprocess.CompletedProcess(args=[], returncode=1)
+            handle_crash_file(path, ["python", "-c", "pass"], replay_buf, result)
+            assert len(replay_buf) == 1
+            assert b"NameError: x" in replay_buf[0]
+            assert os.path.exists(path)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     def test_noop_on_success(self):
         fd, path = tempfile.mkstemp(suffix=".json", prefix="crash-test-")

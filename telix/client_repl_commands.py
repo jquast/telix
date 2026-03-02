@@ -14,7 +14,7 @@ from collections.abc import Callable, Awaitable
 from .repl_theme import hex_to_rgb, get_repl_palette
 
 # local
-from .client_repl_render import ELLIPSIS, get_term, wcswidth, write_hint, session_key, flash_bg_rgb
+from .client_repl_render import ELLIPSIS, get_term, wcswidth, write_hint, session_key
 
 if TYPE_CHECKING:
     from .session_context import CommandQueue, SessionContext
@@ -373,7 +373,7 @@ def collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, i
 
 def active_cmd_fg() -> str:
     """Return the active command foreground color from the palette."""
-    return get_repl_palette(session_key)["active_cmd"]
+    return get_repl_palette(session_key)["secondary"]
 
 
 def pending_cmd_rgb() -> tuple[int, int, int]:
@@ -389,28 +389,26 @@ def render_active_command(
     hint: str = "",
     progress: float | None = None,
     base_bg_sgr: str = "",
+    autoreply: bool = False,
 ) -> int:
     """
     Render a single highlighted active command on the input row.
 
-    The text is drawn in the base foreground colour.  During the flash
-    window a background ramps from black toward the inverse RGB of the
-    base colour and back.
+    The text is drawn in the secondary palette colour with no background
+    flash animation.
 
-    :param flash_elapsed: Seconds since the command was issued.
+    :param flash_elapsed: Unused (kept for API compatibility).
     :param hint: Right-aligned dim hint text (e.g. autoreply status).
     :param progress: Until timer progress ``0.0..1.0``, or ``None``.
-    :param base_bg_sgr: Fallback background SGR when no flash is active.
+    :param base_bg_sgr: Background SGR for the input row.
+    :param autoreply: Use autoreply suggestion color for hints.
     :returns: Display width of the rendered command text.
     """
     blessed_term = get_term()
     cols = blessed_term.width
     normal = blessed_term.normal
-    cmd_fg = active_cmd_fg()
-    fg_sgr = str(blessed_term.color_hex(cmd_fg))
-
-    bg_rgb = flash_bg_rgb(cmd_fg, flash_elapsed)
-    bg_sgr = str(blessed_term.on_color_rgb(*bg_rgb)) if bg_rgb else base_bg_sgr
+    fg_sgr = str(blessed_term.color_hex(active_cmd_fg()))
+    bg_sgr = base_bg_sgr
 
     hint_w = len(hint) if hint else 0
     avail = cols - hint_w
@@ -422,7 +420,7 @@ def render_active_command(
     pad = avail - w
     if pad > 0:
         out.write(f"{base_bg_sgr}{' ' * pad}{normal}".encode())
-    write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
+    write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr, autoreply=autoreply)
     out.write(normal.encode())
     return w
 
@@ -443,18 +441,20 @@ def render_command_queue(
     hint: str = "",
     progress: float | None = None,
     base_bg_sgr: str = "",
+    autoreply: bool = False,
 ) -> int:
     """
     Render the command queue on the input row.
 
-    The active run uses the suggestion (dull) colour with an optional
-    flash animation.  Pending runs use dim grey.  If the display is too
-    wide it is truncated with an ellipsis.
+    The active run uses the secondary palette colour.  Pending runs use
+    dim grey.  If the display is too wide it is truncated with an
+    ellipsis.
 
-    :param flash_elapsed: Seconds since last command change; drives flash.
+    :param flash_elapsed: Unused (kept for API compatibility).
     :param hint: Right-aligned dim hint text (e.g. autoreply status).
     :param progress: Until timer progress ``0.0..1.0``, or ``None``.
-    :param base_bg_sgr: Fallback background SGR when no flash is active.
+    :param base_bg_sgr: Background SGR for the input row.
+    :param autoreply: Use autoreply suggestion color for hints.
     :returns: Total display width of all rendered fragments.
     """
     if queue is None:
@@ -468,10 +468,8 @@ def render_command_queue(
     if not runs:
         return 0
 
-    cmd_fg = active_cmd_fg()
-    active_fg = str(blessed_term.color_hex(cmd_fg))
-    bg_rgb = flash_bg_rgb(cmd_fg, flash_elapsed)
-    active_bg = str(blessed_term.on_color_rgb(*bg_rgb)) if bg_rgb else base_bg_sgr
+    active_fg = str(blessed_term.color_hex(active_cmd_fg()))
+    active_bg = base_bg_sgr
     pending_sgr = str(blessed_term.color_rgb(*pending_cmd_rgb()))
     normal = blessed_term.normal
 
@@ -502,7 +500,7 @@ def render_command_queue(
     pad = avail - total_w
     if pad > 0:
         out.write(f"{base_bg_sgr}{' ' * pad}{normal}".encode())
-    write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
+    write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr, autoreply=autoreply)
     out.write(normal.encode())
     return total_w
 
