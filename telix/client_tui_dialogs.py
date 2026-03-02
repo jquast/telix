@@ -8,65 +8,31 @@ and the top-level ``TelnetSessionApp`` / ``tui_main``.
 Imports from ``client_tui_base`` and ``client_tui_editors``.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
 import sys
 import json
-from typing import TYPE_CHECKING, Any, ClassVar
+import typing
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rich.text import Text as RichText
-
     from .rooms import RoomStore
 
 # 3rd party
-from textual import events
-from rich.style import Style
-from textual.app import App, ComposeResult, ScreenStackError
-from textual.screen import Screen
-from textual.binding import Binding
-from textual.widgets import (
-    Tree,
-    Input,
-    Label,
-    Button,
-    Footer,
-    Select,
-    Static,
-    Switch,
-    RadioSet,
-    RadioButton,
-    ContentSwitcher,
-)
-from textual.css.query import NoMatches
-from textual.containers import Vertical, Horizontal
-from textual.widgets.tree import TreeNode
+import rich.text
+import rich.style
+import textual.app
+import textual.events
+import textual.screen
+import textual.binding
+import textual.widgets
+import textual.css.query
+import textual.containers
+import textual.widgets.tree
 
 # local
-from .client_tui_base import (
-    DEFAULTS_KEY,
-    TERMINAL_CLEANUP,
-    EditorApp,
-    CommandHelpScreen,
-    SessionListScreen,
-    launch_editor,
-    relative_time,
-    run_editor_app,
-    restore_blocking_fds,
-    log_child_diagnostics,
-    read_primary_selection,
-    patch_writer_thread_queue,
-)
-from .client_tui_editors import (
-    MacroEditPane,
-    ThemeEditPane,
-    AutoreplyEditPane,
-    HighlightEditPane,
-    ProgressBarEditPane,
-    invert_ts,
-)
+import telix.rooms
+from . import client_tui_base, client_tui_editors
 
 # ---------------------------------------------------------------------------
 # Room browser constants
@@ -90,51 +56,51 @@ MARKED_STYLE = "$accent"
 # ---------------------------------------------------------------------------
 
 
-class RoomTree(Tree[str]):
+class RoomTree(textual.widgets.Tree[str]):
     """Room tree with aligned icon+arrow prefix columns."""
 
     ICON_NODE = "\u25c2 "  # ◂
     ICON_NODE_EXPANDED = "\u25be "  # ▾
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: typing.Any, **kwargs: typing.Any) -> None:
         super().__init__(*args, **kwargs)
         self.bookmarked: set[str] = set()
         self.blocked: set[str] = set()
         self.home: set[str] = set()
         self.marked: set[str] = set()
 
-    def render_label(self, node: TreeNode[str], base_style: Style, style: Style) -> RichText:
+    def render_label(
+        self, node: textual.widgets.tree.TreeNode[str], base_style: rich.style.Style, style: rich.style.Style
+    ) -> rich.text.Text:
         """Render label with fixed icon+arrow prefix columns."""
-        from rich.text import Text as RichText
-
         room_num = node.data
         is_child = node.parent is not None and node.parent.parent is not None
 
         # Icon column (2 chars): priority -- home > blocked > marked > bookmark
         if room_num and room_num in self.home:
-            icon = RichText("\u2302 ", style=HOME_STYLE)
+            icon = rich.text.Text("\u2302 ", style=HOME_STYLE)
         elif room_num and room_num in self.blocked:
-            icon = RichText("\u2300 ", style=BLOCKED_STYLE)
+            icon = rich.text.Text("\u2300 ", style=BLOCKED_STYLE)
         elif room_num and room_num in self.marked:
-            icon = RichText("\u27bd ", style=MARKED_STYLE)
+            icon = rich.text.Text("\u27bd ", style=MARKED_STYLE)
         elif room_num and room_num in self.bookmarked:
-            icon = RichText("\u2021 ", style=BOOKMARK_STYLE)
+            icon = rich.text.Text("\u2021 ", style=BOOKMARK_STYLE)
         else:
-            icon = RichText("  ")
+            icon = rich.text.Text("  ")
 
         # Arrow column (2 chars: arrow + space) -- only for expandable nodes
         if node.allow_expand:
             arrow_char = self.ICON_NODE_EXPANDED if node.is_expanded else self.ICON_NODE
-            arrow = RichText(arrow_char, style=ARROW_STYLE)
+            arrow = rich.text.Text(arrow_char, style=ARROW_STYLE)
         elif not is_child:
-            arrow = RichText("  ")
+            arrow = rich.text.Text("  ")
         else:
-            arrow = RichText("")
+            arrow = rich.text.Text("")
 
         node_label = node.label.copy()
         node_label.stylize(style)
 
-        text = RichText.assemble(icon, arrow, node_label)
+        text = rich.text.Text.assemble(icon, arrow, node_label)
         return text
 
 
@@ -143,23 +109,21 @@ class RoomTree(Tree[str]):
 # ---------------------------------------------------------------------------
 
 
-class RoomBrowserPane(Vertical):
+class RoomBrowserPane(textual.containers.Vertical):
     """Pane widget for GMCP room graph browsing."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "close", "Close", priority=True),
-        Binding("f1", "show_help", "Help", show=True),
-        Binding("enter", "fast_travel", "Travel", show=True),
-        Binding(
-            "asterisk", "toggle_bookmark", "Bookmark", key_display="*", show=True, priority=True
-        ),
-        Binding("b", "toggle_block", "Block", show=True),
-        Binding("h", "toggle_home", "Home", show=True),
-        Binding("m", "toggle_mark", "Mark", show=True),
-        Binding("n", "sort_name", "Name sort", show=True),
-        Binding("i", "sort_id", "ID sort", show=True),
-        Binding("d", "sort_distance", "Dist sort", show=True),
-        Binding("l", "sort_last", "Recent", show=True),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "close", "Close", priority=True),
+        textual.binding.Binding("f1", "show_help", "Help", show=True),
+        textual.binding.Binding("enter", "fast_travel", "Travel", show=True),
+        textual.binding.Binding("asterisk", "toggle_bookmark", "Bookmark", key_display="*", show=True, priority=True),
+        textual.binding.Binding("b", "toggle_block", "Block", show=True),
+        textual.binding.Binding("h", "toggle_home", "Home", show=True),
+        textual.binding.Binding("m", "toggle_mark", "Mark", show=True),
+        textual.binding.Binding("n", "sort_name", "Name sort", show=True),
+        textual.binding.Binding("i", "sort_id", "ID sort", show=True),
+        textual.binding.Binding("d", "sort_distance", "Dist sort", show=True),
+        textual.binding.Binding("l", "sort_last", "Recent", show=True),
     ]
 
     DEFAULT_CSS = """
@@ -201,11 +165,7 @@ class RoomBrowserPane(Vertical):
     """
 
     def __init__(
-        self,
-        rooms_path: str,
-        session_key: str = "",
-        current_room_file: str = "",
-        fasttravel_file: str = "",
+        self, rooms_path: str, session_key: str = "", current_room_file: str = "", fasttravel_file: str = ""
     ) -> None:
         """Initialize room browser."""
         super().__init__()
@@ -233,40 +193,38 @@ class RoomBrowserPane(Vertical):
         nc = self.name_col
         return f"    {'Name'.ljust(nc)} {'(N)'.rjust(6)} {info_col} #ID"
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build the room browser layout."""
-        with Vertical(id="room-panel"), Horizontal(id="room-body"):
-            with Vertical(id="room-button-col"):
-                travel_btn = Button("Travel", variant="success", id="room-travel")
+        with textual.containers.Vertical(id="room-panel"), textual.containers.Horizontal(id="room-body"):
+            with textual.containers.Vertical(id="room-button-col"):
+                travel_btn = textual.widgets.Button("Travel", variant="success", id="room-travel")
                 travel_btn.tooltip = "Travel to the selected room"
                 yield travel_btn
-                yield Button("Help", variant="success", id="room-help")
-                yield Button("Close", id="room-close")
-                with Vertical(id="room-area-frame"):
-                    yield Static("Area:")
-                    yield Select[str](
-                        [], id="room-area-select", allow_blank=True, prompt="All Areas"
-                    )
-                    yield Static("", id="room-total")
-            with Vertical(id="room-right"):
-                yield Input(placeholder="Search rooms\u2026", id="room-search")
-                yield Static(self.heading_text(), id="room-heading")
+                yield textual.widgets.Button("Help", variant="success", id="room-help")
+                yield textual.widgets.Button("Close", id="room-close")
+                with textual.containers.Vertical(id="room-area-frame"):
+                    yield textual.widgets.Static("Area:")
+                    yield textual.widgets.Select[str]([], id="room-area-select", allow_blank=True, prompt="All Areas")
+                    yield textual.widgets.Static("", id="room-total")
+            with textual.containers.Vertical(id="room-right"):
+                yield textual.widgets.Input(placeholder="Search rooms\u2026", id="room-search")
+                yield textual.widgets.Static(self.heading_text(), id="room-heading")
                 yield RoomTree("Rooms", id="room-tree")
-                with Horizontal(id="room-status"):
-                    yield Static("", id="room-count")
-                    yield Static("", id="room-distance")
-                yield Static("", id="room-exits")
-                with Horizontal(id="room-marker-bar"):
-                    yield Button("Bookmark \u2021", variant="warning", id="room-bookmark")
-                    yield Button("Block \u2300", variant="error", id="room-block")
-                    yield Button("Home \u2302", variant="primary", id="room-home")
-                    yield Button("Mark \u27bd", variant="default", id="room-mark")
+                with textual.containers.Horizontal(id="room-status"):
+                    yield textual.widgets.Static("", id="room-count")
+                    yield textual.widgets.Static("", id="room-distance")
+                yield textual.widgets.Static("", id="room-exits")
+                with textual.containers.Horizontal(id="room-marker-bar"):
+                    yield textual.widgets.Button("Bookmark \u2021", variant="warning", id="room-bookmark")
+                    yield textual.widgets.Button("Block \u2300", variant="error", id="room-block")
+                    yield textual.widgets.Button("Home \u2302", variant="primary", id="room-home")
+                    yield textual.widgets.Button("Mark \u27bd", variant="default", id="room-mark")
 
     def request_close(self, result: bool | None = None) -> None:
         """Dismiss the parent screen or exit the app."""
         try:
             self.screen.dismiss(result)
-        except ScreenStackError:
+        except textual.app.ScreenStackError:
             self.app.exit()
 
     def max_area_len(self) -> int:
@@ -294,8 +252,8 @@ class RoomBrowserPane(Vertical):
         available = term_w - col_w - chrome - row_fixed
         self.name_col = max(NAME_COL_BASE, available)
         try:
-            self.query_one("#room-heading", Static).update(self.heading_text())
-        except NoMatches:
+            self.query_one("#room-heading", textual.widgets.Static).update(self.heading_text())
+        except textual.css.query.NoMatches:
             pass
 
     def on_mount(self) -> None:
@@ -304,7 +262,7 @@ class RoomBrowserPane(Vertical):
         fg_muted = css_vars.get("foreground-muted", "")
         if fg_muted:
             self.muted_style = fg_muted[:7] if len(fg_muted) >= 7 else fg_muted
-        tree = self.query_one("#room-tree", Tree)
+        tree = self.query_one("#room-tree", textual.widgets.Tree)
         tree.show_root = False
         tree.guide_depth = 3
         self.load_rooms()
@@ -316,24 +274,24 @@ class RoomBrowserPane(Vertical):
         self.mounted = True
         self.call_after_refresh(self.select_current_room)
 
-    def on_resize(self, event: events.Resize) -> None:
+    def on_resize(self, event: textual.events.Resize) -> None:
         """Reflow columns and rebuild the tree on terminal resize."""
         if not self.mounted:
             return
         self.reflow_columns()
-        search_val = self.query_one("#room-search", Input).value
+        search_val = self.query_one("#room-search", textual.widgets.Input).value
         self.refresh_tree(search_val)
 
     def select_room_node(self, room_num: str) -> bool:
         """
         Select the tree node matching *room_num*.
 
-        Expands parent groups as needed and forces a tree rebuild so that line numbers are valid
-        before scrolling.
+        Expands parent groups as needed and forces a tree rebuild
+        so that line numbers are valid before scrolling.
 
         Return True on success.
         """
-        tree = self.query_one("#room-tree", Tree)
+        tree = self.query_one("#room-tree", textual.widgets.Tree)
         target = None
         for node in tree.root.children:
             if node.data == room_num:
@@ -358,23 +316,19 @@ class RoomBrowserPane(Vertical):
         """Move cursor to the current room node, if known."""
         if not self.current_room_file:
             return
-        from telix.rooms import read_current_room
-
-        current = read_current_room(self.current_room_file)
+        current = telix.rooms.read_current_room(self.current_room_file)
         if not current:
             return
         self.select_room_node(current)
 
     def load_rooms(self) -> None:
         """Load room data from SQLite database."""
-        from telix.rooms import RoomStore, read_current_room
-
-        graph = RoomStore(self.rooms_path, read_only=True)
+        graph = telix.rooms.RoomStore(self.rooms_path, read_only=True)
         self.graph = graph
         self.all_rooms = graph.room_summaries()
         self.last_visited = {num: lv for num, _, _, _, _, lv, _, _, _ in self.all_rooms if lv}
         if self.current_room_file:
-            current = read_current_room(self.current_room_file)
+            current = telix.rooms.read_current_room(self.current_room_file)
             if current:
                 self.current_area = graph.room_area(current)
 
@@ -386,7 +340,7 @@ class RoomBrowserPane(Vertical):
                 areas.add(area)
         sorted_areas = sorted(areas, key=str.lower)
         options = [(a, a) for a in sorted_areas]
-        select = self.query_one("#room-area-select", Select)
+        select = self.query_one("#room-area-select", textual.widgets.Select)
         select.set_options(options)
         if self.current_area and self.current_area in areas:
             select.value = self.current_area
@@ -396,16 +350,12 @@ class RoomBrowserPane(Vertical):
         self.distances = {}
         if not self.current_room_file or self.graph is None:
             return
-        from telix.rooms import read_current_room
-
-        current = read_current_room(self.current_room_file)
+        current = telix.rooms.read_current_room(self.current_room_file)
         if current:
             self.distances = self.graph.bfs_distances(current)
 
     @staticmethod
-    def priority(
-        r: tuple[str, str, str, int, bool, str, bool, bool, bool],
-    ) -> tuple[bool, bool, bool, bool]:
+    def priority(r: tuple[str, str, str, int, bool, str, bool, bool, bool]) -> tuple[bool, bool, bool, bool]:
         """Return sort priority: home, blocked, bookmarked, marked first."""
         # r[7]=home, r[6]=blocked, r[4]=bookmarked, r[8]=marked
         return (not r[7], not r[6], not r[4], not r[8])
@@ -414,15 +364,10 @@ class RoomBrowserPane(Vertical):
         """Sort ``all_rooms`` according to ``sort_mode``."""
         if self.sort_mode == "distance":
             self.all_rooms.sort(
-                key=lambda r: (
-                    *self.priority(r),
-                    self.distances.get(r[0], float("inf")),
-                    r[2].lower(),
-                    r[1].lower(),
-                )
+                key=lambda r: (*self.priority(r), self.distances.get(r[0], float("inf")), r[2].lower(), r[1].lower())
             )
         elif self.sort_mode == "last_visited":
-            self.all_rooms.sort(key=lambda r: (*self.priority(r), invert_ts(r[5]), r[1].lower()))
+            self.all_rooms.sort(key=lambda r: (*self.priority(r), client_tui_editors.invert_ts(r[5]), r[1].lower()))
         elif self.sort_mode == "id":
             self.all_rooms.sort(key=lambda r: (*self.priority(r), r[0].lower()))
         else:
@@ -437,39 +382,33 @@ class RoomBrowserPane(Vertical):
 
     @staticmethod
     def fit_name(name: str, width: int) -> str:
-        """Left-justify *name* to *width*, adding ``\u2026`` if truncated."""
+        """Left-justify *name* to *width*, adding ``\\u2026`` if truncated."""
         if len(name) <= width:
             return name.ljust(width)
         return name[: width - 1] + "\u2026"
 
-    def room_label(self, num: str, name: str = "") -> RichText:
+    def room_label(self, num: str, name: str = "") -> rich.text.Text:
         """Format a child leaf label with muted name, aligned dist/time + id."""
-        from rich.text import Text as RichText
-
         if self.sort_mode == "last_visited":
             lv = self.last_visited.get(num, "")
-            info_part = relative_time(lv).rjust(8) if lv else "".rjust(8)
+            info_part = client_tui_base.relative_time(lv).rjust(8) if lv else "".rjust(8)
         else:
             dist = self.distances.get(num)
             info_part = f"[{dist}]".rjust(5) if dist is not None else "     "
         id_part = f" #{self.short_id(num)}"
         child_col = self.name_col - 1
         name_part = self.fit_name(name, child_col)
-        label = RichText(f"{name_part} {''.rjust(6)} {info_part}{id_part}")
+        label = rich.text.Text(f"{name_part} {''.rjust(6)} {info_part}{id_part}")
         if name:
             label.stylize(self.muted_style, 0, len(name_part))
         return label
 
     def refresh_tree(self, query: str = "") -> None:
         """Rebuild tree nodes, grouping rooms with the same name."""
-        from rich.text import Text as RichText
-
-        from telix.rooms import strip_exit_dirs
-
-        tree = self.query_one("#room-tree", Tree)
+        tree = self.query_one("#room-tree", textual.widgets.Tree)
         tree.clear()
         q = query.lower()
-        select = self.query_one("#room-area-select", Select)
+        select = self.query_one("#room-area-select", textual.widgets.Select)
         area_filter = select.value if isinstance(select.value, str) else None
 
         groups: dict[str, list[tuple[str, str, int, bool, str]]] = {}
@@ -477,10 +416,8 @@ class RoomBrowserPane(Vertical):
         for num, name, area, exits, bookmarked, lv, bl, hm, mk in self.all_rooms:
             if area_filter and area != area_filter:
                 continue
-            display_name = strip_exit_dirs(name)
-            if q and (
-                q not in display_name.lower() and q not in area.lower() and q not in num.lower()
-            ):
+            display_name = telix.rooms.strip_exit_dirs(name)
+            if q and (q not in display_name.lower() and q not in area.lower() and q not in num.lower()):
                 continue
             if display_name not in groups:
                 groups[display_name] = []
@@ -505,29 +442,24 @@ class RoomBrowserPane(Vertical):
                     name_part = self.fit_name(name, self.name_col)
                     count_part = "(1)".rjust(6)
                     if show_time:
-                        info_part = relative_time(lv).rjust(8) if lv else "".rjust(8)
+                        info_part = client_tui_base.relative_time(lv).rjust(8) if lv else "".rjust(8)
                     else:
                         dist = self.distances.get(num)
                         info_part = f"[{dist}]".rjust(5) if dist is not None else "     "
                     id_part = f" #{self.short_id(num)}"
                     label = f"{name_part} {count_part} {info_part}{id_part}"
-                    tree.root.add_leaf(RichText(label), data=num)
+                    tree.root.add_leaf(rich.text.Text(label), data=num)
                 else:
                     name_part = self.fit_name(name, self.name_col)
                     count_part = f"({len(members)})".rjust(6)
                     if show_time:
                         newest = max((m[4] for m in members if m[4]), default="")
-                        info_part = relative_time(newest).rjust(8) if newest else "".rjust(8)
+                        info_part = client_tui_base.relative_time(newest).rjust(8) if newest else "".rjust(8)
                     else:
-                        nearest = min(
-                            (self.distances.get(m[0], float("inf")) for m in members),
-                            default=float("inf"),
-                        )
-                        info_part = (
-                            f"[{int(nearest)}]".rjust(5) if nearest != float("inf") else "     "
-                        )
+                        nearest = min((self.distances.get(m[0], float("inf")) for m in members), default=float("inf"))
+                        info_part = f"[{int(nearest)}]".rjust(5) if nearest != float("inf") else "     "
                     label = f"{name_part} {count_part} {info_part}"
-                    parent = tree.root.add(RichText(label), data=None)
+                    parent = tree.root.add(rich.text.Text(label), data=None)
                     if show_time:
                         members.sort(key=lambda m: m[4] or "", reverse=True)
                     else:
@@ -535,15 +467,15 @@ class RoomBrowserPane(Vertical):
                     for num, area, exits, bookmarked, lv in members:
                         parent.add_leaf(self.room_label(num, name), data=num)
 
-        count_label = self.query_one("#room-count", Static)
+        count_label = self.query_one("#room-count", textual.widgets.Static)
         n_total = len(self.all_rooms)
         count_label.update(f"{n_shown:,} Rooms")
-        total_label = self.query_one("#room-total", Static)
+        total_label = self.query_one("#room-total", textual.widgets.Static)
         total_label.update(f"{n_total:,} Rooms Total")
 
     def get_selected_room_num(self) -> str | None:
         """Return the room number of the currently highlighted tree node."""
-        tree = self.query_one("#room-tree", Tree)
+        tree = self.query_one("#room-tree", textual.widgets.Tree)
         node = tree.cursor_node
         if node is None:
             return None
@@ -555,13 +487,13 @@ class RoomBrowserPane(Vertical):
                 return str(first.data)
         return None
 
-    def on_select_changed(self, event: Select.Changed) -> None:
+    def on_select_changed(self, event: textual.widgets.Select.Changed) -> None:
         """Re-filter tree when area dropdown changes."""
         if event.select.id == "room-area-select" and self.mounted:
-            search_val = self.query_one("#room-search", Input).value
+            search_val = self.query_one("#room-search", textual.widgets.Input).value
             self.refresh_tree(search_val)
 
-    def on_input_changed(self, event: Input.Changed) -> None:
+    def on_input_changed(self, event: textual.widgets.Input.Changed) -> None:
         """Filter tree when search input changes."""
         if event.input.id == "room-search":
             self.refresh_tree(event.value)
@@ -583,14 +515,14 @@ class RoomBrowserPane(Vertical):
     def set_travel_buttons_disabled(self, disabled: bool) -> None:
         """Enable or disable the Travel button."""
         try:
-            self.query_one("#room-travel", Button).disabled = disabled
-        except NoMatches:
+            self.query_one("#room-travel", textual.widgets.Button).disabled = disabled
+        except textual.css.query.NoMatches:
             pass
 
-    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[str]) -> None:
+    def on_tree_node_highlighted(self, event: textual.widgets.Tree.NodeHighlighted[str]) -> None:
         """Update distance and exits labels when tree cursor moves."""
-        dist_label = self.query_one("#room-distance", Static)
-        exits_label = self.query_one("#room-exits", Static)
+        dist_label = self.query_one("#room-distance", textual.widgets.Static)
+        exits_label = self.query_one("#room-exits", textual.widgets.Static)
         node = event.node
         room_num = node.data if node.data is not None else None
         if room_num is None and node.children:
@@ -607,9 +539,7 @@ class RoomBrowserPane(Vertical):
             dist_label.update("")
             self.set_travel_buttons_disabled(True)
             return
-        from telix.rooms import read_current_room
-
-        current = read_current_room(self.current_room_file)
+        current = telix.rooms.read_current_room(self.current_room_file)
         if not current:
             dist_label.update("")
             self.set_travel_buttons_disabled(True)
@@ -627,9 +557,9 @@ class RoomBrowserPane(Vertical):
             dist_label.update(f"Distance: {n} turn{'s' if n != 1 else ''}")
             self.set_travel_buttons_disabled(False)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle button presses."""
-        handlers: dict[str, Any] = {
+        handlers: dict[str, typing.Any] = {
             "room-close": lambda: self.request_close(None),
             "room-travel": self.do_travel,
             "room-bookmark": self.do_toggle_bookmark,
@@ -644,15 +574,15 @@ class RoomBrowserPane(Vertical):
 
     def action_show_help(self) -> None:
         """Open the room browser help screen."""
-        self.app.push_screen(CommandHelpScreen(topic="room"))
+        self.app.push_screen(client_tui_base.CommandHelpScreen(topic="room"))
 
-    def on_key(self, event: events.Key) -> None:
+    def on_key(self, event: textual.events.Key) -> None:
         """Arrow keys navigate between search, buttons, and the room tree."""
         if event.key not in ("up", "down", "left", "right"):
             return
         focused = self.screen.focused
-        search = self.query_one("#room-search", Input)
-        tree = self.query_one("#room-tree", Tree)
+        search = self.query_one("#room-search", textual.widgets.Input)
+        tree = self.query_one("#room-tree", textual.widgets.Tree)
         buttons = list(self.query("#room-button-col Button"))
         if focused is search:
             if event.key == "down":
@@ -662,8 +592,8 @@ class RoomBrowserPane(Vertical):
                 buttons[0].focus()
                 event.prevent_default()
             return
-        area_select = self.query_one("#room-area-select", Select)
-        if isinstance(focused, Button) and focused in buttons:
+        area_select = self.query_one("#room-area-select", textual.widgets.Select)
+        if isinstance(focused, textual.widgets.Button) and focused in buttons:
             idx = buttons.index(focused)
             if event.key == "up" and idx > 0:
                 buttons[idx - 1].focus()
@@ -735,11 +665,11 @@ class RoomBrowserPane(Vertical):
             select_num = self.get_selected_room_num()
         self.sort_rooms()
         try:
-            heading = self.query_one("#room-heading", Static)
+            heading = self.query_one("#room-heading", textual.widgets.Static)
             heading.update(self.heading_text())
-        except NoMatches:
+        except textual.css.query.NoMatches:
             pass
-        search_val = self.query_one("#room-search", Input).value
+        search_val = self.query_one("#room-search", textual.widgets.Input).value
         self.refresh_tree(search_val)
         if select_num:
             self.select_room_node(select_num)
@@ -766,9 +696,7 @@ class RoomBrowserPane(Vertical):
         if num is None:
             return
 
-        from telix.rooms import RoomStore
-
-        store = RoomStore(self.rooms_path)
+        store = telix.rooms.RoomStore(self.rooms_path)
         store.set_marker(num, marker)
         self.all_rooms = store.room_summaries()
         store.close()
@@ -796,20 +724,18 @@ class RoomBrowserPane(Vertical):
         if dst_num is None:
             return
 
-        from telix.rooms import RoomStore, write_fasttravel, read_current_room
-
-        current = read_current_room(self.current_room_file)
+        current = telix.rooms.read_current_room(self.current_room_file)
         if not current:
-            count = self.query_one("#room-count", Static)
+            count = self.query_one("#room-count", textual.widgets.Static)
             count.update("No current room \u2014 move first")
             return
 
         if current == dst_num:
-            count = self.query_one("#room-count", Static)
+            count = self.query_one("#room-count", textual.widgets.Static)
             count.update("Already in this room")
             return
 
-        graph = RoomStore(self.rooms_path, read_only=True)
+        graph = telix.rooms.RoomStore(self.rooms_path, read_only=True)
         try:
             path = graph.find_path_with_rooms(current, dst_num)
         finally:
@@ -820,23 +746,19 @@ class RoomBrowserPane(Vertical):
                 if rnum == dst_num:
                     dst_name = name
                     break
-            count = self.query_one("#room-count", Static)
+            count = self.query_one("#room-count", textual.widgets.Static)
             count.update(f"No path found to {dst_name or dst_num}")
             return
 
-        write_fasttravel(self.fasttravel_file, path)
+        telix.rooms.write_fasttravel(self.fasttravel_file, path)
         self.request_close(True)
 
 
-class RoomBrowserScreen(Screen["bool | None"]):
+class RoomBrowserScreen(textual.screen.Screen["bool | None"]):
     """Thin screen wrapper for the room browser."""
 
     def __init__(
-        self,
-        rooms_path: str,
-        session_key: str = "",
-        current_room_file: str = "",
-        fasttravel_file: str = "",
+        self, rooms_path: str, session_key: str = "", current_room_file: str = "", fasttravel_file: str = ""
     ) -> None:
         super().__init__()
         self.pane = RoomBrowserPane(
@@ -846,43 +768,41 @@ class RoomBrowserScreen(Screen["bool | None"]):
             fasttravel_file=fasttravel_file,
         )
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         yield self.pane
-        yield Footer()
+        yield textual.widgets.Footer()
 
 
 class RoomPickerPane(RoomBrowserPane):
     """Pane variant for room picking with Select/Cancel buttons."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "close", "Close", priority=True),
-        Binding("enter", "select_room", "Select", show=True),
-        Binding("n", "sort_name", "Name sort", show=True),
-        Binding("i", "sort_id", "ID sort", show=True),
-        Binding("d", "sort_distance", "Dist sort", show=True),
-        Binding("l", "sort_last", "Recent", show=True),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "close", "Close", priority=True),
+        textual.binding.Binding("enter", "select_room", "Select", show=True),
+        textual.binding.Binding("n", "sort_name", "Name sort", show=True),
+        textual.binding.Binding("i", "sort_id", "ID sort", show=True),
+        textual.binding.Binding("d", "sort_distance", "Dist sort", show=True),
+        textual.binding.Binding("l", "sort_last", "Recent", show=True),
     ]
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build the room picker layout with Select/Cancel buttons only."""
-        with Vertical(id="room-panel"), Horizontal(id="room-body"):
-            with Vertical(id="room-button-col"):
-                yield Button("Select", variant="success", id="room-select")
-                yield Button("Cancel", id="room-close")
-                with Vertical(id="room-area-frame"):
-                    yield Static("Area:")
-                    yield Select[str](
-                        [], id="room-area-select", allow_blank=True, prompt="All Areas"
-                    )
-            with Vertical(id="room-right"):
-                yield Input(placeholder="Search rooms\u2026", id="room-search")
+        with textual.containers.Vertical(id="room-panel"), textual.containers.Horizontal(id="room-body"):
+            with textual.containers.Vertical(id="room-button-col"):
+                yield textual.widgets.Button("Select", variant="success", id="room-select")
+                yield textual.widgets.Button("Cancel", id="room-close")
+                with textual.containers.Vertical(id="room-area-frame"):
+                    yield textual.widgets.Static("Area:")
+                    yield textual.widgets.Select[str]([], id="room-area-select", allow_blank=True, prompt="All Areas")
+            with textual.containers.Vertical(id="room-right"):
+                yield textual.widgets.Input(placeholder="Search rooms\u2026", id="room-search")
                 yield RoomTree("Rooms", id="room-tree")
-                with Horizontal(id="room-status"):
-                    yield Static("", id="room-count")
-                    yield Static("", id="room-distance")
-                yield Static("", id="room-exits")
+                with textual.containers.Horizontal(id="room-status"):
+                    yield textual.widgets.Static("", id="room-count")
+                    yield textual.widgets.Static("", id="room-distance")
+                yield textual.widgets.Static("", id="room-exits")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle Select/Cancel button presses."""
         if event.button.id == "room-close":
             self.request_close(None)
@@ -901,18 +821,16 @@ class RoomPickerPane(RoomBrowserPane):
         self.request_close(num)
 
 
-class RoomPickerScreen(Screen["str | None"]):
+class RoomPickerScreen(textual.screen.Screen["str | None"]):
     """Thin screen wrapper for the room picker."""
 
     def __init__(self, rooms_path: str, session_key: str = "", current_room_file: str = "") -> None:
         super().__init__()
-        self.pane = RoomPickerPane(
-            rooms_path=rooms_path, session_key=session_key, current_room_file=current_room_file
-        )
+        self.pane = RoomPickerPane(rooms_path=rooms_path, session_key=session_key, current_room_file=current_room_file)
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         yield self.pane
-        yield Footer()
+        yield textual.widgets.Footer()
 
 
 # ---------------------------------------------------------------------------
@@ -920,16 +838,16 @@ class RoomPickerScreen(Screen["str | None"]):
 # ---------------------------------------------------------------------------
 
 
-class CapsPane(Vertical):
+class CapsPane(textual.containers.Vertical):
     """Pane widget for captures and chats viewing."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "close", "Close", show=True),
-        Binding("f10", "close", "Close", show=False),
-        Binding("q", "close", "Close", show=False),
-        Binding("f1", "toggle_keys", "Keys", show=True),
-        Binding("tab", "next_channel", "Next Channel", show=True),
-        Binding("shift+tab", "prev_channel", "Prev Channel", show=True, priority=True),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "close", "Close", show=True),
+        textual.binding.Binding("f10", "close", "Close", show=False),
+        textual.binding.Binding("q", "close", "Close", show=False),
+        textual.binding.Binding("f1", "toggle_keys", "Keys", show=True),
+        textual.binding.Binding("tab", "next_channel", "Next Channel", show=True),
+        textual.binding.Binding("shift+tab", "prev_channel", "Prev Channel", show=True, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -952,38 +870,34 @@ class CapsPane(Vertical):
     """
 
     def __init__(
-        self,
-        chat_file: str,
-        session_key: str = "",
-        initial_channel: str = "",
-        capture_file: str = "",
+        self, chat_file: str, session_key: str = "", initial_channel: str = "", capture_file: str = ""
     ) -> None:
         """
         Initialize with path to chat history file.
 
         :param chat_file: Path to the chat JSON file.
         :param session_key: Session identifier.
-        :param initial_channel: Channel to select on open (most recent activity).
-        :param capture_file: Path to a JSON file with capture data.
+        :param initial_channel: Channel to select on open
+            (most recent activity).
+        :param capture_file: Path to a JSON file with
+            capture data.
         """
         super().__init__()
         self.chat_file = chat_file
         self.session_key = session_key
         self.initial_channel = initial_channel
         self.capture_file = capture_file
-        self.messages: list[dict[str, Any]] = []
+        self.messages: list[dict[str, typing.Any]] = []
         self.channels: list[str] = []
         self.filter_idx: int = 0
         self.captures: dict[str, int] = {}
-        self.capture_log: dict[str, list[dict[str, Any]]] = {}
+        self.capture_log: dict[str, list[dict[str, typing.Any]]] = {}
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build the chat viewer layout."""
-        from textual.widgets import RichLog
-
-        with Vertical(id="chat-header"):
-            yield Static("", id="chat-channel-bar")
-        yield RichLog(highlight=False, markup=False, wrap=True, id="chat-log")
+        with textual.containers.Vertical(id="chat-header"):
+            yield textual.widgets.Static("", id="chat-channel-bar")
+        yield textual.widgets.RichLog(highlight=False, markup=False, wrap=True, id="chat-log")
 
     def on_mount(self) -> None:
         """Load chat file, select initial channel, and populate the log."""
@@ -1028,10 +942,8 @@ class CapsPane(Vertical):
 
     def update_channel_bar(self) -> None:
         """Rebuild the horizontal channel bar with the active channel highlighted."""
-        from rich.text import Text as RichText
-
         labels = self.channel_labels()
-        channel_bar = RichText("Channel (TAB changes): ")
+        channel_bar = rich.text.Text("Channel (TAB changes): ")
         for i, name in enumerate(labels):
             if i > 0:
                 channel_bar.append("  ")
@@ -1039,28 +951,25 @@ class CapsPane(Vertical):
                 channel_bar.append(f" {name} ", style="reverse bold")
             else:
                 channel_bar.append(name, style="dim")
-        self.query_one("#chat-channel-bar", Static).update(channel_bar)
+        self.query_one("#chat-channel-bar", textual.widgets.Static).update(channel_bar)
 
     def populate_log(self, channel_filter: str = "") -> None:
         """Fill the RichLog with chat and capture messages, optionally filtered."""
-        from rich.text import Text as RichText
-        from textual.widgets import RichLog
-
         if not channel_filter:
             channel_filter = self.active_filter()
-        log_widget: RichLog = self.query_one("#chat-log", RichLog)
+        log_widget: textual.widgets.RichLog = self.query_one("#chat-log", textual.widgets.RichLog)
         log_widget.clear()
 
         # Show captures key/value table when viewing the "captures" channel
         if channel_filter == "captures" and self.captures:
-            header = RichText("Current Captures:", style="bold underline")
+            header = rich.text.Text("Current Captures:", style="bold underline")
             log_widget.write(header)
             for k, v in sorted(self.captures.items()):
-                log_widget.write(RichText(f"  {k}: {v}"))
-            log_widget.write(RichText(""))
+                log_widget.write(rich.text.Text(f"  {k}: {v}"))
+            log_widget.write(rich.text.Text(""))
 
         # Merge GMCP chat messages and capture log entries by timestamp
-        all_entries: list[tuple[str, str, dict[str, Any]]] = []
+        all_entries: list[tuple[str, str, dict[str, typing.Any]]] = []
         for msg in self.messages:
             ch = msg.get("channel", "")
             if channel_filter and ch != channel_filter:
@@ -1075,14 +984,14 @@ class CapsPane(Vertical):
 
         for ts_val, source, msg in all_entries:
             ch = msg.get("channel", "")
-            line = RichText()
+            line = rich.text.Text()
             if ts_val:
                 short_ts = ts_val[11:16] if len(ts_val) >= 16 else ts_val
                 line.append(f"{short_ts} ", style="dim")
             if not channel_filter:
                 channel_ansi = msg.get("channel_ansi", "")
                 if channel_ansi:
-                    line.append_text(RichText.from_ansi(channel_ansi.rstrip()))
+                    line.append_text(rich.text.Text.from_ansi(channel_ansi.rstrip()))
                     line.append(" ")
                 else:
                     line.append(f"[{ch}] ", style="bold cyan")
@@ -1096,14 +1005,14 @@ class CapsPane(Vertical):
                             body = body[len(prefix) :]
                             break
                     line.append(f"{talker}: ", style="bold")
-                line.append_text(RichText.from_ansi(body))
+                line.append_text(rich.text.Text.from_ansi(body))
             else:
                 line_text = msg.get("line", "")
                 hl_style = msg.get("highlight", "")
                 if hl_style:
                     line.append(line_text, style=hl_style.replace("_", " "))
                 else:
-                    line.append_text(RichText.from_ansi(line_text))
+                    line.append_text(rich.text.Text.from_ansi(line_text))
             log_widget.write(line)
         log_widget.scroll_end(animate=False)
 
@@ -1137,27 +1046,20 @@ class CapsPane(Vertical):
         self.populate_log()
 
 
-class CapsScreen(Screen[None]):
+class CapsScreen(textual.screen.Screen[None]):
     """Thin screen wrapper for the captures and chats viewer."""
 
     def __init__(
-        self,
-        chat_file: str,
-        session_key: str = "",
-        initial_channel: str = "",
-        capture_file: str = "",
+        self, chat_file: str, session_key: str = "", initial_channel: str = "", capture_file: str = ""
     ) -> None:
         super().__init__()
         self.pane = CapsPane(
-            chat_file=chat_file,
-            session_key=session_key,
-            initial_channel=initial_channel,
-            capture_file=capture_file,
+            chat_file=chat_file, session_key=session_key, initial_channel=initial_channel, capture_file=capture_file
         )
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         yield self.pane
-        yield Footer()
+        yield textual.widgets.Footer()
 
 
 # Keep backwards-compatible alias.
@@ -1165,22 +1067,15 @@ ChatViewerScreen = CapsScreen
 
 
 def chat_viewer_main(
-    chat_file: str,
-    session_key: str = "",
-    initial_channel: str = "",
-    logfile: str = "",
-    capture_file: str = "",
+    chat_file: str, session_key: str = "", initial_channel: str = "", logfile: str = "", capture_file: str = ""
 ) -> None:
     """Launch standalone Capture Window TUI."""
-    restore_blocking_fds(logfile)
-    log_child_diagnostics()
-    patch_writer_thread_queue()
-    app = EditorApp(
+    client_tui_base.restore_blocking_fds(logfile)
+    client_tui_base.log_child_diagnostics()
+    client_tui_base.patch_writer_thread_queue()
+    app = client_tui_base.EditorApp(
         ChatViewerScreen(
-            chat_file=chat_file,
-            session_key=session_key,
-            initial_channel=initial_channel,
-            capture_file=capture_file,
+            chat_file=chat_file, session_key=session_key, initial_channel=initial_channel, capture_file=capture_file
         ),
         session_key=session_key,
     )
@@ -1203,19 +1098,19 @@ EDITOR_TABS: list[tuple[str, str]] = [
 ]
 
 
-class TabbedEditorScreen(Screen[None]):
+class TabbedEditorScreen(textual.screen.Screen[None]):
     """Full-screen tabbed editor combining all editor panes."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "close_or_back", "Close", priority=True),
-        Binding("f1", "show_help", "Help", show=False, priority=True),
-        Binding("f6", "switch_tab('highlights')", "Highlights", show=False, priority=True),
-        Binding("f7", "switch_tab('rooms')", "Rooms", show=False, priority=True),
-        Binding("f8", "switch_tab('macros')", "Macros", show=False, priority=True),
-        Binding("f9", "switch_tab('autoreplies')", "Autoreplies", show=False, priority=True),
-        Binding("f10", "switch_tab('captures')", "Caps", show=False, priority=True),
-        Binding("f11", "switch_tab('bars')", "Bars", show=False, priority=True),
-        Binding("f12", "switch_tab('theme')", "Theme", show=False, priority=True),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "close_or_back", "Close", priority=True),
+        textual.binding.Binding("f1", "show_help", "Help", show=False, priority=True),
+        textual.binding.Binding("f6", "switch_tab('highlights')", "Highlights", show=False, priority=True),
+        textual.binding.Binding("f7", "switch_tab('rooms')", "Rooms", show=False, priority=True),
+        textual.binding.Binding("f8", "switch_tab('macros')", "Macros", show=False, priority=True),
+        textual.binding.Binding("f9", "switch_tab('autoreplies')", "Autoreplies", show=False, priority=True),
+        textual.binding.Binding("f10", "switch_tab('captures')", "Caps", show=False, priority=True),
+        textual.binding.Binding("f11", "switch_tab('bars')", "Bars", show=False, priority=True),
+        textual.binding.Binding("f12", "switch_tab('theme')", "Theme", show=False, priority=True),
     ]
 
     CSS = """
@@ -1245,42 +1140,40 @@ class TabbedEditorScreen(Screen[None]):
     }
     """
 
-    def __init__(self, params: dict[str, Any]) -> None:
+    def __init__(self, params: dict[str, typing.Any]) -> None:
         """
         Initialize tabbed editor from a parameters dict.
 
-        :param params: Dict with keys for each pane's constructor args, plus
-            ``initial_tab`` and ``initial_channel``.
+        :param params: Dict with keys for each pane's
+            constructor args, plus ``initial_tab`` and
+            ``initial_channel``.
         """
         super().__init__()
         self.params = params
         self.initial_tab = params.get("initial_tab", "highlights")
-        self.panes: dict[str, Any] = {}
+        self.panes: dict[str, typing.Any] = {}
         self.loaded: set[str] = set()
         self.dirty: set[str] = set()
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build tab bar and content switcher with lazy-loaded panes."""
-        with Horizontal(id="te-tab-bar"):
+        with textual.containers.Horizontal(id="te-tab-bar"):
             for label, tab_id in EDITOR_TABS:
-                btn = Button(label, id=f"te-btn-{tab_id}")
+                btn = textual.widgets.Button(label, id=f"te-btn-{tab_id}")
                 if tab_id == self.initial_tab:
                     btn.add_class("active-tab")
                 yield btn
 
-        with ContentSwitcher(id="te-content", initial=self.initial_tab):
+        with textual.widgets.ContentSwitcher(id="te-content", initial=self.initial_tab):
             for label, tab_id in EDITOR_TABS:
                 pane = self.create_pane(tab_id)
                 self.panes[tab_id] = pane
                 yield pane
 
-        yield Footer()
+        yield textual.widgets.Footer()
 
-    PANE_FACTORIES: ClassVar[dict[str, tuple[type, dict[str, str]]]] = {
-        "highlights": (
-            HighlightEditPane,
-            {"path": "highlights_file", "session_key": "session_key"},
-        ),
+    PANE_FACTORIES: typing.ClassVar[dict[str, tuple[type, dict[str, str]]]] = {
+        "highlights": (client_tui_editors.HighlightEditPane, {"path": "highlights_file", "session_key": "session_key"}),
         "rooms": (
             RoomBrowserPane,
             {
@@ -1291,7 +1184,7 @@ class TabbedEditorScreen(Screen[None]):
             },
         ),
         "macros": (
-            MacroEditPane,
+            client_tui_editors.MacroEditPane,
             {
                 "path": "macros_file",
                 "session_key": "session_key",
@@ -1300,12 +1193,8 @@ class TabbedEditorScreen(Screen[None]):
             },
         ),
         "autoreplies": (
-            AutoreplyEditPane,
-            {
-                "path": "autoreplies_file",
-                "session_key": "session_key",
-                "select_pattern": "select_pattern",
-            },
+            client_tui_editors.AutoreplyEditPane,
+            {"path": "autoreplies_file", "session_key": "session_key", "select_pattern": "select_pattern"},
         ),
         "captures": (
             CapsPane,
@@ -1317,17 +1206,13 @@ class TabbedEditorScreen(Screen[None]):
             },
         ),
         "bars": (
-            ProgressBarEditPane,
-            {
-                "path": "progressbars_file",
-                "session_key": "session_key",
-                "gmcp_snapshot_path": "gmcp_snapshot_file",
-            },
+            client_tui_editors.ProgressBarEditPane,
+            {"path": "progressbars_file", "session_key": "session_key", "gmcp_snapshot_path": ("gmcp_snapshot_file")},
         ),
-        "theme": (ThemeEditPane, {"session_key": "session_key"}),
+        "theme": (client_tui_editors.ThemeEditPane, {"session_key": "session_key"}),
     }
 
-    def create_pane(self, tab_id: str) -> Vertical:
+    def create_pane(self, tab_id: str) -> textual.containers.Vertical:
         """Instantiate the pane widget for *tab_id*."""
         cls, param_map = self.PANE_FACTORIES[tab_id]
         kwargs = {k: self.params.get(v, "") for k, v in param_map.items()}
@@ -1341,11 +1226,11 @@ class TabbedEditorScreen(Screen[None]):
 
     def action_show_help(self) -> None:
         """Open the keybindings help screen."""
-        self.app.push_screen(CommandHelpScreen(topic="keybindings"))
+        self.app.push_screen(client_tui_base.CommandHelpScreen(topic="keybindings"))
 
     def action_switch_tab(self, tab_id: str) -> None:
         """Switch to *tab_id*, loading it lazily if needed."""
-        switcher = self.query_one("#te-content", ContentSwitcher)
+        switcher = self.query_one("#te-content", textual.widgets.ContentSwitcher)
         if switcher.current == tab_id:
             return
         switcher.current = tab_id
@@ -1361,7 +1246,7 @@ class TabbedEditorScreen(Screen[None]):
                 if hasattr(pane, "refresh_table"):
                     pane.refresh_table()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle tab bar button clicks."""
         btn_id = event.button.id or ""
         if btn_id.startswith("te-btn-"):
@@ -1370,7 +1255,7 @@ class TabbedEditorScreen(Screen[None]):
 
     def action_close_or_back(self) -> None:
         """Close form if visible in an editor pane, otherwise exit app."""
-        current = self.query_one("#te-content", ContentSwitcher).current
+        current = self.query_one("#te-content", textual.widgets.ContentSwitcher).current
         pane = self.panes.get(current or "")
         if pane and hasattr(pane, "form_visible") and pane.form_visible:
             if hasattr(pane, "action_cancel_or_close"):
@@ -1396,19 +1281,20 @@ def unified_editor_main() -> None:
     """
     Launch the tabbed editor TUI subprocess.
 
-    Reads a single JSON blob from ``sys.argv[1]`` containing all parameters
-    for every pane. Called from the REPL via ``launch_unified_editor()``.
+    Reads a single JSON blob from ``sys.argv[1]``
+    containing all parameters for every pane. Called from
+    the REPL via ``launch_unified_editor()``.
     """
     params = json.loads(sys.argv[1])
     logfile = params.get("logfile", "")
-    restore_blocking_fds(logfile)
-    log_child_diagnostics()
-    patch_writer_thread_queue()
+    client_tui_base.restore_blocking_fds(logfile)
+    client_tui_base.log_child_diagnostics()
+    client_tui_base.patch_writer_thread_queue()
 
     screen = TabbedEditorScreen(params)
     session_key = params.get("session_key", "")
-    app = EditorApp(screen, session_key=session_key)
-    run_editor_app(app)
+    app = client_tui_base.EditorApp(screen, session_key=session_key)
+    client_tui_base.run_editor_app(app)
 
 
 # ---------------------------------------------------------------------------
@@ -1416,10 +1302,10 @@ def unified_editor_main() -> None:
 # ---------------------------------------------------------------------------
 
 
-class ConfirmDialogScreen(Screen[bool]):
+class ConfirmDialogScreen(textual.screen.Screen[bool]):
     """Confirmation dialog with optional warning."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+    BINDINGS = [textual.binding.Binding("escape", "cancel", "Cancel", show=False)]
 
     DEFAULT_CSS = """
     ConfirmDialogScreen {
@@ -1457,12 +1343,7 @@ class ConfirmDialogScreen(Screen[bool]):
     """
 
     def __init__(
-        self,
-        title: str,
-        body: str,
-        warning: str = "",
-        result_file: str = "",
-        show_dont_ask: bool = True,
+        self, title: str, body: str, warning: str = "", result_file: str = "", show_dont_ask: bool = True
     ) -> None:
         """Initialize confirm dialog with title, body, and optional warning."""
         super().__init__()
@@ -1472,22 +1353,22 @@ class ConfirmDialogScreen(Screen[bool]):
         self.result_file = result_file
         self.show_dont_ask = show_dont_ask
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build the confirm dialog layout."""
-        with Vertical(id="confirm-dialog"):
-            yield Static(self.title, id="confirm-title")
-            yield Static(self.body, id="confirm-body")
+        with textual.containers.Vertical(id="confirm-dialog"):
+            yield textual.widgets.Static(self.title, id="confirm-title")
+            yield textual.widgets.Static(self.body, id="confirm-body")
             if self.warning:
-                yield Static(self.warning, id="confirm-warning")
-            with Horizontal(id="confirm-buttons"):
-                yield Button("Cancel", variant="error", id="confirm-cancel")
-                yield Button("OK", variant="success", id="confirm-ok")
+                yield textual.widgets.Static(self.warning, id="confirm-warning")
+            with textual.containers.Horizontal(id="confirm-buttons"):
+                yield textual.widgets.Button("Cancel", variant="error", id="confirm-cancel")
+                yield textual.widgets.Button("OK", variant="success", id="confirm-ok")
 
     def on_mount(self) -> None:
         """Focus OK button on mount."""
-        self.query_one("#confirm-ok", Button).focus()
+        self.query_one("#confirm-ok", textual.widgets.Button).focus()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle OK/Cancel button presses."""
         if event.button.id == "confirm-ok":
             self.write_result(True)
@@ -1510,15 +1391,13 @@ class ConfirmDialogScreen(Screen[bool]):
             f.write(result)
 
 
-def confirm_dialog_main(
-    title: str, body: str, warning: str = "", result_file: str = "", logfile: str = ""
-) -> None:
+def confirm_dialog_main(title: str, body: str, warning: str = "", result_file: str = "", logfile: str = "") -> None:
     """Launch standalone confirm dialog TUI."""
-    restore_blocking_fds(logfile)
-    log_child_diagnostics()
-    patch_writer_thread_queue()
+    client_tui_base.restore_blocking_fds(logfile)
+    client_tui_base.log_child_diagnostics()
+    client_tui_base.patch_writer_thread_queue()
     screen = ConfirmDialogScreen(title=title, body=body, warning=warning, result_file=result_file)
-    app = EditorApp(screen)
+    app = client_tui_base.EditorApp(screen)
     app.run()
 
 
@@ -1527,12 +1406,12 @@ def confirm_dialog_main(
 # ---------------------------------------------------------------------------
 
 
-class RandomwalkDialogScreen(Screen[bool]):
+class RandomwalkDialogScreen(textual.screen.Screen[bool]):
     """Random walk confirmation dialog with visit-level parameter."""
 
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-        Binding("f1", "show_help", "Help", show=False),
+        textual.binding.Binding("escape", "cancel", "Cancel", show=False),
+        textual.binding.Binding("f1", "show_help", "Help", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -1625,88 +1504,87 @@ class RandomwalkDialogScreen(Screen[bool]):
         self.default_auto_survey = default_auto_survey
         self.default_autoreplies = default_autoreplies
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="rw-dialog"):
-            yield Static("Random Walk", id="rw-title")
-            yield Static(
-                "Random walk explores rooms by picking random exits, "
-                "preferring unvisited rooms. It never returns through "
-                "the entrance you came from. Autoreplies fire in each "
-                "room. Stops when all reachable rooms are visited the "
+    def compose(self) -> textual.app.ComposeResult:
+        with textual.containers.Vertical(id="rw-dialog"):
+            yield textual.widgets.Static("Random Walk", id="rw-title")
+            yield textual.widgets.Static(
+                "Random walk explores rooms by picking "
+                "random exits, "
+                "preferring unvisited rooms. It never "
+                "returns through "
+                "the entrance you came from. Autoreplies "
+                "fire in each "
+                "room. Stops when all reachable rooms are "
+                "visited the "
                 "required number of times.",
                 id="rw-body",
             )
-            with Vertical(id="rw-options-col"), Horizontal(classes="rw-option"):
-                lbl = Label("Visit level:")
-                lbl.tooltip = (
-                    "Minimum number of times each reachable room must be "
-                    "visited before the walk stops."
-                )
+            with textual.containers.Vertical(id="rw-options-col"), textual.containers.Horizontal(classes="rw-option"):
+                lbl = textual.widgets.Label("Visit level:")
+                lbl.tooltip = "Minimum number of times each reachable room must be visited before the walk stops."
                 yield lbl
-                yield Input(
-                    value=str(self.default_visit_level), id="rw-visit-level", type="integer"
-                )
-            with Vertical(id="rw-switches"):
-                with Horizontal(classes="rw-switch-row"):
-                    with Horizontal(classes="rw-switch-cell"):
-                        yield Label("Auto search:")
-                        yield Switch(value=self.default_auto_search, id="rw-auto-search")
-                    with Horizontal(classes="rw-switch-cell"):
-                        yield Label("Auto consider:")
-                        yield Switch(
-                            value=self.default_auto_evaluate,
+                yield textual.widgets.Input(value=str(self.default_visit_level), id="rw-visit-level", type="integer")
+            with textual.containers.Vertical(id="rw-switches"):
+                with textual.containers.Horizontal(classes="rw-switch-row"):
+                    with textual.containers.Horizontal(classes="rw-switch-cell"):
+                        yield textual.widgets.Label("Auto search:")
+                        yield textual.widgets.Switch(value=(self.default_auto_search), id="rw-auto-search")
+                    with textual.containers.Horizontal(classes="rw-switch-cell"):
+                        yield textual.widgets.Label("Auto consider:")
+                        yield textual.widgets.Switch(
+                            value=(self.default_auto_evaluate),
                             id="rw-auto-consider",
-                            disabled=not self.default_autoreplies,
+                            disabled=(not self.default_autoreplies),
                         )
-                with Horizontal(classes="rw-switch-row"):
-                    with Horizontal(classes="rw-switch-cell"):
-                        yield Label("Auto survey:")
-                        yield Switch(
-                            value=self.default_auto_survey,
+                with textual.containers.Horizontal(classes="rw-switch-row"):
+                    with textual.containers.Horizontal(classes="rw-switch-cell"):
+                        yield textual.widgets.Label("Auto survey:")
+                        yield textual.widgets.Switch(
+                            value=(self.default_auto_survey),
                             id="rw-auto-survey",
-                            disabled=not self.default_autoreplies,
+                            disabled=(not self.default_autoreplies),
                         )
-                    with Horizontal(classes="rw-switch-cell"):
-                        yield Label("Autoreplies:")
-                        yield Switch(value=self.default_autoreplies, id="rw-autoreplies")
-            yield Static("", id="rw-error")
-            with Horizontal(id="rw-buttons"):
-                yield Button("Help", variant="primary", id="rw-help")
-                yield Button("Cancel", variant="error", id="rw-cancel")
-                yield Button("OK", variant="success", id="rw-ok")
+                    with textual.containers.Horizontal(classes="rw-switch-cell"):
+                        yield textual.widgets.Label("Autoreplies:")
+                        yield textual.widgets.Switch(value=(self.default_autoreplies), id="rw-autoreplies")
+            yield textual.widgets.Static("", id="rw-error")
+            with textual.containers.Horizontal(id="rw-buttons"):
+                yield textual.widgets.Button("Help", variant="primary", id="rw-help")
+                yield textual.widgets.Button("Cancel", variant="error", id="rw-cancel")
+                yield textual.widgets.Button("OK", variant="success", id="rw-ok")
 
     def on_mount(self) -> None:
         """Focus the OK button on mount."""
-        self.query_one("#rw-ok", Button).focus()
+        self.query_one("#rw-ok", textual.widgets.Button).focus()
 
     def action_show_help(self) -> None:
         """Show room-mapping help screen."""
-        self.app.push_screen(CommandHelpScreen(topic="room-mapping"))
+        self.app.push_screen(client_tui_base.CommandHelpScreen(topic="room-mapping"))
 
-    def on_switch_changed(self, event: Switch.Changed) -> None:
+    def on_switch_changed(self, event: textual.widgets.Switch.Changed) -> None:
         """Disable consider/survey switches when autoreplies is OFF."""
         if event.switch.id == "rw-autoreplies":
-            self.query_one("#rw-auto-consider", Switch).disabled = not event.value
-            self.query_one("#rw-auto-survey", Switch).disabled = not event.value
+            self.query_one("#rw-auto-consider", textual.widgets.Switch).disabled = not event.value
+            self.query_one("#rw-auto-survey", textual.widgets.Switch).disabled = not event.value
 
     def validate_and_dismiss(self) -> None:
-        raw = self.query_one("#rw-visit-level", Input).value.strip()
+        raw = self.query_one("#rw-visit-level", textual.widgets.Input).value.strip()
         try:
             level = int(raw)
         except ValueError:
-            self.query_one("#rw-error", Static).update("Visit level must be a number.")
+            self.query_one("#rw-error", textual.widgets.Static).update("Visit level must be a number.")
             return
         if level < 1:
-            self.query_one("#rw-error", Static).update("Visit level must be at least 1.")
+            self.query_one("#rw-error", textual.widgets.Static).update("Visit level must be at least 1.")
             return
-        auto_search = self.query_one("#rw-auto-search", Switch).value
-        auto_evaluate = self.query_one("#rw-auto-consider", Switch).value
-        auto_survey = self.query_one("#rw-auto-survey", Switch).value
-        autoreplies = self.query_one("#rw-autoreplies", Switch).value
+        auto_search = self.query_one("#rw-auto-search", textual.widgets.Switch).value
+        auto_evaluate = self.query_one("#rw-auto-consider", textual.widgets.Switch).value
+        auto_survey = self.query_one("#rw-auto-survey", textual.widgets.Switch).value
+        autoreplies = self.query_one("#rw-autoreplies", textual.widgets.Switch).value
         self.write_result(True, level, auto_search, auto_evaluate, auto_survey, autoreplies)
         self.dismiss(True)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle OK, Cancel, and Help button presses."""
         if event.button.id == "rw-help":
             self.action_show_help()
@@ -1781,18 +1659,18 @@ def randomwalk_dialog_main(
     logfile: str = "",
 ) -> None:
     """Launch standalone random walk dialog TUI."""
-    restore_blocking_fds(logfile)
-    log_child_diagnostics()
-    patch_writer_thread_queue()
+    client_tui_base.restore_blocking_fds(logfile)
+    client_tui_base.log_child_diagnostics()
+    client_tui_base.patch_writer_thread_queue()
     screen = RandomwalkDialogScreen(
         result_file=result_file,
         default_visit_level=int(default_visit_level),
-        default_auto_search=default_auto_search == "1",
-        default_auto_evaluate=default_auto_evaluate == "1",
-        default_auto_survey=default_auto_survey == "1",
-        default_autoreplies=default_autoreplies == "1",
+        default_auto_search=(default_auto_search == "1"),
+        default_auto_evaluate=(default_auto_evaluate == "1"),
+        default_auto_survey=(default_auto_survey == "1"),
+        default_autoreplies=(default_autoreplies == "1"),
     )
-    app = EditorApp(screen)
+    app = client_tui_base.EditorApp(screen)
     app.run()
 
 
@@ -1801,12 +1679,12 @@ def randomwalk_dialog_main(
 # ---------------------------------------------------------------------------
 
 
-class AutodiscoverDialogScreen(Screen[bool]):
+class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
     """Autodiscover confirmation dialog with BFS/DFS strategy selection."""
 
     BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-        Binding("f1", "show_help", "Help", show=False),
+        textual.binding.Binding("escape", "cancel", "Cancel", show=False),
+        textual.binding.Binding("f1", "show_help", "Help", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -1889,93 +1767,92 @@ class AutodiscoverDialogScreen(Screen[bool]):
         self.default_auto_survey = default_auto_survey
         self.default_autoreplies = default_autoreplies
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="ad-dialog"):
-            yield Static("Autodiscover", id="ad-title")
-            yield Static(
-                "Autodiscover explores exits from nearby rooms "
-                "that lead to unvisited places. It will travel "
-                "to each frontier exit, check the room, then "
+    def compose(self) -> textual.app.ComposeResult:
+        with textual.containers.Vertical(id="ad-dialog"):
+            yield textual.widgets.Static("Autodiscover", id="ad-title")
+            yield textual.widgets.Static(
+                "Autodiscover explores exits from nearby "
+                "rooms "
+                "that lead to unvisited places. It will "
+                "travel "
+                "to each frontier exit, check the room, "
+                "then "
                 "return before trying the next branch.",
                 id="ad-body",
             )
-            yield Static(
-                "WARNING: This can lead to dangerous areas, "
-                "death traps, or aggressive monsters! Your "
+            yield textual.widgets.Static(
+                "WARNING: This can lead to dangerous "
+                "areas, "
+                "death traps, or aggressive monsters! "
+                "Your "
                 "character may die. Use with caution.",
                 id="ad-warning",
             )
-            with Horizontal(id="ad-strategy-row"), RadioSet(id="ad-strategy-set"):
-                yield RadioButton(
-                    "BFS: explore nearest exits first",
-                    id="ad-bfs",
-                    value=(self.default_strategy == "bfs"),
+            with textual.containers.Horizontal(id="ad-strategy-row"), textual.widgets.RadioSet(id="ad-strategy-set"):
+                yield textual.widgets.RadioButton(
+                    "BFS: explore nearest exits first", id="ad-bfs", value=(self.default_strategy == "bfs")
                 )
-                yield RadioButton(
-                    "DFS: explore farthest exits first",
-                    id="ad-dfs",
-                    value=(self.default_strategy == "dfs"),
+                yield textual.widgets.RadioButton(
+                    "DFS: explore farthest exits first", id="ad-dfs", value=(self.default_strategy == "dfs")
                 )
-            with Vertical(id="ad-switches"):
-                with Horizontal(classes="ad-switch-row"):
-                    with Horizontal(classes="ad-switch-cell"):
-                        yield Label("Auto search:")
-                        yield Switch(value=self.default_auto_search, id="ad-auto-search")
-                    with Horizontal(classes="ad-switch-cell"):
-                        yield Label("Auto consider:")
-                        yield Switch(
-                            value=self.default_auto_evaluate,
+            with textual.containers.Vertical(id="ad-switches"):
+                with textual.containers.Horizontal(classes="ad-switch-row"):
+                    with textual.containers.Horizontal(classes="ad-switch-cell"):
+                        yield textual.widgets.Label("Auto search:")
+                        yield textual.widgets.Switch(value=(self.default_auto_search), id="ad-auto-search")
+                    with textual.containers.Horizontal(classes="ad-switch-cell"):
+                        yield textual.widgets.Label("Auto consider:")
+                        yield textual.widgets.Switch(
+                            value=(self.default_auto_evaluate),
                             id="ad-auto-consider",
-                            disabled=not self.default_autoreplies,
+                            disabled=(not self.default_autoreplies),
                         )
-                with Horizontal(classes="ad-switch-row"):
-                    with Horizontal(classes="ad-switch-cell"):
-                        yield Label("Auto survey:")
-                        yield Switch(
-                            value=self.default_auto_survey,
+                with textual.containers.Horizontal(classes="ad-switch-row"):
+                    with textual.containers.Horizontal(classes="ad-switch-cell"):
+                        yield textual.widgets.Label("Auto survey:")
+                        yield textual.widgets.Switch(
+                            value=(self.default_auto_survey),
                             id="ad-auto-survey",
-                            disabled=not self.default_autoreplies,
+                            disabled=(not self.default_autoreplies),
                         )
-                    with Horizontal(classes="ad-switch-cell"):
-                        yield Label("Autoreplies:")
-                        yield Switch(value=self.default_autoreplies, id="ad-autoreplies")
-            with Horizontal(id="ad-buttons"):
-                yield Button("Help", variant="primary", id="ad-help")
-                yield Button("Cancel", variant="error", id="ad-cancel")
-                yield Button("OK", variant="success", id="ad-ok")
+                    with textual.containers.Horizontal(classes="ad-switch-cell"):
+                        yield textual.widgets.Label("Autoreplies:")
+                        yield textual.widgets.Switch(value=(self.default_autoreplies), id="ad-autoreplies")
+            with textual.containers.Horizontal(id="ad-buttons"):
+                yield textual.widgets.Button("Help", variant="primary", id="ad-help")
+                yield textual.widgets.Button("Cancel", variant="error", id="ad-cancel")
+                yield textual.widgets.Button("OK", variant="success", id="ad-ok")
 
     def on_mount(self) -> None:
         """Focus the OK button on mount."""
-        self.query_one("#ad-ok", Button).focus()
+        self.query_one("#ad-ok", textual.widgets.Button).focus()
 
     def action_show_help(self) -> None:
         """Show room-mapping help screen."""
-        self.app.push_screen(CommandHelpScreen(topic="room-mapping"))
+        self.app.push_screen(client_tui_base.CommandHelpScreen(topic="room-mapping"))
 
     def get_strategy(self) -> str:
         """Return the selected strategy string."""
-        if self.query_one("#ad-dfs", RadioButton).value:
+        if self.query_one("#ad-dfs", textual.widgets.RadioButton).value:
             return "dfs"
         return "bfs"
 
-    def on_switch_changed(self, event: Switch.Changed) -> None:
+    def on_switch_changed(self, event: textual.widgets.Switch.Changed) -> None:
         """Disable consider/survey switches when autoreplies is OFF."""
         if event.switch.id == "ad-autoreplies":
-            self.query_one("#ad-auto-consider", Switch).disabled = not event.value
-            self.query_one("#ad-auto-survey", Switch).disabled = not event.value
+            self.query_one("#ad-auto-consider", textual.widgets.Switch).disabled = not event.value
+            self.query_one("#ad-auto-survey", textual.widgets.Switch).disabled = not event.value
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle OK and Cancel button presses."""
         if event.button.id == "ad-help":
             self.action_show_help()
         elif event.button.id == "ad-ok":
-            auto_search = self.query_one("#ad-auto-search", Switch).value
-            auto_evaluate = self.query_one("#ad-auto-consider", Switch).value
-            auto_survey = self.query_one("#ad-auto-survey", Switch).value
-            autoreplies = self.query_one("#ad-autoreplies", Switch).value
-            self.write_result(
-                True, self.get_strategy(), auto_search, auto_evaluate, auto_survey, autoreplies
-            )
+            auto_search = self.query_one("#ad-auto-search", textual.widgets.Switch).value
+            auto_evaluate = self.query_one("#ad-auto-consider", textual.widgets.Switch).value
+            auto_survey = self.query_one("#ad-auto-survey", textual.widgets.Switch).value
+            autoreplies = self.query_one("#ad-autoreplies", textual.widgets.Switch).value
+            self.write_result(True, self.get_strategy(), auto_search, auto_evaluate, auto_survey, autoreplies)
             self.dismiss(True)
         elif event.button.id == "ad-cancel":
             self.write_result(
@@ -2047,18 +1924,18 @@ def autodiscover_dialog_main(
     logfile: str = "",
 ) -> None:
     """Launch standalone autodiscover dialog TUI."""
-    restore_blocking_fds(logfile)
-    log_child_diagnostics()
-    patch_writer_thread_queue()
+    client_tui_base.restore_blocking_fds(logfile)
+    client_tui_base.log_child_diagnostics()
+    client_tui_base.patch_writer_thread_queue()
     screen = AutodiscoverDialogScreen(
         result_file=result_file,
         default_strategy=default_strategy,
-        default_auto_search=default_auto_search == "1",
-        default_auto_evaluate=default_auto_evaluate == "1",
-        default_auto_survey=default_auto_survey == "1",
-        default_autoreplies=default_autoreplies == "1",
+        default_auto_search=(default_auto_search == "1"),
+        default_auto_evaluate=(default_auto_evaluate == "1"),
+        default_auto_survey=(default_auto_survey == "1"),
+        default_autoreplies=(default_autoreplies == "1"),
     )
-    app = EditorApp(screen)
+    app = client_tui_base.EditorApp(screen)
     app.run()
 
 
@@ -2068,14 +1945,10 @@ def autodiscover_dialog_main(
 
 
 def edit_rooms_main(
-    rooms_path: str,
-    session_key: str = "",
-    current_room_file: str = "",
-    fasttravel_file: str = "",
-    logfile: str = "",
+    rooms_path: str, session_key: str = "", current_room_file: str = "", fasttravel_file: str = "", logfile: str = ""
 ) -> None:
     """Launch standalone room browser TUI."""
-    launch_editor(
+    client_tui_base.launch_editor(
         RoomBrowserScreen(
             rooms_path=rooms_path,
             session_key=session_key,
@@ -2092,17 +1965,17 @@ def edit_rooms_main(
 # ---------------------------------------------------------------------------
 
 
-class TelnetSessionApp(App[None]):
+class TelnetSessionApp(textual.app.App[None]):
     """Textual TUI for managing telix client sessions."""
 
     TITLE = "telix Session Manager"
 
-    def on_mouse_down(self, event: events.MouseDown) -> None:
+    def on_mouse_down(self, event: textual.events.MouseDown) -> None:
         """Paste X11 primary selection on middle-click."""
         if event.button != 2:
             return
         event.stop()
-        text = read_primary_selection()
+        text = client_tui_base.read_primary_selection()
         if not text:
             return
         focused = self.focused
@@ -2114,24 +1987,20 @@ class TelnetSessionApp(App[None]):
 
     def on_mount(self) -> None:
         """Push the session list screen on startup."""
-        from .rooms import load_prefs
-
-        prefs = load_prefs(DEFAULTS_KEY)
+        prefs = telix.rooms.load_prefs(client_tui_base.DEFAULTS_KEY)
         saved_theme = prefs.get("tui_theme")
         if isinstance(saved_theme, str) and saved_theme:
             self.theme = saved_theme
         else:
             self.theme = "gruvbox"
-        self.push_screen(SessionListScreen())
+        self.push_screen(client_tui_base.SessionListScreen())
 
     def watch_theme(self, old: str, new: str) -> None:
         """Persist theme choice to global preferences."""
         if new:
-            from .rooms import load_prefs, save_prefs
-
-            prefs = load_prefs(DEFAULTS_KEY)
+            prefs = telix.rooms.load_prefs(client_tui_base.DEFAULTS_KEY)
             prefs["tui_theme"] = new
-            save_prefs(DEFAULTS_KEY, prefs)
+            telix.rooms.save_prefs(client_tui_base.DEFAULTS_KEY, prefs)
 
 
 def tui_main() -> None:
@@ -2141,5 +2010,5 @@ def tui_main() -> None:
     # Move cursor to bottom-right corner and print a newline while still in
     # the alternate screen, then exit fullscreen and print another newline
     # so the shell prompt appears on a clean line.
-    sys.stdout.write("\x1b[999;999H\n" + TERMINAL_CLEANUP + "\n")
+    sys.stdout.write("\x1b[999;999H\n" + client_tui_base.TERMINAL_CLEANUP + "\n")
     sys.stdout.flush()

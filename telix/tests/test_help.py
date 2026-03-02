@@ -3,8 +3,10 @@
 # 3rd party
 import pytest
 
-# local
 from telix.help import get_help
+
+# local
+from telix.client_repl_dialogs import render_help_md
 
 
 @pytest.mark.parametrize("topic", ["macro", "autoreply", "highlight", "keybindings"])
@@ -48,8 +50,6 @@ def test_unknown_topic_raises() -> None:
 
 
 def test_render_help_md_no_gmcp() -> None:
-    from telix.client_repl_dialogs import render_help_md
-
     lines = render_help_md(has_gmcp=False)
     text = "\n".join(lines)
     assert "F1" in text
@@ -59,8 +59,6 @@ def test_render_help_md_no_gmcp() -> None:
 
 
 def test_render_help_md_with_gmcp() -> None:
-    from telix.client_repl_dialogs import render_help_md
-
     lines = render_help_md(has_gmcp=True)
     text = "\n".join(lines)
     assert "F1" in text

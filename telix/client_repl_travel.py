@@ -1,38 +1,27 @@
 """Movement and pathfinding: travel, autodiscover, randomwalk."""
 
 # std imports
+import time
 import random
 import asyncio
 import logging
 import collections
-from time import monotonic as monotonic
 from typing import TYPE_CHECKING, Optional
 
 # 3rd party
-from telnetlib3.stream_writer import TelnetWriterUnicode
+import telnetlib3.stream_writer
 
 # local
-from .client_repl_commands import COMMAND_DELAY
+from .client_repl_commands import TRAVEL_RE, COMMAND_DELAY
 
 if TYPE_CHECKING:
+    from .rooms import RoomGraph
+    from .autoreply import AutoreplyEngine
     from .session_context import SessionContext
 
 DEFAULT_WALK_LIMIT = 999
 STANDARD_DIRS = frozenset(
-    {
-        "north",
-        "south",
-        "east",
-        "west",
-        "northeast",
-        "northwest",
-        "southeast",
-        "southwest",
-        "ne",
-        "nw",
-        "se",
-        "sw",
-    }
+    {"north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest", "ne", "nw", "se", "sw"}
 )
 BOUNCE_THRESHOLD = 3
 MAX_STUCK_RETRIES = 3
@@ -78,8 +67,6 @@ async def fast_travel(
     wait_fn = ctx.wait_for_prompt
     echo_fn = ctx.echo_command
 
-    from .autoreply import AutoreplyEngine
-
     def get_engine() -> Optional["AutoreplyEngine"]:
         """Find the active autoreply engine, if any."""
         return ctx.autoreply_engine
@@ -92,9 +79,7 @@ async def fast_travel(
 
     mode = "travel"
 
-    from .rooms import RoomGraph
-
-    def get_graph() -> RoomGraph | None:
+    def get_graph() -> "RoomGraph | None":
         graph: RoomGraph | None = ctx.room_graph
         return graph
 
@@ -201,20 +186,13 @@ async def fast_travel(
                 if ctx.discover_active:
                     prefix = f"AUTODISCOVER [{ctx.discover_current}]: "
                 elif ctx.randomwalk_active:
-                    prefix = f"RANDOMWALK [{ctx.randomwalk_current}" f"/{ctx.randomwalk_total}]: "
+                    prefix = f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
                 if attempt == 0:
                     log.info("%s [%d/%d] %s", mode, step_idx + 1, len(steps), direction)
                     if echo_fn is not None:
                         echo_fn(prefix + direction + tag)
                 else:
-                    log.info(
-                        "%s [%d/%d] %s (retry %d)",
-                        mode,
-                        step_idx + 1,
-                        len(steps),
-                        direction,
-                        attempt,
-                    )
+                    log.info("%s [%d/%d] %s (retry %d)", mode, step_idx + 1, len(steps), direction, attempt)
                 # Clear prompt_ready before sending so wait_fn waits
                 # for a FRESH GA/EOR from this step's response.  The
                 # server sends multiple GA/EORs per response (room
@@ -226,7 +204,7 @@ async def fast_travel(
                     prompt_ready.clear()
 
                 ctx.active_command = direction
-                ctx.active_command_time = monotonic()
+                ctx.active_command_time = time.monotonic()
                 if ctx.cx_dot is not None:
                     ctx.cx_dot.trigger()
                 if ctx.tx_dot is not None:
@@ -248,11 +226,7 @@ async def fast_travel(
                     failed = engine.pop_condition_failed()
                     if failed is not None:
                         rule_idx, desc = failed
-                        msg = (
-                            f"Travel mode cancelled - failed "
-                            f"conditional in AUTOREPLY "
-                            f"#{rule_idx} [{desc}]"
-                        )
+                        msg = f"Travel mode cancelled - failed conditional in AUTOREPLY #{rule_idx} [{desc}]"
                         log.warning("%s", msg)
                         if echo_fn is not None:
                             echo_fn(msg)
@@ -348,12 +322,7 @@ async def fast_travel(
                             adj_exits = graph.adj.get(prev_room)
                             if adj_exits is not None:
                                 adj_exits.pop(direction, None)
-                            log.info(
-                                "%s: blocked exit %s of %s (impassable)",
-                                mode,
-                                direction,
-                                prev_room[:8],
-                            )
+                            log.info("%s: blocked exit %s of %s (impassable)", mode, direction, prev_room[:8])
                 else:
                     # Update graph edge to reflect actual connection.
                     graph = get_graph()
@@ -361,13 +330,7 @@ async def fast_travel(
                         prev = graph.rooms.get(prev_room)
                         if prev is not None:
                             prev.exits[direction] = actual
-                            log.info(
-                                "%s: updated edge %s of %s: -> %s",
-                                mode,
-                                direction,
-                                prev_room[:8],
-                                actual[:8],
-                            )
+                            log.info("%s: updated edge %s of %s: -> %s", mode, direction, prev_room[:8], actual[:8])
 
                 # Try re-pathfinding from actual position.
                 if (
@@ -381,11 +344,7 @@ async def fast_travel(
                     new_steps = graph.find_path_with_rooms(actual, destination, blocked=blocked)
                     if new_steps is not None:
                         reroute_count += 1
-                        msg = (
-                            f"{mode}: re-routing from "
-                            f"{room_name(actual)}"
-                            f" ({reroute_count}/{max_reroutes})"
-                        )
+                        msg = f"{mode}: re-routing from {room_name(actual)} ({reroute_count}/{max_reroutes})"
                         log.info("%s", msg)
                         if echo_fn is not None:
                             echo_fn(msg)
@@ -395,10 +354,7 @@ async def fast_travel(
 
                 expected_name = room_name(expected_room)
                 actual_name = room_name(actual)
-                msg = (
-                    f"{mode} stopped: expected {expected_name} after "
-                    f"'{direction}', got {actual_name}"
-                )
+                msg = f"{mode} stopped: expected {expected_name} after '{direction}', got {actual_name}"
                 log.warning("%s", msg)
                 if echo_fn is not None:
                     echo_fn(msg)
@@ -518,12 +474,10 @@ async def autodiscover(
                     if target_num:
                         inaccessible.add(target_num)
                     if echo_fn is not None:
-                        echo_fn(
-                            f"AUTODISCOVER [{step_count}]: " f"no path to gateway {gw_room[:8]}"
-                        )
+                        echo_fn(f"AUTODISCOVER [{step_count}]: no path to gateway {gw_room[:8]}")
                     continue
                 if echo_fn is not None:
-                    echo_fn(f"AUTODISCOVER [{step_count}]: " f"heading to gateway {gw_room[:8]}")
+                    echo_fn(f"AUTODISCOVER [{step_count}]: heading to gateway {gw_room[:8]}")
                 pre_travel = ctx.current_room_num
                 await fast_travel(steps, ctx, log, destination=gw_room)
                 actual = ctx.current_room_num
@@ -543,15 +497,10 @@ async def autodiscover(
                             adj_exits = graph.adj.get(pre_travel)
                             if adj_exits is not None:
                                 adj_exits.pop(fail_dir, None)
-                            log.info(
-                                "AUTODISCOVER: blocked edge %s from %s", fail_dir, pre_travel[:8]
-                            )
+                            log.info("AUTODISCOVER: blocked edge %s from %s", fail_dir, pre_travel[:8])
                     log.info("AUTODISCOVER: failed to reach gateway %s", gw_room[:8])
                     if echo_fn is not None:
-                        echo_fn(
-                            f"AUTODISCOVER [{step_count}]: "
-                            f"gateway {gw_room[:8]} inaccessible, skipping"
-                        )
+                        echo_fn(f"AUTODISCOVER [{step_count}]: gateway {gw_room[:8]} inaccessible, skipping")
                     if actual == last_stuck_room:
                         stuck_retries += 1
                     else:
@@ -559,22 +508,16 @@ async def autodiscover(
                         stuck_retries = 1
                     if stuck_retries >= 3:
                         if echo_fn is not None:
-                            echo_fn(
-                                f"AUTODISCOVER [{step_count}]: "
-                                f"stuck at {actual[:8]}, all routes blocked, "
-                                f"stopping"
-                            )
+                            echo_fn(f"AUTODISCOVER [{step_count}]: stuck at {actual[:8]}, all routes blocked, stopping")
                         break
                     continue
 
             # Step through the frontier exit.
             if echo_fn is not None:
-                echo_fn(
-                    f"AUTODISCOVER [{step_count}]: " f"exploring {direction} from {gw_room[:8]}"
-                )
+                echo_fn(f"AUTODISCOVER [{step_count}]: exploring {direction} from {gw_room[:8]}")
             await asyncio.sleep(COMMAND_DELAY)
             ctx.active_command = direction
-            ctx.active_command_time = monotonic()
+            ctx.active_command_time = time.monotonic()
             send = ctx.send_line
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
@@ -582,7 +525,7 @@ async def autodiscover(
                 ctx.tx_dot.trigger()
             if send is not None:
                 send(direction)
-            elif isinstance(ctx.writer, TelnetWriterUnicode):
+            elif isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                 ctx.writer.write(direction + "\r\n")
             else:
                 ctx.writer.write((direction + "\r\n").encode("utf-8"))
@@ -609,7 +552,7 @@ async def autodiscover(
                 if target_num:
                     inaccessible.add(target_num)
                 if echo_fn is not None:
-                    echo_fn(f"AUTODISCOVER [{step_count}]: " f"no room change after {direction}")
+                    echo_fn(f"AUTODISCOVER [{step_count}]: no room change after {direction}")
                 continue
             ctx.active_command = None
 
@@ -617,11 +560,7 @@ async def autodiscover(
             actual = ctx.current_room_num
             if target_num and actual != target_num and target_num in graph.rooms:
                 if echo_fn is not None:
-                    echo_fn(
-                        f"AUTODISCOVER [{step_count}]: "
-                        f"unexpected room {actual[:8]} "
-                        f"(expected {target_num[:8]})"
-                    )
+                    echo_fn(f"AUTODISCOVER [{step_count}]: unexpected room {actual[:8]} (expected {target_num[:8]})")
 
             # Wait for any autoreply to settle.
             ar = ctx.autoreply_engine
@@ -649,10 +588,10 @@ async def autodiscover(
                 if echo_fn is not None:
                     echo_fn("search")
                 ctx.active_command = "search"
-                ctx.active_command_time = monotonic()
+                ctx.active_command_time = time.monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
-                if isinstance(ctx.writer, TelnetWriterUnicode):
+                if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("search\r\n")
                 else:
                     ctx.writer.write(b"search\r\n")
@@ -664,10 +603,10 @@ async def autodiscover(
                 if echo_fn is not None:
                     echo_fn("survey")
                 ctx.active_command = "survey"
-                ctx.active_command_time = monotonic()
+                ctx.active_command_time = time.monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
-                if isinstance(ctx.writer, TelnetWriterUnicode):
+                if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("survey\r\n")
                 else:
                     ctx.writer.write(b"survey\r\n")
@@ -814,10 +753,7 @@ async def randomwalk(
             exits = dict(adj.get(current, {}))
             if not exits:
                 if echo_fn is not None:
-                    echo_fn(
-                        f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
-                        f"dead end, stopping"
-                    )
+                    echo_fn(f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: dead end, stopping")
                 break
 
             # Check if all reachable rooms have been visited enough times.
@@ -846,8 +782,7 @@ async def randomwalk(
             if not scored:
                 if echo_fn is not None:
                     echo_fn(
-                        f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
-                        f"all exits blocked, stopping"
+                        f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: all exits blocked, stopping"
                     )
                 break
 
@@ -858,20 +793,17 @@ async def randomwalk(
             room = graph.get_room(dst_num)
             dst_label = room.name if room else dst_num[:8]
             if echo_fn is not None:
-                echo_fn(
-                    f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
-                    f"{direction} -> {dst_label}"
-                )
+                echo_fn(f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: {direction} -> {dst_label}")
 
             ctx.active_command = direction
-            ctx.active_command_time = monotonic()
+            ctx.active_command_time = time.monotonic()
             if wait_fn is not None:
                 await wait_fn()
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
                 ctx.tx_dot.trigger()
-            if isinstance(ctx.writer, TelnetWriterUnicode):
+            if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                 ctx.writer.write(direction + "\r\n")
             else:
                 ctx.writer.write((direction + "\r\n").encode("utf-8"))
@@ -937,10 +869,10 @@ async def randomwalk(
                 if echo_fn is not None:
                     echo_fn("search")
                 ctx.active_command = "search"
-                ctx.active_command_time = monotonic()
+                ctx.active_command_time = time.monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
-                if isinstance(ctx.writer, TelnetWriterUnicode):
+                if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("search\r\n")
                 else:
                     ctx.writer.write(b"search\r\n")
@@ -952,10 +884,10 @@ async def randomwalk(
                 if echo_fn is not None:
                     echo_fn("survey")
                 ctx.active_command = "survey"
-                ctx.active_command_time = monotonic()
+                ctx.active_command_time = time.monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
-                if isinstance(ctx.writer, TelnetWriterUnicode):
+                if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("survey\r\n")
                 else:
                     ctx.writer.write(b"survey\r\n")
@@ -986,17 +918,12 @@ async def randomwalk(
                                 f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
                                 f"bounce detected on {direction}, blocking"
                             )
-                        all_blocked = all(
-                            (actual, d) in ctx.blocked_exits for d in adj.get(actual, {})
-                        )
+                        all_blocked = all((actual, d) in ctx.blocked_exits for d in adj.get(actual, {}))
                         if all_blocked:
                             if echo_fn is not None:
                                 step = ctx.randomwalk_current
                                 total = ctx.randomwalk_total
-                                echo_fn(
-                                    f"RANDOMWALK [{step}/{total}]: "
-                                    f"all exits blocked after bounce, stopping"
-                                )
+                                echo_fn(f"RANDOMWALK [{step}/{total}]: all exits blocked after bounce, stopping")
                             break
                     bounce_count = 0
             else:
@@ -1066,9 +993,7 @@ async def randomwalk(
         ctx.active_command = None
 
 
-async def handle_travel_commands(
-    parts: list[str], ctx: "SessionContext", log: logging.Logger
-) -> list[str]:
+async def handle_travel_commands(parts: list[str], ctx: "SessionContext", log: logging.Logger) -> list[str]:
     """
     Scan *parts* for travel commands, execute them, and return remaining parts.
 
@@ -1091,8 +1016,6 @@ async def handle_travel_commands(
     :param log: Logger.
     :returns: Commands that still need to be sent to the server.
     """
-    from .client_repl_commands import TRAVEL_RE
-
     for idx, cmd in enumerate(parts):
         m = TRAVEL_RE.match(cmd)
         if not m:
@@ -1183,9 +1106,7 @@ async def handle_travel_commands(
             else:
                 # Auto-resume: if re-running the same mode from the
                 # same room, carry over visited/tried state.
-                do_resume = (
-                    ctx.last_walk_mode == verb and ctx.last_walk_room == ctx.current_room_num
-                )
+                do_resume = ctx.last_walk_mode == verb and ctx.last_walk_room == ctx.current_room_num
 
             if verb == "autodiscover":
                 await autodiscover(
@@ -1205,12 +1126,7 @@ async def handle_travel_commands(
                 ctx.randomwalk_auto_evaluate = auto_evaluate
                 ctx.randomwalk_auto_survey = auto_survey
                 await randomwalk(
-                    ctx,
-                    log,
-                    limit=walk_limit,
-                    resume=do_resume,
-                    visit_level=walk_visit_level,
-                    noreply=noreply,
+                    ctx, log, limit=walk_limit, resume=do_resume, visit_level=walk_visit_level, noreply=noreply
                 )
             return parts[idx + 1 :]
 

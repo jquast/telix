@@ -79,7 +79,7 @@ packages = ["telix"]
 artifacts = ["telix/help/*.md", "telix/data/*.json"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py310"
 
 [tool.ruff.format]
@@ -131,6 +131,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 length-sort = true
+split-on-trailing-comma = false
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 no-lines-before = ["local-folder"]
 known-first-party = ["telix"]

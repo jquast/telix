@@ -1,5 +1,7 @@
 ## Room Browser
 
+**Default key:** F7
+
 The room browser displays a searchable, hierarchical view of all rooms
 discovered via GMCP.  Rooms are grouped by name and can be filtered by
 area.

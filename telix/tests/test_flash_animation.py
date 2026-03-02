@@ -19,10 +19,8 @@ from telix.client_repl import (
 
 
 class TestRgbHsvRoundTrip:
-
     @pytest.mark.parametrize(
-        "r, g, b",
-        [(255, 0, 0), (0, 255, 0), (0, 0, 255), (128, 64, 32), (0, 0, 0), (255, 255, 255)],
+        "r, g, b", [(255, 0, 0), (0, 255, 0), (0, 0, 255), (128, 64, 32), (0, 0, 0), (255, 255, 255)]
     )
     def test_round_trip(self, r, g, b):
         h, s, v = rgb_to_hsv(r, g, b)
@@ -39,7 +37,6 @@ class TestRgbHsvRoundTrip:
 
 
 class TestLerpHsv:
-
     def test_endpoints(self):
         a = (0.0, 0.5, 0.8)
         b = (120.0, 1.0, 1.0)
@@ -62,7 +59,6 @@ class TestLerpHsv:
 
 
 class TestFlashColor:
-
     def test_no_flash_negative_elapsed(self):
         assert flash_color("#ff0000", -1.0) == "#ff0000"
 
@@ -104,7 +100,6 @@ class TestFlashColor:
 
 
 class TestVitalBarFlash:
-
     def test_flash_elapsed_negative_uses_normal_colors(self):
         frags_normal = vital_bar(50, 100, 20, "hp", flash_elapsed=-1.0)
         frags_no_arg = vital_bar(50, 100, 20, "hp")

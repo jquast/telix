@@ -4,19 +4,20 @@ Chat message persistence for GMCP ``Comm.Channel.Text``.
 Provides functions to load, persist, and append chat messages to a per-session JSON file on disk.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
 import json
+import typing
 import datetime
-from typing import Any
+
+# local
+from . import paths
 
 #: Maximum number of chat messages persisted to disk.
 CHAT_FILE_CAP = 1000
 
 
-def load_chat(path: str) -> list[dict[str, Any]]:
+def load_chat(path: str) -> list[dict[str, typing.Any]]:
     """
     Load chat messages from a JSON file.
 
@@ -32,30 +33,30 @@ def load_chat(path: str) -> list[dict[str, Any]]:
     return []
 
 
-def persist_chat(path: str, msg: dict[str, Any]) -> None:
+def persist_chat(path: str, msg: dict[str, typing.Any]) -> None:
     """
     Append a single chat message to the JSON file on disk, capping at :data:`CHAT_FILE_CAP`.
 
     :param path: Path to the chat JSON file.
     :param msg: Message dict to append.
     """
-    from .paths import atomic_write
-
     msgs = load_chat(path)
     msgs.append(msg)
     if len(msgs) > CHAT_FILE_CAP:
         msgs = msgs[-CHAT_FILE_CAP:]
-    atomic_write(path, json.dumps(msgs, ensure_ascii=False) + "\n")
+    paths.atomic_write(path, json.dumps(msgs, ensure_ascii=False) + "\n")
 
 
-def append_chat_msg(ctx: Any, data: dict[str, Any]) -> None:
+def append_chat_msg(ctx: typing.Any, data: dict[str, typing.Any]) -> None:
     """
     Append a GMCP ``Comm.Channel.Text`` message to chat state and disk.
 
-    :param ctx: Session context with ``chat_messages``, ``chat_unread``, and ``chat_file`` attrs.
-    :param data: GMCP message dict with ``channel``, ``talker``, ``text``, etc.
+    :param ctx: Session context with ``chat_messages``, ``chat_unread``,
+        and ``chat_file`` attrs.
+    :param data: GMCP message dict with ``channel``, ``talker``, ``text``,
+        etc.
     """
-    msg: dict[str, Any] = {
+    msg: dict[str, typing.Any] = {
         "ts": datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "channel": data.get("channel", ""),
         "channel_ansi": data.get("channel_ansi", ""),

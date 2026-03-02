@@ -57,9 +57,7 @@ class TestGetReplPalette:
 
     def test_session_key_forwarded(self, monkeypatch):
         captured = []
-        monkeypatch.setattr(
-            "telix.repl_theme.saved_theme_name", lambda sk: (captured.append(sk), "textual-dark")[1]
-        )
+        monkeypatch.setattr("telix.repl_theme.saved_theme_name", lambda sk: (captured.append(sk), "textual-dark")[1])
         get_repl_palette("myhost:4000")
         assert captured == ["myhost:4000"]
 
@@ -67,12 +65,7 @@ class TestGetReplPalette:
 class TestHexToRgb:
     @pytest.mark.parametrize(
         "hex_val,expected",
-        [
-            ("#000000", (0, 0, 0)),
-            ("#ffffff", (255, 255, 255)),
-            ("#1a0000", (26, 0, 0)),
-            ("#ff00ff", (255, 0, 255)),
-        ],
+        [("#000000", (0, 0, 0)), ("#ffffff", (255, 255, 255)), ("#1a0000", (26, 0, 0)), ("#ff00ff", (255, 0, 255))],
     )
     def test_conversion(self, hex_val, expected):
         assert hex_to_rgb(hex_val) == expected

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-# std imports
 import sys
+
+# std imports
+import json
+import asyncio
 import subprocess
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -11,8 +14,10 @@ from unittest.mock import MagicMock, patch
 # 3rd party
 import pytest
 
-# local
 from telix.session_context import SessionContext
+
+# local
+from telix.client_repl_dialogs import launch_tui_editor, launch_chat_viewer, launch_room_browser, launch_unified_editor
 
 
 @pytest.fixture()
@@ -22,15 +27,12 @@ def stub_terminal(monkeypatch: Any) -> None:
     monkeypatch.setattr("telix.client_repl.restore_after_subprocess", lambda buf: None)
     monkeypatch.setattr("telix.client_repl.terminal_cleanup", lambda: "")
     monkeypatch.setattr(
-        "telix.client_repl.get_term",
-        lambda: MagicMock(change_scroll_region=MagicMock(return_value=""), height=24),
+        "telix.client_repl.get_term", lambda: MagicMock(change_scroll_region=MagicMock(return_value=""), height=24)
     )
     monkeypatch.setattr(
         "telix.client_repl.blocking_fds",
         MagicMock(
-            return_value=MagicMock(
-                __enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False)
-            )
+            return_value=MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
         ),
     )
 
@@ -50,22 +52,14 @@ def make_ctx() -> SessionContext:
 class TestLaunchTuiEditorError:
     @pytest.mark.usefixtures("stub_terminal")
     def test_error_prompt_on_nonzero_with_stderr(self, monkeypatch: Any) -> None:
-        from telix.client_repl_dialogs import launch_tui_editor
-
-        fail_result = subprocess.CompletedProcess(
-            args=[], returncode=1, stderr=b"NameError: something\n"
-        )
+        fail_result = subprocess.CompletedProcess(args=[], returncode=1, stderr=b"NameError: something\n")
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         with patch("builtins.input", return_value="") as mock_input:
             launch_tui_editor("macros", make_ctx())
@@ -76,20 +70,14 @@ class TestLaunchTuiEditorError:
     @pytest.mark.usefixtures("stub_terminal")
     def test_prompt_on_nonzero_without_stderr(self, monkeypatch: Any) -> None:
         """Non-zero exit always pauses, even without stderr output."""
-        from telix.client_repl_dialogs import launch_tui_editor
-
         fail_result = subprocess.CompletedProcess(args=[], returncode=1)
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         with patch("builtins.input", return_value=""):
             launch_tui_editor("macros", make_ctx())
@@ -97,20 +85,14 @@ class TestLaunchTuiEditorError:
 
     @pytest.mark.usefixtures("stub_terminal")
     def test_no_prompt_on_success(self, monkeypatch: Any) -> None:
-        from telix.client_repl_dialogs import launch_tui_editor
-
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: ok_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         launch_tui_editor("macros", make_ctx())
         assert not any("Press RETURN" in s for s in written)
@@ -119,10 +101,6 @@ class TestLaunchTuiEditorError:
 class TestLaunchUnifiedEditor:
     @pytest.mark.usefixtures("stub_terminal")
     def test_subprocess_receives_json_params(self, monkeypatch: Any) -> None:
-        import json
-
-        from telix.client_repl_dialogs import launch_unified_editor
-
         captured_cmd: list[list[str]] = []
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
 
@@ -132,16 +110,12 @@ class TestLaunchUnifiedEditor:
 
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("os.path.exists", lambda p: False)
-        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
+        monkeypatch.setattr("telix.client_repl_dialogs.read_fasttravel", lambda p: ([], False))
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         ctx = make_ctx()
         ctx.room_graph = None
@@ -156,10 +130,6 @@ class TestLaunchUnifiedEditor:
 
     @pytest.mark.usefixtures("stub_terminal")
     def test_all_tabs_pass_correct_initial_tab(self, monkeypatch: Any) -> None:
-        import json
-
-        from telix.client_repl_dialogs import launch_unified_editor
-
         captured_tabs: list[str] = []
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
 
@@ -170,59 +140,31 @@ class TestLaunchUnifiedEditor:
 
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("os.path.exists", lambda p: False)
-        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
+        monkeypatch.setattr("telix.client_repl_dialogs.read_fasttravel", lambda p: ([], False))
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         ctx = make_ctx()
         ctx.room_graph = None
-        for tab in (
-            "help",
-            "highlights",
-            "rooms",
-            "macros",
-            "autoreplies",
-            "captures",
-            "bars",
-            "theme",
-        ):
+        for tab in ("help", "highlights", "rooms", "macros", "autoreplies", "captures", "bars", "theme"):
             launch_unified_editor(tab, ctx)
 
-        assert captured_tabs == [
-            "help",
-            "highlights",
-            "rooms",
-            "macros",
-            "autoreplies",
-            "captures",
-            "bars",
-            "theme",
-        ]
+        assert captured_tabs == ["help", "highlights", "rooms", "macros", "autoreplies", "captures", "bars", "theme"]
 
     @pytest.mark.usefixtures("stub_terminal")
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
-        from telix.client_repl_dialogs import launch_unified_editor
-
         fail_result = subprocess.CompletedProcess(args=[], returncode=1)
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
-        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
+        monkeypatch.setattr("telix.client_repl_dialogs.read_fasttravel", lambda p: ([], False))
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         ctx = make_ctx()
         ctx.room_graph = None
@@ -234,38 +176,28 @@ class TestLaunchUnifiedEditor:
 
     @pytest.mark.usefixtures("stub_terminal")
     def test_reloads_all_configs(self, monkeypatch: Any) -> None:
-        from telix.client_repl_dialogs import launch_unified_editor
-
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: ok_result)
-        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
+        monkeypatch.setattr("telix.client_repl_dialogs.read_fasttravel", lambda p: ([], False))
 
         reloaded: list[str] = []
         monkeypatch.setattr(
-            "telix.client_repl_dialogs.reload_macros",
-            lambda ctx, path, sk, log: reloaded.append("macros"),
+            "telix.client_repl_dialogs.reload_macros", lambda ctx, path, sk, log: reloaded.append("macros")
         )
         monkeypatch.setattr(
-            "telix.client_repl_dialogs.reload_highlights",
-            lambda ctx, path, sk, log: reloaded.append("highlights"),
+            "telix.client_repl_dialogs.reload_highlights", lambda ctx, path, sk, log: reloaded.append("highlights")
         )
         monkeypatch.setattr(
-            "telix.client_repl_dialogs.reload_autoreplies",
-            lambda ctx, path, sk, log: reloaded.append("autoreplies"),
+            "telix.client_repl_dialogs.reload_autoreplies", lambda ctx, path, sk, log: reloaded.append("autoreplies")
         )
         monkeypatch.setattr(
-            "telix.client_repl_dialogs.reload_progressbars",
-            lambda ctx, path, sk, log: reloaded.append("progressbars"),
+            "telix.client_repl_dialogs.reload_progressbars", lambda ctx, path, sk, log: reloaded.append("progressbars")
         )
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         ctx = make_ctx()
         ctx.room_graph = None
@@ -275,28 +207,20 @@ class TestLaunchUnifiedEditor:
 
     @pytest.mark.usefixtures("stub_terminal")
     def test_handles_fast_travel(self, monkeypatch: Any) -> None:
-        import asyncio
-
-        from telix.client_repl_dialogs import launch_unified_editor
-
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: ok_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
-        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: (["north", "east"], False))
+        monkeypatch.setattr("telix.client_repl_dialogs.read_fasttravel", lambda p: (["north", "east"], False))
 
         async def fake_fast_travel(steps, ctx, log, noreply=False):
             pass
 
-        monkeypatch.setattr("telix.client_repl_travel.fast_travel", fake_fast_travel)
+        monkeypatch.setattr("telix.client_repl_dialogs.fast_travel", fake_fast_travel)
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -313,19 +237,13 @@ class TestLaunchUnifiedEditor:
 class TestLaunchChatViewerError:
     @pytest.mark.usefixtures("stub_terminal")
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
-        from telix.client_repl_dialogs import launch_chat_viewer
-
         fail_result = subprocess.CompletedProcess(args=[], returncode=1, stderr=b"Error\n")
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         with patch("builtins.input", return_value="") as mock_input:
             launch_chat_viewer(make_ctx())
@@ -337,20 +255,14 @@ class TestLaunchChatViewerError:
 class TestLaunchRoomBrowserError:
     @pytest.mark.usefixtures("stub_terminal")
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
-        from telix.client_repl_dialogs import launch_room_browser
-
         fail_result = subprocess.CompletedProcess(args=[], returncode=1, stderr=b"Error\n")
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
-        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
+        monkeypatch.setattr("telix.client_repl_dialogs.read_fasttravel", lambda p: ([], False))
 
         written: list[str] = []
-        monkeypatch.setattr(
-            "sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock())
-        )
+        monkeypatch.setattr("sys.stdout", MagicMock(write=lambda s: written.append(s), flush=MagicMock()))
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
-        monkeypatch.setattr(
-            "sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False))
-        )
+        monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
         ctx = make_ctx()
         ctx.room_graph = None

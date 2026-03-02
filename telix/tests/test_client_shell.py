@@ -10,6 +10,8 @@ from unittest.mock import MagicMock
 
 # 3rd party
 import pytest
+from telnetlib3.accessories import function_lookup
+from telnetlib3._session_context import TelnetSessionContext
 
 # local
 from telix.client_shell import want_repl, load_configs, build_session_key, telix_client_shell
@@ -34,8 +36,7 @@ class TestBuildSessionKey:
 
     def test_prefers_hostname_from_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "sys.argv",
-            ["telix", "--shell=telix.client_shell.telix_client_shell", "dunemud.net", "6788"],
+            "sys.argv", ["telix", "--shell=telix.client_shell.telix_client_shell", "dunemud.net", "6788"]
         )
         writer = MagicMock()
         writer.get_extra_info.return_value = ("138.197.134.82", 6788)
@@ -54,17 +55,11 @@ class TestLoadConfigs:
         monkeypatch.setattr("telix.client_shell.paths.DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setattr("telix.client_shell.paths.xdg_config_dir", lambda: tmp_path / "cfg")
         monkeypatch.setattr("telix.client_shell.paths.xdg_data_dir", lambda: tmp_path / "data")
+        monkeypatch.setattr("telix.client_shell.paths.chat_path", lambda sk: str(tmp_path / "data" / f"chat-{sk}.json"))
         monkeypatch.setattr(
-            "telix.client_shell.paths.chat_path",
-            lambda sk: str(tmp_path / "data" / f"chat-{sk}.json"),
+            "telix.client_shell.paths.history_path", lambda sk: str(tmp_path / "data" / f"history-{sk}")
         )
-        monkeypatch.setattr(
-            "telix.client_shell.paths.history_path",
-            lambda sk: str(tmp_path / "data" / f"history-{sk}"),
-        )
-        monkeypatch.setattr(
-            "telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db")
-        )
+        monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db"))
 
         ctx = SessionContext(session_key="host:1234")
         load_configs(ctx)
@@ -88,17 +83,11 @@ class TestLoadConfigs:
         monkeypatch.setattr("telix.client_shell.paths.DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setattr("telix.client_shell.paths.xdg_config_dir", lambda: cfg)
         monkeypatch.setattr("telix.client_shell.paths.xdg_data_dir", lambda: tmp_path / "data")
+        monkeypatch.setattr("telix.client_shell.paths.chat_path", lambda sk: str(tmp_path / "data" / f"chat-{sk}.json"))
         monkeypatch.setattr(
-            "telix.client_shell.paths.chat_path",
-            lambda sk: str(tmp_path / "data" / f"chat-{sk}.json"),
+            "telix.client_shell.paths.history_path", lambda sk: str(tmp_path / "data" / f"history-{sk}")
         )
-        monkeypatch.setattr(
-            "telix.client_shell.paths.history_path",
-            lambda sk: str(tmp_path / "data" / f"history-{sk}"),
-        )
-        monkeypatch.setattr(
-            "telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db")
-        )
+        monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db"))
 
         sentinel = [MagicMock()]
         monkeypatch.setattr("telix.macros.load_macros", lambda path, sk: sentinel)
@@ -114,12 +103,8 @@ class TestLoadConfigs:
         monkeypatch.setattr("telix.client_shell.paths.DATA_DIR", str(data))
         monkeypatch.setattr("telix.client_shell.paths.xdg_config_dir", lambda: cfg)
         monkeypatch.setattr("telix.client_shell.paths.xdg_data_dir", lambda: data)
-        monkeypatch.setattr(
-            "telix.client_shell.paths.chat_path", lambda sk: str(data / f"chat-{sk}.json")
-        )
-        monkeypatch.setattr(
-            "telix.client_shell.paths.history_path", lambda sk: str(data / f"history-{sk}")
-        )
+        monkeypatch.setattr("telix.client_shell.paths.chat_path", lambda sk: str(data / f"chat-{sk}.json"))
+        monkeypatch.setattr("telix.client_shell.paths.history_path", lambda sk: str(data / f"history-{sk}"))
         monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(data / f"rooms-{sk}.db"))
 
         ctx = SessionContext(session_key="host:1234")
@@ -158,26 +143,16 @@ class TestWantRepl:
 
 
 class TestCtxPreservation:
-    def test_preserves_base_ctx_attributes(
-        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from telnetlib3._session_context import TelnetSessionContext
-
+    def test_preserves_base_ctx_attributes(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("telix.client_shell.paths.CONFIG_DIR", str(tmp_path / "cfg"))
         monkeypatch.setattr("telix.client_shell.paths.DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setattr("telix.client_shell.paths.xdg_config_dir", lambda: tmp_path / "cfg")
         monkeypatch.setattr("telix.client_shell.paths.xdg_data_dir", lambda: tmp_path / "data")
+        monkeypatch.setattr("telix.client_shell.paths.chat_path", lambda sk: str(tmp_path / "data" / f"chat-{sk}.json"))
         monkeypatch.setattr(
-            "telix.client_shell.paths.chat_path",
-            lambda sk: str(tmp_path / "data" / f"chat-{sk}.json"),
+            "telix.client_shell.paths.history_path", lambda sk: str(tmp_path / "data" / f"history-{sk}")
         )
-        monkeypatch.setattr(
-            "telix.client_shell.paths.history_path",
-            lambda sk: str(tmp_path / "data" / f"history-{sk}"),
-        )
-        monkeypatch.setattr(
-            "telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db")
-        )
+        monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db"))
 
         old_ctx = TelnetSessionContext()
         old_ctx.typescript_file = "fake_ts"
@@ -189,8 +164,6 @@ class TestCtxPreservation:
         writer = MagicMock()
         writer.get_extra_info.return_value = ("example.com", 4000)
         writer.ctx = old_ctx
-
-        from telix.client_shell import load_configs, build_session_key
 
         session_key = build_session_key(writer)
         old_ctx = writer.ctx
@@ -216,7 +189,5 @@ class TestShellSignature:
         assert asyncio.iscoroutinefunction(telix_client_shell)
 
     def test_resolvable_via_function_lookup(self) -> None:
-        from telnetlib3.accessories import function_lookup
-
         fn = function_lookup("telix.client_shell.telix_client_shell")
         assert fn is telix_client_shell

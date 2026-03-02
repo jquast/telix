@@ -8,36 +8,32 @@ Provides :func:`telix_client_shell`, a drop-in replacement for
 REPL and raw event loops based on telnet negotiation state.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
+import sys
+import typing
 import asyncio
 import logging
-from typing import Any
 
 # 3rd party
-from telnetlib3.client_shell import (
-    Terminal,
-    _get_raw_mode,
-    _RawLoopState,
-    _raw_event_loop,
-    _flush_color_filter,
-)
-from telnetlib3.stream_reader import TelnetReader, TelnetReaderUnicode
-from telnetlib3.stream_writer import TelnetWriter, TelnetWriterUnicode
+import telnetlib3
+import telnetlib3.client
+import telnetlib3.telopt
+import telnetlib3.client_shell
+import telnetlib3.stream_reader
+import telnetlib3.stream_writer
 
 # local
-from . import paths
-from .client_repl import repl_event_loop
-from .session_context import SessionContext
+from . import chat, paths, rooms, macros, autoreply, client_repl, highlighter, progressbars, session_context
 
 log = logging.getLogger(__name__)
 
 __all__ = ("telix_client_shell",)
 
 
-def build_session_key(writer: TelnetWriter | TelnetWriterUnicode) -> str:
+def build_session_key(
+    writer: (telnetlib3.stream_writer.TelnetWriter | telnetlib3.stream_writer.TelnetWriterUnicode),
+) -> str:
     """
     Derive ``host:port`` session key from CLI arguments or peername.
 
@@ -46,12 +42,8 @@ def build_session_key(writer: TelnetWriter | TelnetWriterUnicode) -> str:
     (history, rooms, macros, etc.) are keyed by the human-readable
     hostname used to connect.
     """
-    import sys
-
     try:
-        from telnetlib3.client import _get_argument_parser
-
-        args = _get_argument_parser().parse_known_args(sys.argv[1:])[0]
+        args = telnetlib3.client._get_argument_parser().parse_known_args(sys.argv[1:])[0]
         if args.host:
             return f"{args.host}:{args.port}"
     except (SystemExit, Exception):
@@ -62,11 +54,12 @@ def build_session_key(writer: TelnetWriter | TelnetWriterUnicode) -> str:
     return ""
 
 
-def load_configs(ctx: SessionContext) -> None:
+def load_configs(ctx: session_context.SessionContext) -> None:
     """
     Load per-session config files into *ctx*.
 
-    Missing config files are silently skipped so first-time connections start with empty defaults.
+    Missing config files are silently skipped so first-time connections
+    start with empty defaults.
     """
     session_key = ctx.session_key
     config_dir = str(paths.xdg_config_dir())
@@ -77,33 +70,25 @@ def load_configs(ctx: SessionContext) -> None:
     macros_path = os.path.join(config_dir, "macros.json")
     ctx.macros_file = macros_path
     if os.path.isfile(macros_path):
-        from .macros import load_macros
-
-        ctx.macro_defs = load_macros(macros_path, session_key)
+        ctx.macro_defs = macros.load_macros(macros_path, session_key)
 
     # autoreplies
     autoreplies_path = os.path.join(config_dir, "autoreplies.json")
     ctx.autoreplies_file = autoreplies_path
     if os.path.isfile(autoreplies_path):
-        from .autoreply import load_autoreplies
-
-        ctx.autoreply_rules = load_autoreplies(autoreplies_path, session_key)
+        ctx.autoreply_rules = autoreply.load_autoreplies(autoreplies_path, session_key)
 
     # highlights
     highlights_path = os.path.join(config_dir, "highlights.json")
     ctx.highlights_file = highlights_path
     if os.path.isfile(highlights_path):
-        from .highlighter import load_highlights
-
-        ctx.highlight_rules = load_highlights(highlights_path, session_key)
+        ctx.highlight_rules = highlighter.load_highlights(highlights_path, session_key)
 
     # progress bars
     progressbars_path = os.path.join(config_dir, "progressbars.json")
     ctx.progressbars_file = progressbars_path
     if os.path.isfile(progressbars_path):
-        from .progressbars import load_progressbars
-
-        ctx.progressbar_configs = load_progressbars(progressbars_path, session_key)
+        ctx.progressbar_configs = progressbars.load_progressbars(progressbars_path, session_key)
 
     # GMCP snapshot
     ctx.gmcp_snapshot_file = paths.gmcp_snapshot_path(session_key)
@@ -112,31 +97,25 @@ def load_configs(ctx: SessionContext) -> None:
     chat_file = paths.chat_path(session_key)
     ctx.chat_file = chat_file
     if os.path.isfile(chat_file):
-        from .chat import load_chat
+        ctx.chat_messages = chat.load_chat(chat_file)
 
-        ctx.chat_messages = load_chat(chat_file)
-
-    from .chat import append_chat_msg
-
-    ctx.on_chat_text = lambda data: append_chat_msg(ctx, data)
+    ctx.on_chat_text = lambda data: chat.append_chat_msg(ctx, data)
     ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
 
     # rooms
-    from .rooms import RoomStore, rooms_path, current_room_path, write_current_room
-
-    rooms_file = rooms_path(session_key)
+    rooms_file = rooms.rooms_path(session_key)
     ctx.rooms_file = rooms_file
-    ctx.current_room_file = current_room_path(session_key)
-    ctx.room_graph = RoomStore(rooms_file)
+    ctx.current_room_file = rooms.current_room_path(session_key)
+    ctx.room_graph = rooms.RoomStore(rooms_file)
 
-    def on_room_info(data: dict[str, Any]) -> None:
+    def on_room_info(data: dict[str, typing.Any]) -> None:
         num = str(data["num"])
         ctx.previous_room_num = ctx.current_room_num
         ctx.current_room_num = num
         ctx.room_changed.set()
         ctx.room_changed.clear()
         ctx.room_graph.update_room(data)
-        write_current_room(ctx.current_room_file, num)
+        rooms.write_current_room(ctx.current_room_file, num)
 
     ctx.on_room_info = on_room_info
 
@@ -144,22 +123,26 @@ def load_configs(ctx: SessionContext) -> None:
     ctx.history_file = paths.history_path(session_key)
 
 
-def want_repl(ctx: SessionContext, writer: TelnetWriter | TelnetWriterUnicode) -> bool:
+def want_repl(
+    ctx: session_context.SessionContext,
+    writer: (telnetlib3.stream_writer.TelnetWriter | telnetlib3.stream_writer.TelnetWriterUnicode),
+) -> bool:
     """Return True when the REPL should be active."""
     return ctx.repl_enabled and getattr(writer, "mode", "local") == "local"
 
 
 async def telix_client_shell(
-    telnet_reader: TelnetReader | TelnetReaderUnicode,
-    telnet_writer: TelnetWriter | TelnetWriterUnicode,
+    telnet_reader: (telnetlib3.stream_reader.TelnetReader | telnetlib3.stream_reader.TelnetReaderUnicode),
+    telnet_writer: (telnetlib3.stream_writer.TelnetWriter | telnetlib3.stream_writer.TelnetWriterUnicode),
 ) -> None:
     """
     Telix client shell with REPL/raw mode switching.
 
-    Drop-in replacement for :func:`telnetlib3.client_shell.telnet_client_shell`.
-    Creates a :class:`SessionContext`, loads configs, and runs an outer loop
-    that alternates between the REPL (line-mode) and raw event loop based on
-    telnet negotiation state.
+    Drop-in replacement for
+    :func:`telnetlib3.client_shell.telnet_client_shell`.
+    Creates a :class:`SessionContext`, loads configs, and runs an outer
+    loop that alternates between the REPL (line-mode) and raw event loop
+    based on telnet negotiation state.
 
     :param telnet_reader: Server-side telnet reader stream.
     :param telnet_writer: Client-side telnet writer stream.
@@ -168,7 +151,7 @@ async def telix_client_shell(
     #    that run_client() wrappers already set on the original ctx.
     session_key = build_session_key(telnet_writer)
     old_ctx = telnet_writer.ctx
-    ctx = SessionContext(session_key=session_key)
+    ctx = session_context.SessionContext(session_key=session_key)
     ctx.typescript_file = old_ctx.typescript_file
     ctx.raw_mode = old_ctx.raw_mode
     ctx.ascii_eol = old_ctx.ascii_eol
@@ -182,11 +165,9 @@ async def telix_client_shell(
     load_configs(ctx)
 
     # 3. Override GMCP callback to dispatch ctx hooks after base storage.
-    from telnetlib3.telopt import GMCP
+    base_on_gmcp = telnet_writer._ext_callback.get(telnetlib3.telopt.GMCP)
 
-    base_on_gmcp = telnet_writer._ext_callback.get(GMCP)
-
-    def on_gmcp(package: str, data: Any) -> None:
+    def on_gmcp(package: str, data: typing.Any) -> None:
         if base_on_gmcp is not None:
             base_on_gmcp(package, data)
         if package == "Comm.Channel.Text":
@@ -199,17 +180,17 @@ async def telix_client_shell(
             if ctx.on_room_info is not None:
                 ctx.on_room_info(data)
 
-    telnet_writer.set_ext_callback(GMCP, on_gmcp)
+    telnet_writer.set_ext_callback(telnetlib3.telopt.GMCP, on_gmcp)
 
     keyboard_escape = "\x1d"
 
-    with Terminal(telnet_writer=telnet_writer) as tty_shell:
+    with telnetlib3.client_shell.Terminal(telnet_writer=telnet_writer) as tty_shell:
         linesep = "\n"
         switched_to_raw = False
         last_will_echo = False
         local_echo = tty_shell.software_echo
         if tty_shell._istty:
-            raw_mode = _get_raw_mode(telnet_writer)
+            raw_mode = telnetlib3.client_shell._get_raw_mode(telnet_writer)
             if telnet_writer.will_echo or raw_mode is True:
                 linesep = "\r\n"
         stdout = await tty_shell.make_stdout()  # pylint: disable=no-member
@@ -228,10 +209,8 @@ async def telix_client_shell(
             if ar is not None:
                 ar.on_prompt()
 
-        from telnetlib3.telopt import GA, CMD_EOR
-
-        telnet_writer.set_iac_callback(GA, on_prompt_signal_raw)
-        telnet_writer.set_iac_callback(CMD_EOR, on_prompt_signal_raw)
+        telnet_writer.set_iac_callback(telnetlib3.telopt.GA, on_prompt_signal_raw)
+        telnet_writer.set_iac_callback(telnetlib3.telopt.CMD_EOR, on_prompt_signal_raw)
 
         async def wait_for_prompt_raw() -> None:
             if not ga_detected_raw:
@@ -244,14 +223,12 @@ async def telix_client_shell(
 
         ctx.autoreply_wait_fn = wait_for_prompt_raw
 
-        from telnetlib3 import accessories
-
-        escape_name = accessories.name_unicode(keyboard_escape)
+        escape_name = telnetlib3.accessories.name_unicode(keyboard_escape)
         banner_sep = "\r\n" if tty_shell._istty else linesep
         stdout.write(f"Escape character is '{escape_name}'.{banner_sep}".encode())
 
         def handle_close(msg: str) -> None:
-            _flush_color_filter(telnet_writer, stdout)
+            telnetlib3.client_shell._flush_color_filter(telnet_writer, stdout)
             stdout.write(f"\033[m{linesep}{msg}{linesep}".encode())
             tty_shell.cleanup_winch()
 
@@ -261,13 +238,13 @@ async def telix_client_shell(
         # Outer loop: alternate between REPL and raw modes.
         while True:
             if check_want_repl() and tty_shell._istty:
-                mode_switched = await repl_event_loop(
+                mode_switched = await client_repl.repl_event_loop(
                     telnet_reader, telnet_writer, tty_shell, stdout, history_file=ctx.history_file
                 )
                 if not mode_switched:
                     # Connection closed normally.
                     break
-                # Server switched to kludge/raw mode -- fall through to raw loop.
+                # Server switched to kludge/raw mode -- fall through.
 
             # Raw event loop.
             if not switched_to_raw and tty_shell._istty and tty_shell._save_mode is not None:
@@ -276,13 +253,10 @@ async def telix_client_shell(
                 local_echo = not telnet_writer.will_echo
                 linesep = "\r\n"
             stdin = await tty_shell.connect_stdin()  # pylint: disable=no-member
-            state = _RawLoopState(
-                switched_to_raw=switched_to_raw,
-                last_will_echo=last_will_echo,
-                local_echo=local_echo,
-                linesep=linesep,
+            state = telnetlib3.client_shell._RawLoopState(
+                switched_to_raw=switched_to_raw, last_will_echo=last_will_echo, local_echo=local_echo, linesep=linesep
             )
-            await _raw_event_loop(
+            await telnetlib3.client_shell._raw_event_loop(
                 telnet_reader,
                 telnet_writer,
                 tty_shell,

@@ -11,13 +11,13 @@ and ``str(keystroke)`` respectively.
 """
 
 # std imports
-import asyncio
-import dataclasses
-import datetime
-import json
-import logging
 import os
+import json
 import typing
+import asyncio
+import logging
+import datetime
+import dataclasses
 
 import blessed.line_editor
 
@@ -57,14 +57,7 @@ def parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
         toggle = bool(entry.get("toggle", False))
         toggle_text = str(entry.get("toggle_text", ""))
         macros.append(
-            Macro(
-                key=key,
-                text=text,
-                enabled=enabled,
-                last_used=last_used,
-                toggle=toggle,
-                toggle_text=toggle_text,
-            )
+            Macro(key=key, text=text, enabled=enabled, last_used=last_used, toggle=toggle, toggle_text=toggle_text)
         )
     return macros
 
@@ -90,9 +83,7 @@ def load_macros(path: str, session_key: str) -> list[Macro]:
     return parse_entries(entries)
 
 
-def save_macros(
-    path: str, macros: list[Macro], session_key: str
-) -> None:
+def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
     """
     Save macro definitions for a session to a JSON file.
 
@@ -114,11 +105,7 @@ def save_macros(
                 "text": m.text,
                 **({"enabled": False} if not m.enabled else {}),
                 **({"last_used": m.last_used} if m.last_used else {}),
-                **(
-                    {"toggle": True, "toggle_text": m.toggle_text}
-                    if m.toggle
-                    else {}
-                ),
+                **({"toggle": True, "toggle_text": m.toggle_text} if m.toggle else {}),
             }
             for m in macros
         ]
@@ -128,11 +115,7 @@ def save_macros(
     paths.atomic_write(path, content)
 
 
-def build_macro_dispatch(
-    macros: list[Macro],
-    ctx: typing.Any,
-    log: logging.Logger,
-) -> dict[str, typing.Any]:
+def build_macro_dispatch(macros: list[Macro], ctx: typing.Any, log: logging.Logger) -> dict[str, typing.Any]:
     """
     Build a blessed key name to handler mapping from macro defs.
 
@@ -147,17 +130,14 @@ def build_macro_dispatch(
     :param log: Logger instance.
     :returns: Dict mapping blessed key names (or raw chars) to handlers.
     """
-    from . import client_repl as repl
+    from . import client_repl as repl  # noqa: PLC0415  # circular
 
     result: dict[str, typing.Any] = {}
     for macro in macros:
         if not macro.enabled:
             continue
         if macro.key in blessed.line_editor.DEFAULT_KEYMAP:
-            log.warning(
-                "macro %r conflicts with editor keymap, skipping",
-                macro.key,
-            )
+            log.warning("macro %r conflicts with editor keymap, skipping", macro.key)
             continue
         macro_ref = macro
 
@@ -167,20 +147,14 @@ def build_macro_dispatch(
                 m.toggle_state = not m.toggle_state
             else:
                 text = m.text
-            m.last_used = (
-                datetime.datetime.now(datetime.timezone.utc).isoformat()
-            )
+            m.last_used = datetime.datetime.now(datetime.timezone.utc).isoformat()
             if hasattr(ctx, "mark_macros_dirty"):
                 ctx.mark_macros_dirty()
-            task = asyncio.ensure_future(
-                repl.execute_macro_commands(text, ctx, log)
-            )
+            task = asyncio.ensure_future(repl.execute_macro_commands(text, ctx, log))
 
             def on_done(t: asyncio.Task[None]) -> None:
                 if not t.cancelled() and t.exception() is not None:
-                    log.warning(
-                        "macro execution failed: %s", t.exception()
-                    )
+                    log.warning("macro execution failed: %s", t.exception())
 
             task.add_done_callback(on_done)
 

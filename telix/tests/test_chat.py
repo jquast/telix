@@ -11,7 +11,9 @@ import pytest
 
 # local
 from telix.chat import CHAT_FILE_CAP, load_chat, persist_chat, append_chat_msg
+from telix.paths import chat_path
 from telix.session_context import SessionContext
+from telix.client_repl_render import ToolbarSlot, sgr_fg, wcswidth
 
 
 def make_ctx(tmp_path: Any, session_key: str = "test:4000") -> SessionContext:
@@ -20,15 +22,8 @@ def make_ctx(tmp_path: Any, session_key: str = "test:4000") -> SessionContext:
     return ctx
 
 
-def sample_gmcp_msg(
-    channel: str = "chat", talker: str = "Bob", text: str = "hello"
-) -> dict[str, Any]:
-    return {
-        "channel": channel,
-        "channel_ansi": f"\x1b[0m[{channel}]\x1b[0m",
-        "talker": talker,
-        "text": text + "\n",
-    }
+def sample_gmcp_msg(channel: str = "chat", talker: str = "Bob", text: str = "hello") -> dict[str, Any]:
+    return {"channel": channel, "channel_ansi": f"\x1b[0m[{channel}]\x1b[0m", "talker": talker, "text": text + "\n"}
 
 
 class TestAppendChat:
@@ -105,8 +100,6 @@ class TestPersistChat:
 
 class TestChatBadge:
     def test_badge_present_when_unread(self) -> None:
-        from telix.client_repl_render import ToolbarSlot, sgr_fg, wcswidth
-
         ctx = SessionContext(session_key="test:4000")
         ctx.chat_unread = 5
         badge = f"F10-Chat:{ctx.chat_unread}"
@@ -155,15 +148,11 @@ class TestOnChatTextCallback:
 
 class TestChatPath:
     def test_chat_path_returns_string(self) -> None:
-        from telix.paths import chat_path
-
         p = chat_path("mud.example.com:4000")
         assert p.endswith(".json")
         assert "chat-" in p
 
     def test_chat_path_unique_per_session(self) -> None:
-        from telix.paths import chat_path
-
         p1 = chat_path("mud.example.com:4000")
         p2 = chat_path("other.host:23")
         assert p1 != p2

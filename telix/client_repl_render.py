@@ -5,6 +5,7 @@ import time
 import random
 import asyncio
 import logging
+import colorsys
 import collections
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -13,6 +14,9 @@ if TYPE_CHECKING:
     import blessed.line_editor
 
     from .session_context import SessionContext
+
+# 3rd party
+import wcwidth
 
 # local
 from .repl_theme import hex_to_rgb, get_repl_palette
@@ -70,9 +74,7 @@ SEXTANT[63] = "\u2588"  # FULL BLOCK
 for b in range(1, 63):
     u = sum((1 << i) for i in range(6) if b & (1 << (5 - i)))
     SEXTANT[b] = (
-        "\u258c"
-        if u == 21
-        else "\u2590" if u == 42 else chr(0x1FB00 + u - 1 - sum(1 for x in (21, 42) if x < u))
+        "\u258c" if u == 21 else "\u2590" if u == 42 else chr(0x1FB00 + u - 1 - sum(1 for x in (21, 42) if x < u))
     )
 del b, u
 
@@ -150,11 +152,7 @@ def until_progress(engine: Any) -> float | None:
 
 
 def write_hint(
-    hint: str,
-    out: "asyncio.StreamWriter",
-    bt: "blessed.Terminal",
-    progress: float | None = None,
-    bg_sgr: str = "",
+    hint: str, out: "asyncio.StreamWriter", bt: "blessed.Terminal", progress: float | None = None, bg_sgr: str = ""
 ) -> None:
     """
     Write *hint* at the current cursor position with optional progress bar.
@@ -185,11 +183,7 @@ def write_hint(
 
 def lerp_rgb(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
     """Linearly interpolate between two RGB colors."""
-    return (
-        int(c1[0] + t * (c2[0] - c1[0])),
-        int(c1[1] + t * (c2[1] - c1[1])),
-        int(c1[2] + t * (c2[2] - c1[2])),
-    )
+    return (int(c1[0] + t * (c2[0] - c1[0])), int(c1[1] + t * (c2[1] - c1[1])), int(c1[2] + t * (c2[2] - c1[2])))
 
 
 class ActivityDot:
@@ -325,9 +319,9 @@ class Stoplight:
 
 def get_term() -> "blessed.Terminal":
     """Return the module-level blessed Terminal singleton."""
-    from .client_repl import get_term as gt
+    from . import client_repl  # noqa: PLC0415  # circular
 
-    return gt()
+    return client_repl.get_term()
 
 
 # DECTCEM cursor visibility.
@@ -424,15 +418,12 @@ def make_styles() -> None:
 
 def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
     """Convert HSV (h in [0,360), s/v in [0,1]) to (r, g, b) in [0,255]."""
-    import colorsys
-
     r, g, b = colorsys.hsv_to_rgb(h / 360.0, s, v)
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
 def rgb_to_hsv(r: int, g: int, b: int) -> tuple[float, float, float]:
     """Convert (r, g, b) in [0,255] to HSV (h in [0,360), s/v in [0,1])."""
-    import colorsys
 
     h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
     return (h * 360.0, s, v)
@@ -567,9 +558,7 @@ def vital_color(fraction: float, kind: str) -> str:
 
 def wcswidth(text: str) -> int:
     """Return display width of *text*, handling wide chars."""
-    from wcwidth import wcswidth
-
-    w = wcswidth(text)
+    w = wcwidth.wcswidth(text)
     return w if w >= 0 else len(text)
 
 
@@ -740,9 +729,7 @@ SEPARATOR_WIDTH = 3
 BAR_GAP_WIDTH = 1
 
 
-def layout_toolbar(
-    slots: list["ToolbarSlot"], cols: int
-) -> tuple[list["ToolbarSlot"], list["ToolbarSlot"]]:
+def layout_toolbar(slots: list["ToolbarSlot"], cols: int) -> tuple[list["ToolbarSlot"], list["ToolbarSlot"]]:
     """
     Fit toolbar slots into *cols* columns by priority.
 
@@ -756,11 +743,7 @@ def layout_toolbar(
     has_right = False
 
     for slot in sorted(slots, key=lambda s: s.priority):
-        sep = (
-            SEPARATOR_WIDTH
-            if ((slot.side == "left" and has_left) or (slot.side == "right" and has_right))
-            else 0
-        )
+        sep = SEPARATOR_WIDTH if ((slot.side == "left" and has_left) or (slot.side == "right" and has_right)) else 0
         need = slot.width + sep
         avail = cols - left_used - right_used - 1  # 1 char min pad
 
@@ -1073,33 +1056,26 @@ class ToolbarRenderer:
         randomwalk_active = self.ctx.randomwalk_active
 
         now = time.monotonic()
-        slots, needs_reflash = self.build_slots(
-            engine, ar_active, discover_active, randomwalk_active, now
-        )
+        slots, needs_reflash = self.build_slots(engine, ar_active, discover_active, randomwalk_active, now)
         return self.paint(slots, self.is_autoreply_bg(engine), needs_reflash)
 
     def ensure_gmcp_ready(self) -> bool:
         """Initialize toolbar on first GMCP data; return ``False`` if no data yet."""
-        from .client_repl import RESERVE_WITH_TOOLBAR
+        from . import client_repl  # noqa: PLC0415  # circular
 
         gmcp_data: dict[str, Any] | None = self.ctx.gmcp_data or None
         if not self.has_gmcp:
             if not gmcp_data:
                 return False
             self.has_gmcp = True
-            self.scroll.grow_reserve(RESERVE_WITH_TOOLBAR)
+            self.scroll.grow_reserve(client_repl.RESERVE_WITH_TOOLBAR)
             if self.ctx.on_gmcp_ready is not None:
                 self.ctx.on_gmcp_ready()
                 self.ctx.on_gmcp_ready = None
         return True
 
     def build_slots(
-        self,
-        engine: Any,
-        ar_active: bool,
-        discover_active: bool,
-        randomwalk_active: bool,
-        now: float,
+        self, engine: Any, ar_active: bool, discover_active: bool, randomwalk_active: bool, now: float
     ) -> tuple[list[ToolbarSlot], bool]:
         """Build all toolbar slots and return ``(slots, needs_reflash)``."""
         slots: list[ToolbarSlot] = []
@@ -1154,12 +1130,9 @@ class ToolbarRenderer:
             if hp is not None:
                 if self.vital_slot(self.hp, hp, maxhp, BAR_WIDTH, "hp", 1, 2, now, slots):
                     needs_reflash = True
-            mp = vitals.get(
-                "mp", vitals.get("MP", vitals.get("mana", vitals.get("sp", vitals.get("SP"))))
-            )
+            mp = vitals.get("mp", vitals.get("MP", vitals.get("mana", vitals.get("sp", vitals.get("SP")))))
             maxmp = vitals.get(
-                "maxmp",
-                vitals.get("maxMP", vitals.get("max_mp", vitals.get("maxsp", vitals.get("maxSP")))),
+                "maxmp", vitals.get("maxMP", vitals.get("max_mp", vitals.get("maxsp", vitals.get("maxSP"))))
             )
             if mp is not None:
                 if self.vital_slot(self.mp, mp, maxmp, BAR_WIDTH, "mp", 4, 3, now, slots):
@@ -1167,9 +1140,7 @@ class ToolbarRenderer:
         status = gmcp_data.get("Char.Status")
         if isinstance(status, dict):
             xp_raw = status.get("xp", status.get("XP", status.get("experience")))
-            maxxp = status.get(
-                "maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp")))
-            )
+            maxxp = status.get("maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp"))))
             if xp_raw is not None:
                 if self.vital_slot(self.xp, xp_raw, maxxp, BAR_WIDTH, "xp", 5, 4, now, slots):
                     needs_reflash = True
@@ -1177,14 +1148,10 @@ class ToolbarRenderer:
         return needs_reflash
 
     def config_driven_bars(
-        self,
-        gmcp_data: dict[str, Any],
-        bar_configs: list[Any],
-        now: float,
-        slots: list[ToolbarSlot],
+        self, gmcp_data: dict[str, Any], bar_configs: list[Any], now: float, slots: list[ToolbarSlot]
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
-        from .progressbars import bar_color_at, resolve_text_color_hex
+        from . import progressbars  # noqa: PLC0415  # circular
 
         needs_reflash = False
         for i, cfg in enumerate(bar_configs):
@@ -1214,9 +1181,9 @@ class ToolbarRenderer:
                 frac = max(0.0, min(1.0, cur / mx)) if mx > 0 else 1.0
             except (TypeError, ValueError):
                 frac = 1.0
-            color = bar_color_at(frac, cfg)
-            text_fill = resolve_text_color_hex(cfg.text_color_fill)
-            text_empty = resolve_text_color_hex(cfg.text_color_empty)
+            color = progressbars.bar_color_at(frac, cfg)
+            text_fill = progressbars.resolve_text_color_hex(cfg.text_color_fill)
+            text_empty = progressbars.resolve_text_color_hex(cfg.text_color_empty)
             if self.vital_slot(
                 tracker,
                 raw,
@@ -1314,15 +1281,7 @@ class ToolbarRenderer:
                 min_width=0,
                 label="",
                 growable=True,
-                grow_params=(
-                    raw,
-                    maxval,
-                    kind,
-                    flash_elapsed,
-                    color_override,
-                    text_fill_color,
-                    text_empty_color,
-                ),
+                grow_params=(raw, maxval, kind, flash_elapsed, color_override, text_fill_color, text_empty_color),
             )
         )
         return needs_reflash
@@ -1352,22 +1311,13 @@ class ToolbarRenderer:
             )
 
     def right_slot(
-        self,
-        engine: Any,
-        ar_active: bool,
-        discover_active: bool,
-        randomwalk_active: bool,
-        slots: list[ToolbarSlot],
+        self, engine: Any, ar_active: bool, discover_active: bool, randomwalk_active: bool, slots: list[ToolbarSlot]
     ) -> None:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:
-            self.travel_bar_slot(
-                self.ctx.randomwalk_current, self.ctx.randomwalk_total, 24, "randomwalk", slots
-            )
+            self.travel_bar_slot(self.ctx.randomwalk_current, self.ctx.randomwalk_total, 24, "randomwalk", slots)
         elif discover_active:
-            self.travel_bar_slot(
-                self.ctx.discover_current, self.ctx.discover_total, 20, "discover", slots
-            )
+            self.travel_bar_slot(self.ctx.discover_current, self.ctx.discover_total, 20, "discover", slots)
         elif ar_active:
             idx = getattr(engine, "exclusive_rule_index", None)
             ar_label = f"Autoreply #{idx}" if idx is not None else "Autoreply"
@@ -1402,15 +1352,13 @@ class ToolbarRenderer:
                     )
                 )
 
-    def travel_bar_slot(
-        self, cur: Any, tot: Any, width: int, kind: str, slots: list[ToolbarSlot]
-    ) -> None:
+    def travel_bar_slot(self, cur: Any, tot: Any, width: int, kind: str, slots: list[ToolbarSlot]) -> None:
         """Append a travel progress bar slot, using config colors when available."""
-        from .progressbars import TRAVEL_BAR_NAME, bar_color_at, resolve_text_color_hex
+        from . import progressbars  # noqa: PLC0415  # circular
 
         travel_cfg = None
         for cfg in self.ctx.progressbar_configs or []:
-            if cfg.name == TRAVEL_BAR_NAME or (cfg.name and not cfg.gmcp_package):
+            if cfg.name == progressbars.TRAVEL_BAR_NAME or (cfg.name and not cfg.gmcp_package):
                 travel_cfg = cfg
                 break
 
@@ -1425,19 +1373,13 @@ class ToolbarRenderer:
                 frac = max(0.0, min(1.0, cv / mx)) if mx > 0 else 1.0
             except (TypeError, ValueError):
                 frac = 1.0
-            color_override = bar_color_at(frac, travel_cfg)
-            text_fill = resolve_text_color_hex(travel_cfg.text_color_fill)
-            text_empty = resolve_text_color_hex(travel_cfg.text_color_empty)
+            color_override = progressbars.bar_color_at(frac, travel_cfg)
+            text_fill = progressbars.resolve_text_color_hex(travel_cfg.text_color_fill)
+            text_empty = progressbars.resolve_text_color_hex(travel_cfg.text_color_empty)
             side = getattr(travel_cfg, "side", "right")
 
         mode_frags = vital_bar(
-            cur,
-            tot,
-            width,
-            kind,
-            color_override=color_override,
-            text_fill_color=text_fill,
-            text_empty_color=text_empty,
+            cur, tot, width, kind, color_override=color_override, text_fill_color=text_fill, text_empty_color=text_empty
         )
         mode_w = sum(wcswidth(t) for _, t in mode_frags)
         slots.append(
@@ -1514,9 +1456,7 @@ class ToolbarRenderer:
         self.out.write(blessed_term.normal.encode())
         return needs_reflash
 
-    def cursor_light(
-        self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool
-    ) -> bool:
+    def cursor_light(self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool) -> bool:
         """
         Draw the stoplight sextant at the cursor position.
 
@@ -1541,9 +1481,7 @@ class ToolbarRenderer:
         self.out.write(bt.move_yx(row, col).encode())
         return True
 
-    def restore_cursor(
-        self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool
-    ) -> None:
+    def restore_cursor(self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool) -> None:
         """
         Show the cursor at *row*, *col*, using the stoplight glyph if animating.
 
@@ -1578,35 +1516,21 @@ class ToolbarRenderer:
 
             cq = self.ctx.command_queue
             ac = self.ctx.active_command
-            from time import monotonic as mono
-
-            ac_elapsed = mono() - self.ctx.active_command_time
+            ac_elapsed = time.monotonic() - self.ctx.active_command_time
             show_cmd = cq is not None or (ac is not None and ac_elapsed < FLASH_DURATION)
             if show_cmd:
-                from .client_repl_commands import render_command_queue, render_active_command
+                from . import client_repl_commands  # noqa: PLC0415  # circular
 
                 hint = activity_hint(engine, bt.width)
                 prog = until_progress(engine)
                 bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
                 if cq is not None:
-                    cursor_col = render_command_queue(
-                        cq,
-                        self.scroll,
-                        self.out,
-                        flash_elapsed=ac_elapsed,
-                        hint=hint,
-                        progress=prog,
-                        base_bg_sgr=bg,
+                    cursor_col = client_repl_commands.render_command_queue(
+                        cq, self.scroll, self.out, flash_elapsed=ac_elapsed, hint=hint, progress=prog, base_bg_sgr=bg
                     )
                 else:
-                    cursor_col = render_active_command(
-                        ac,
-                        self.scroll,
-                        self.out,
-                        flash_elapsed=ac_elapsed,
-                        hint=hint,
-                        progress=prog,
-                        base_bg_sgr=bg,
+                    cursor_col = client_repl_commands.render_active_command(
+                        ac, self.scroll, self.out, flash_elapsed=ac_elapsed, hint=hint, progress=prog, base_bg_sgr=bg
                     )
                 if prog is not None:
                     still = True
@@ -1675,9 +1599,7 @@ class ToolbarRenderer:
             gmcp_data = self.ctx.gmcp_data or {}
             status = gmcp_data.get("Char.Vitals", gmcp_data.get("Char.Status", {}))
             if isinstance(status, dict):
-                maxxp = status.get(
-                    "maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp")))
-                )
+                maxxp = status.get("maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp"))))
             else:
                 maxxp = None
             now = time.monotonic()
@@ -1688,9 +1610,7 @@ class ToolbarRenderer:
                 self.last_eta_text = eta_text
                 self.hide_cursor()
                 self.render(autoreply_engine)
-                has_command = (
-                    self.ctx.command_queue is not None or self.ctx.active_command is not None
-                )
+                has_command = self.ctx.command_queue is not None or self.ctx.active_command is not None
                 if not has_command:
                     cursor_col = editor_cursor_col(editor)
                     input_row = self.scroll.input_row

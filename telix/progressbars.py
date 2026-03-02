@@ -5,15 +5,18 @@ Provides auto-detection of progress bar candidates from GMCP data, persistent co
 JSON, and color interpolation for custom bar rendering.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
 import json
-from typing import Any, NamedTuple
+import typing
+
+# 3rd party
+import textual.app
+import textual.theme
+from rich.color import ANSI_COLOR_NAMES, Color
 
 # local
-from .paths import atomic_json_write
+from . import paths, client_repl_render
 
 __all__ = (
     "CURATED_COLORS",
@@ -29,7 +32,7 @@ __all__ = (
 TRAVEL_BAR_NAME = "<Travel>"  #: Name of the built-in travel progress bar.
 
 
-class BarConfig(NamedTuple):
+class BarConfig(typing.NamedTuple):
     """Configuration for a single toolbar progress bar."""
 
     name: str
@@ -50,8 +53,6 @@ class BarConfig(NamedTuple):
 #: All Rich named colors for the custom color picker.
 def all_rich_colors() -> list[str]:
     """Return all Rich named colors sorted alphabetically."""
-    from rich.color import ANSI_COLOR_NAMES
-
     return sorted(ANSI_COLOR_NAMES.keys())
 
 
@@ -66,9 +67,7 @@ def get_theme_colors() -> dict[str, str]:
     falls back to ``textual-dark`` defaults.
     """
     try:
-        from textual.app import App
-
-        app = App.current
+        app = textual.app.App.current
         if app is not None:
             cs = app.current_theme
             if cs is not None:
@@ -99,9 +98,7 @@ def get_theme_colors() -> dict[str, str]:
         pass
     # Fallback when no app is running.
     try:
-        from textual.theme import BUILTIN_THEMES
-
-        cs = BUILTIN_THEMES["textual-dark"].to_color_system()
+        cs = textual.theme.BUILTIN_THEMES["textual-dark"].to_color_system()
         return {
             k: v
             for k, v in sorted(cs.generate().items())
@@ -156,9 +153,9 @@ def load_progressbars(path: str, session_key: str) -> list[BarConfig]:
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as fh:
-        data: dict[str, Any] = json.load(fh)
-    session_data: dict[str, Any] = data.get(session_key, {})
-    entries: list[dict[str, Any]] = session_data.get("bars", [])
+        data: dict[str, typing.Any] = json.load(fh)
+    session_data: dict[str, typing.Any] = data.get(session_key, {})
+    entries: list[dict[str, typing.Any]] = session_data.get("bars", [])
     return [dict_to_bar(e, i) for i, e in enumerate(entries)]
 
 
@@ -173,16 +170,16 @@ def save_progressbars(path: str, session_key: str, bars: list[BarConfig]) -> Non
     :param bars: List of :class:`BarConfig` instances.
     """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    data: dict[str, Any] = {}
+    data: dict[str, typing.Any] = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     entries = [bar_to_dict(b) for b in bars]
     data[session_key] = {"bars": entries}
-    atomic_json_write(path, data)
+    paths.atomic_json_write(path, data)
 
 
-def detect_progressbars(gmcp_data: dict[str, Any]) -> list[BarConfig]:
+def detect_progressbars(gmcp_data: dict[str, typing.Any]) -> list[BarConfig]:
     """
     Scan GMCP data for progress bar candidates.
 
@@ -262,9 +259,7 @@ def resolve_color_rgb(name: str) -> tuple[int, int, int]:
     return named_color_rgb(name)
 
 
-def bar_color_at(
-    fraction: float, bar: BarConfig, theme_accent: tuple[int, int, int] | None = None
-) -> str:
+def bar_color_at(fraction: float, bar: BarConfig, theme_accent: tuple[int, int, int] | None = None) -> str:
     """
     Return an ``#rrggbb`` hex color for a bar at *fraction* full.
 
@@ -277,16 +272,14 @@ def bar_color_at(
     :param theme_accent: Unused, kept for API compatibility.
     :returns: Hex color string.
     """
-    from .client_repl_render import hsv_to_rgb, rgb_to_hsv
-
     fraction = max(0.0, min(1.0, fraction))
     max_rgb = resolve_color_rgb(bar.color_name_max)
     min_rgb = resolve_color_rgb(bar.color_name_min)
-    hsv_max = rgb_to_hsv(*max_rgb)
-    hsv_min = rgb_to_hsv(*min_rgb)
+    hsv_max = client_repl_render.rgb_to_hsv(*max_rgb)
+    hsv_min = client_repl_render.rgb_to_hsv(*min_rgb)
     path = bar.color_path if bar.color_mode == "custom" else "shortest"
     h, s, v = lerp_hsv_path(hsv_min, hsv_max, fraction, path)
-    r, g, b = hsv_to_rgb(h, s, v)
+    r, g, b = client_repl_render.hsv_to_rgb(h, s, v)
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
@@ -308,16 +301,12 @@ def lerp_hsv_path(
 
 def named_color_rgb(name: str) -> tuple[int, int, int]:
     """Convert a Rich named color to an (r, g, b) tuple."""
-    from rich.color import Color
-
     color = Color.parse(name)
     triplet = color.get_truecolor()
     return (triplet.red, triplet.green, triplet.blue)
 
 
-def detect_standard(
-    gmcp_data: dict[str, Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]
-) -> None:
+def detect_standard(gmcp_data: dict[str, typing.Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]) -> None:
     """Detect standard HP/MP/XP bars from known GMCP packages."""
     vitals = gmcp_data.get("Char.Vitals")
     if isinstance(vitals, dict):
@@ -332,7 +321,7 @@ def detect_standard(
         try_aliases(status, "Char.Status", XP_ALIASES, "XP", ("purple", "cyan"), True, bars, seen)
 
 
-def is_numeric(value: Any) -> bool:
+def is_numeric(value: typing.Any) -> bool:
     """Return ``True`` if *value* is numeric (int, float, or numeric string)."""
     if isinstance(value, (int, float)):
         return True
@@ -346,7 +335,7 @@ def is_numeric(value: Any) -> bool:
 
 
 def try_aliases(
-    pkg_data: dict[str, Any],
+    pkg_data: dict[str, typing.Any],
     pkg_name: str,
     alias_map: dict[str, tuple[str, ...]],
     bar_name: str,
@@ -380,7 +369,7 @@ def try_aliases(
 
 
 def detect_pairs(
-    pkg_name: str, pkg_data: dict[str, Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]
+    pkg_name: str, pkg_data: dict[str, typing.Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]
 ) -> None:
     """Scan a GMCP package for Max*/prefix/suffix value/max pairs."""
     keys = list(pkg_data.keys())
@@ -399,11 +388,7 @@ def detect_pairs(
                     seen.add(trio)
                     bars.append(
                         BarConfig(
-                            name=val_field,
-                            gmcp_package=pkg_name,
-                            value_field=val_field,
-                            max_field=key,
-                            enabled=False,
+                            name=val_field, gmcp_package=pkg_name, value_field=val_field, max_field=key, enabled=False
                         )
                     )
         # SomethingMax pattern
@@ -418,16 +403,12 @@ def detect_pairs(
                     seen.add(trio)
                     bars.append(
                         BarConfig(
-                            name=val_field,
-                            gmcp_package=pkg_name,
-                            value_field=val_field,
-                            max_field=key,
-                            enabled=False,
+                            name=val_field, gmcp_package=pkg_name, value_field=val_field, max_field=key, enabled=False
                         )
                     )
 
 
-def dict_to_bar(entry: dict[str, Any], idx: int) -> BarConfig:
+def dict_to_bar(entry: dict[str, typing.Any], idx: int) -> BarConfig:
     """Convert a JSON dict to a :class:`BarConfig`."""
     return BarConfig(
         name=str(entry.get("name", "")),
@@ -446,9 +427,9 @@ def dict_to_bar(entry: dict[str, Any], idx: int) -> BarConfig:
     )
 
 
-def bar_to_dict(bar: BarConfig) -> dict[str, Any]:
+def bar_to_dict(bar: BarConfig) -> dict[str, typing.Any]:
     """Convert a :class:`BarConfig` to a JSON-serializable dict."""
-    result: dict[str, Any] = {
+    result: dict[str, typing.Any] = {
         "name": bar.name,
         "gmcp_package": bar.gmcp_package,
         "value_field": bar.value_field,

@@ -71,16 +71,9 @@ def test_update_room_new(store: RoomStore) -> None:
 
 
 def test_update_room_existing(store: RoomStore) -> None:
+    store.update_room({"num": "100", "name": "Town Square", "area": "midgaard", "exits": {"north": "101"}})
     store.update_room(
-        {"num": "100", "name": "Town Square", "area": "midgaard", "exits": {"north": "101"}}
-    )
-    store.update_room(
-        {
-            "num": "100",
-            "name": "Town Square (rebuilt)",
-            "area": "midgaard",
-            "exits": {"north": "101", "east": "103"},
-        }
+        {"num": "100", "name": "Town Square (rebuilt)", "area": "midgaard", "exits": {"north": "101", "east": "103"}}
     )
     r = store.get_room("100")
     assert r is not None
@@ -215,20 +208,16 @@ def test_bfs_distances_unknown_src(store: RoomStore) -> None:
 
 def test_basic_same_name(store: RoomStore) -> None:
     store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
-        ("1", "A dusty road", "2024-01-01"),
+        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "A dusty road", "2024-01-01")
     )
     store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
-        ("2", "A dusty road", "2024-01-03"),
+        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "A dusty road", "2024-01-03")
     )
     store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
-        ("3", "A dusty road", "2024-01-02"),
+        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("3", "A dusty road", "2024-01-02")
     )
     store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
-        ("4", "Town Square", "2024-01-01"),
+        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("4", "Town Square", "2024-01-01")
     )
     store.conn.commit()
     result = store.find_same_name("1")
@@ -238,12 +227,8 @@ def test_basic_same_name(store: RoomStore) -> None:
 
 
 def test_excludes_self(store: RoomStore) -> None:
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "Forest", "2024-01-01")
-    )
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "Forest", "2024-01-02")
-    )
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "Forest", "2024-01-01"))
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "Forest", "2024-01-02"))
     store.conn.commit()
     result = store.find_same_name("1")
     assert all(r.num != "1" for r in result)
@@ -267,15 +252,9 @@ def test_no_matches(store: RoomStore) -> None:
 
 
 def test_never_visited_sort_first(store: RoomStore) -> None:
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "Road", "2024-01-01")
-    )
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "Road", "2024-06-01")
-    )
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("3", "Road", "")
-    )
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "Road", "2024-01-01"))
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "Road", "2024-06-01"))
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("3", "Road", ""))
     store.conn.commit()
     result = store.find_same_name("1")
     assert result[0].num == "3"
@@ -283,13 +262,10 @@ def test_never_visited_sort_first(store: RoomStore) -> None:
 
 
 def test_limit(store: RoomStore) -> None:
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("0", "Road", "2024-01-01")
-    )
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("0", "Road", "2024-01-01"))
     for i in range(1, 30):
         store.conn.execute(
-            "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
-            (str(i), "Road", f"2024-01-{i:02d}"),
+            "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", (str(i), "Road", f"2024-01-{i:02d}")
         )
     store.conn.commit()
     result = store.find_same_name("0", limit=5)
@@ -297,13 +273,10 @@ def test_limit(store: RoomStore) -> None:
 
 
 def test_default_limit_99(store: RoomStore) -> None:
-    store.conn.execute(
-        "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("0", "Road", "2024-01-01")
-    )
+    store.conn.execute("INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("0", "Road", "2024-01-01"))
     for i in range(1, 120):
         store.conn.execute(
-            "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
-            (str(i), "Road", f"2024-01-{i % 28 + 1:02d}"),
+            "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", (str(i), "Road", f"2024-01-{i % 28 + 1:02d}")
         )
     store.conn.commit()
     result = store.find_same_name("0")
@@ -390,8 +363,7 @@ def test_fasttravel_path_format() -> None:
 
 
 @pytest.mark.parametrize(
-    "malicious_key",
-    ["../../etc/passwd:80", "../../../tmp/evil:23", "/absolute/path:99", "..%2f..%2fetc/shadow:22"],
+    "malicious_key", ["../../etc/passwd:80", "../../../tmp/evil:23", "/absolute/path:99", "..%2f..%2fetc/shadow:22"]
 )
 def test_session_file_path_traversal(malicious_key: str) -> None:
     result = session_file_path("rooms-", malicious_key)
@@ -450,9 +422,7 @@ def test_unknown_target_is_frontier(store: RoomStore) -> None:
 
 def test_unvisited_target_is_frontier(store: RoomStore) -> None:
     store.update_room({"num": "A", "exits": {"east": "B"}})
-    store.conn.execute(
-        "INSERT INTO room (num, name, visit_count) VALUES (?, ?, ?)", ("B", "Empty", 0)
-    )
+    store.conn.execute("INSERT INTO room (num, name, visit_count) VALUES (?, ?, ?)", ("B", "Empty", 0))
     store.conn.commit()
     branches = store.find_branches("A")
     assert len(branches) == 1
@@ -540,13 +510,7 @@ def test_prefs_string_value(tmp_path: Any, monkeypatch: Any) -> None:
 def test_find_branches_shuffles_equal_distance(tmp_path: Any) -> None:
     db_path = str(tmp_path / "rooms.db")
     store = RoomStore(db_path)
-    store.update_room(
-        {
-            "num": "A",
-            "name": "A",
-            "exits": {"east": "X1", "west": "X2", "north": "X3", "south": "X4"},
-        }
-    )
+    store.update_room({"num": "A", "name": "A", "exits": {"east": "X1", "west": "X2", "north": "X3", "south": "X4"}})
 
     orders: set[tuple[str, ...]] = set()
     for _ in range(50):

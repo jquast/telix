@@ -7,15 +7,13 @@ Provides config and data directory resolution following the `XDG Base Directory 
 Constants are frozen at import time from environment variables.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
 import json
+import typing
 import hashlib
 import pathlib
 import tempfile
-from typing import Any
 
 XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
 XDG_DATA = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
@@ -103,7 +101,7 @@ def safe_terminal_size() -> str:
 class BytesSafeEncoder(json.JSONEncoder):
     """JSON encoder that converts bytes to str (UTF-8) or hex."""
 
-    def default(self, o: Any) -> Any:
+    def default(self, o: typing.Any) -> typing.Any:
         if isinstance(o, bytes):
             try:
                 return o.decode("utf-8")
@@ -112,7 +110,7 @@ class BytesSafeEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def atomic_json_write(filepath: str, data: dict[str, Any]) -> None:
+def atomic_json_write(filepath: str, data: dict[str, typing.Any]) -> None:
     """Atomically write JSON data to file via write-to-new + rename."""
     tmp_path = os.path.splitext(filepath)[0] + ".json.new"
     with open(tmp_path, "w", encoding="utf-8") as f:

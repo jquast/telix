@@ -35,9 +35,7 @@ def test_detect_hp_aliases(hp_key, maxhp_key):
     assert hp_bars[0].max_field == maxhp_key
 
 
-@pytest.mark.parametrize(
-    "mp_key,maxmp_key", [("mp", "maxmp"), ("mana", "maxmana"), ("sp", "maxsp")]
-)
+@pytest.mark.parametrize("mp_key,maxmp_key", [("mp", "maxmp"), ("mana", "maxmana"), ("sp", "maxsp")])
 def test_detect_mp_aliases(mp_key, maxmp_key):
     gmcp = {"Char.Vitals": {mp_key: 50, maxmp_key: 100}}
     bars = detect_progressbars(gmcp)
@@ -55,9 +53,7 @@ def test_detect_xp_from_status():
 
 
 def test_detect_max_prefix_pattern():
-    gmcp = {
-        "Char.Guild.Stats": {"Adrenaline": 442, "MaxAdrenaline": 442, "Water": 100, "MaxWater": 200}
-    }
+    gmcp = {"Char.Guild.Stats": {"Adrenaline": 442, "MaxAdrenaline": 442, "Water": 100, "MaxWater": 200}}
     bars = detect_progressbars(gmcp)
     gmcp_bars = [b for b in bars if b.gmcp_package]
     names = {b.name for b in gmcp_bars}
@@ -131,30 +127,8 @@ def test_detect_no_duplicate_standard_and_pair():
 def test_round_trip(tmp_path):
     path = str(tmp_path / "pb.json")
     bars = [
-        BarConfig(
-            "HP",
-            "Char.Vitals",
-            "hp",
-            "maxhp",
-            True,
-            "theme",
-            "green",
-            "red",
-            "shortest",
-            display_order=0,
-        ),
-        BarConfig(
-            "MP",
-            "Char.Vitals",
-            "mp",
-            "maxmp",
-            True,
-            "custom",
-            "blue",
-            "gold1",
-            "longest",
-            display_order=1,
-        ),
+        BarConfig("HP", "Char.Vitals", "hp", "maxhp", True, "theme", "green", "red", "shortest", display_order=0),
+        BarConfig("MP", "Char.Vitals", "mp", "maxmp", True, "custom", "blue", "gold1", "longest", display_order=1),
     ]
     save_progressbars(path, "mud:1234", bars)
     loaded = load_progressbars(path, "mud:1234")
@@ -196,18 +170,14 @@ def test_bar_color_theme_mode():
 
 
 def test_bar_color_custom_mode():
-    bar = BarConfig(
-        "HP", "V", "hp", "mhp", color_mode="custom", color_name_max="green", color_name_min="red"
-    )
+    bar = BarConfig("HP", "V", "hp", "mhp", color_mode="custom", color_name_max="green", color_name_min="red")
     c0 = bar_color_at(0.0, bar)
     c1 = bar_color_at(1.0, bar)
     assert c0 != c1
 
 
 def test_bar_color_edge_fractions():
-    bar = BarConfig(
-        "X", "P", "v", "m", color_mode="custom", color_name_max="blue", color_name_min="red"
-    )
+    bar = BarConfig("X", "P", "v", "m", color_mode="custom", color_name_max="blue", color_name_min="red")
     c0 = bar_color_at(0.0, bar)
     c1 = bar_color_at(1.0, bar)
     assert c0.startswith("#")
@@ -215,33 +185,17 @@ def test_bar_color_edge_fractions():
 
 
 def test_bar_color_clamps():
-    bar = BarConfig(
-        "X", "P", "v", "m", color_mode="custom", color_name_max="green", color_name_min="red"
-    )
+    bar = BarConfig("X", "P", "v", "m", color_mode="custom", color_name_max="green", color_name_min="red")
     assert bar_color_at(-0.5, bar) == bar_color_at(0.0, bar)
     assert bar_color_at(1.5, bar) == bar_color_at(1.0, bar)
 
 
 def test_bar_color_longest_path():
     bar_short = BarConfig(
-        "X",
-        "P",
-        "v",
-        "m",
-        color_mode="custom",
-        color_name_max="green",
-        color_name_min="red",
-        color_path="shortest",
+        "X", "P", "v", "m", color_mode="custom", color_name_max="green", color_name_min="red", color_path="shortest"
     )
     bar_long = BarConfig(
-        "X",
-        "P",
-        "v",
-        "m",
-        color_mode="custom",
-        color_name_max="green",
-        color_name_min="red",
-        color_path="longest",
+        "X", "P", "v", "m", color_mode="custom", color_name_max="green", color_name_min="red", color_path="longest"
     )
     mid_short = bar_color_at(0.5, bar_short)
     mid_long = bar_color_at(0.5, bar_long)
@@ -372,11 +326,7 @@ def test_side_left_omitted_from_json(tmp_path):
 
 def test_load_json_without_side_defaults_left(tmp_path):
     path = str(tmp_path / "pb.json")
-    data = {
-        "m:1": {
-            "bars": [{"name": "HP", "gmcp_package": "V", "value_field": "hp", "max_field": "mhp"}]
-        }
-    }
+    data = {"m:1": {"bars": [{"name": "HP", "gmcp_package": "V", "value_field": "hp", "max_field": "mhp"}]}}
     with open(path, "w") as f:
         json.dump(data, f)
     loaded = load_progressbars(path, "m:1")

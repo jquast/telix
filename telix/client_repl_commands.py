@@ -3,18 +3,21 @@
 # std imports
 import re
 import enum
+import time
+import typing
 import asyncio
 import logging
-from time import monotonic as monotonic
-from typing import TYPE_CHECKING, Any, NamedTuple
-from dataclasses import dataclass
+import dataclasses
+from typing import TYPE_CHECKING
 from collections.abc import Callable, Awaitable
+
+from .repl_theme import hex_to_rgb, get_repl_palette
+
+# local
+from .client_repl_render import ELLIPSIS, get_term, wcswidth, write_hint, session_key, flash_bg_rgb
 
 if TYPE_CHECKING:
     from .session_context import CommandQueue, SessionContext
-
-# local
-from .client_repl_render import ELLIPSIS, get_term, wcswidth, write_hint, flash_bg_rgb
 
 REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
 BACKTICK_RE = re.compile(r"`[^`]*`")
@@ -38,7 +41,7 @@ class StepResult(enum.Enum):
     ABORT = "abort"
 
 
-@dataclass
+@dataclasses.dataclass
 class DispatchHooks:
     """
     Caller-specific callbacks for :func:`dispatch_one`.
@@ -65,10 +68,10 @@ class DispatchHooks:
     on_progress_clear: Callable[[], None] | None = None
     on_activity: Callable[[], None] | None = None
     prompt_ready: asyncio.Event | None = None
-    search_buffer: Any | None = None
+    search_buffer: typing.Any | None = None
 
 
-class ExpandedCommands(NamedTuple):
+class ExpandedCommands(typing.NamedTuple):
     """
     Result of :func:`expand_commands_ex`.
 
@@ -187,7 +190,7 @@ def expand_commands(line: str) -> list[str]:
     return expand_commands_ex(line).commands
 
 
-def get_search_buffer(ctx: "SessionContext") -> Any | None:
+def get_search_buffer(ctx: "SessionContext") -> typing.Any | None:
     """
     Return the :class:`SearchBuffer` for *ctx*, or ``None``.
 
@@ -205,12 +208,7 @@ def get_search_buffer(ctx: "SessionContext") -> Any | None:
 
 
 async def dispatch_one(
-    cmd: str,
-    idx: int,
-    sent_count: int,
-    immediate_set: frozenset[int],
-    hooks: DispatchHooks,
-    mask_send: bool = False,
+    cmd: str, idx: int, sent_count: int, immediate_set: frozenset[int], hooks: DispatchHooks, mask_send: bool = False
 ) -> StepResult:
     """
     Dispatch a single backtick command or plain send.
@@ -226,7 +224,7 @@ async def dispatch_one(
     :param mask_send: If ``True``, mask plain command text in status.
     :returns: :class:`StepResult` indicating what happened.
     """
-    from .autoreply import check_condition
+    from .autoreply import check_condition  # noqa: PLC0415 - circular
 
     dm = DELAY_RE.match(cmd)
     if dm:
@@ -236,7 +234,7 @@ async def dispatch_one(
         if delay > 0:
             if hooks.on_status is not None:
                 hooks.on_status(f"delay {cmd.strip()}")
-            now = monotonic()
+            now = time.monotonic()
             if hooks.on_progress is not None:
                 hooks.on_progress(now, now + delay)
             if hooks.on_activity is not None:
@@ -267,7 +265,7 @@ async def dispatch_one(
             hooks.on_status(f"until /{pattern_str}/")
         buf = hooks.search_buffer or get_search_buffer(hooks.ctx)
         if buf is not None:
-            now = monotonic()
+            now = time.monotonic()
             if hooks.on_progress is not None:
                 hooks.on_progress(now, now + timeout)
             if hooks.on_activity is not None:
@@ -291,7 +289,7 @@ async def dispatch_one(
             hooks.on_status(f"untils /{pattern_str}/")
         buf = hooks.search_buffer or get_search_buffer(hooks.ctx)
         if buf is not None:
-            now = monotonic()
+            now = time.monotonic()
             if hooks.on_progress is not None:
                 hooks.on_progress(now, now + timeout)
             if hooks.on_activity is not None:
@@ -322,9 +320,7 @@ async def dispatch_one(
     return StepResult.SENT
 
 
-TRAVEL_RE = re.compile(
-    r"^`(travel|return" r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$", re.IGNORECASE
-)
+TRAVEL_RE = re.compile(r"^`(travel|return" r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$", re.IGNORECASE)
 
 COMMAND_DELAY = 0.25
 MOVE_MAX_RETRIES = 2
@@ -378,23 +374,17 @@ def collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, i
 
 def active_cmd_fg() -> str:
     """Return the active command foreground color from the palette."""
-    from .repl_theme import get_repl_palette
-    from .client_repl_render import session_key
-
     return get_repl_palette(session_key)["active_cmd"]
 
 
 def pending_cmd_rgb() -> tuple[int, int, int]:
     """Return the pending command RGB color from the palette."""
-    from .repl_theme import hex_to_rgb, get_repl_palette
-    from .client_repl_render import session_key
-
     return hex_to_rgb(get_repl_palette(session_key)["pending_cmd"])
 
 
 def render_active_command(
     command: str,
-    scroll: "Any",
+    scroll: "typing.Any",
     out: "asyncio.StreamWriter",
     flash_elapsed: float = -1.0,
     hint: str = "",
@@ -448,7 +438,7 @@ def clear_command_queue(ctx: "SessionContext") -> None:
 
 def render_command_queue(
     queue: "CommandQueue | None",
-    scroll: "Any",
+    scroll: "typing.Any",
     out: "asyncio.StreamWriter",
     flash_elapsed: float = -1.0,
     hint: str = "",
@@ -608,7 +598,7 @@ async def send_chained(
             log.debug("chained command: %r", cmd)
             if echo_fn is not None:
                 echo_fn(cmd)
-            ctx.active_command_time = monotonic()
+            ctx.active_command_time = time.monotonic()
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
@@ -640,7 +630,7 @@ async def send_chained(
                     echo_fn(cmd)
             else:
                 log.info("chained retry %d: %r", attempt, cmd)
-            ctx.active_command_time = monotonic()
+            ctx.active_command_time = time.monotonic()
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
@@ -680,13 +670,9 @@ async def send_chained(
                 break
 
             if attempt < MOVE_MAX_RETRIES:
-                log.info(
-                    "room unchanged after %r, retrying (%d/%d)", cmd, attempt + 1, MOVE_MAX_RETRIES
-                )
+                log.info("room unchanged after %r, retrying (%d/%d)", cmd, attempt + 1, MOVE_MAX_RETRIES)
             else:
-                log.warning(
-                    "room unchanged after %r, giving up after %d retries", cmd, MOVE_MAX_RETRIES
-                )
+                log.warning("room unchanged after %r, giving up after %d retries", cmd, MOVE_MAX_RETRIES)
                 return
 
 
@@ -703,7 +689,7 @@ def macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
         ctx.active_command = "\u2593" * len(cmd)
     else:
         ctx.active_command = cmd
-    ctx.active_command_time = monotonic()
+    ctx.active_command_time = time.monotonic()
     if ctx.cx_dot is not None:
         ctx.cx_dot.trigger()
     if ctx.tx_dot is not None:
@@ -725,7 +711,7 @@ async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.
     :param ctx: Session context.
     :param log: Logger.
     """
-    from .client_repl_travel import handle_travel_commands
+    from .client_repl_travel import handle_travel_commands  # noqa: PLC0415 - circular
 
     expanded = expand_commands_ex(text)
     parts = list(expanded.commands)

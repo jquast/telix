@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # local
+from telix.autoreply import AutoreplyRule, parse_entries
 from telix.highlighter import (
     RE_FLAGS,
     HighlightRule,
@@ -25,11 +26,7 @@ from telix.highlighter import (
 
 
 def make_rule(
-    pattern: str,
-    highlight: str = "bold_red",
-    enabled: bool = True,
-    stop_movement: bool = False,
-    builtin: bool = False,
+    pattern: str, highlight: str = "bold_red", enabled: bool = True, stop_movement: bool = False, builtin: bool = False
 ) -> HighlightRule:
     return HighlightRule(
         pattern=re.compile(pattern, RE_FLAGS),
@@ -73,10 +70,7 @@ class TestHighlightRuleLoadSave:
 
     def test_roundtrip(self, tmp_path):
         path = str(tmp_path / "highlights.json")
-        rules = [
-            make_rule("dynamite", "blink_black_on_yellow"),
-            make_rule("danger", "bold_red", stop_movement=True),
-        ]
+        rules = [make_rule("dynamite", "blink_black_on_yellow"), make_rule("danger", "bold_red", stop_movement=True)]
         save_highlights(path, rules, "test:23")
         loaded = load_highlights(path, "test:23")
         assert len(loaded) == 2
@@ -119,7 +113,6 @@ class TestHighlightRuleLoadSave:
 
 
 class TestValidateHighlight:
-
     def test_valid_compoundable(self):
         term = mock_term()
         assert validate_highlight(term, "bold_red") is True
@@ -130,10 +123,7 @@ class TestValidateHighlight:
 
 
 class TestCompiledRuleSet:
-
     def test_combines_enabled_autoreply_rules(self):
-        from telix.autoreply import AutoreplyRule
-
         ar_rules = [
             AutoreplyRule(pattern=re.compile("foo", RE_FLAGS), reply="bar", enabled=True),
             AutoreplyRule(pattern=re.compile("baz", RE_FLAGS), reply="qux", enabled=False),
@@ -142,12 +132,8 @@ class TestCompiledRuleSet:
         rs = CompiledRuleSet([], ar_rules, "black_on_beige", True)
         spans = rs.finditer("foo and quux but not baz")
         highlights = [(s, e, hl) for s, e, hl, *_ in spans]
-        assert ("foo", "black_on_beige") in [
-            ("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights
-        ]
-        assert ("quux", "black_on_beige") in [
-            ("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights
-        ]
+        assert ("foo", "black_on_beige") in [("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights]
+        assert ("quux", "black_on_beige") in [("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights]
         matched_texts = {"foo and quux but not baz"[s:e] for s, e, hl in highlights}
         assert "baz" not in matched_texts
 
@@ -156,18 +142,12 @@ class TestCompiledRuleSet:
         assert rs.finditer("anything") == []
 
     def test_all_disabled(self):
-        from telix.autoreply import AutoreplyRule
-
         ar_rules = [AutoreplyRule(pattern=re.compile("foo", RE_FLAGS), reply="bar", enabled=False)]
         rs = CompiledRuleSet([], ar_rules, "black_on_beige", True)
         assert rs.finditer("foo") == []
 
     def test_combines_highlight_and_autoreply(self):
-        from telix.autoreply import AutoreplyRule
-
-        ar_rules = [
-            AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)
-        ]
+        ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
         hl_rules = [make_rule("dynamite", "bold_red")]
         rs = CompiledRuleSet(hl_rules, ar_rules, "black_on_beige", True)
         spans = rs.finditer("a monster has dynamite")
@@ -184,7 +164,6 @@ class TestCompiledRuleSet:
 
 
 class TestHighlightEngineProcessLine:
-
     def test_no_match_passthrough(self):
         engine = HighlightEngine([make_rule("dynamite")], [], mock_term())
         line = "nothing interesting here"
@@ -251,15 +230,12 @@ class TestHighlightEngineProcessLine:
 
 
 class TestHighlightEngineStopMovement:
-
     def test_cancels_discover(self):
         ctx = MagicMock()
         ctx.discover_active = True
         ctx.discover_task = MagicMock()
         ctx.randomwalk_active = False
-        engine = HighlightEngine(
-            [make_rule("danger", stop_movement=True)], [], mock_term(), ctx=ctx
-        )
+        engine = HighlightEngine([make_rule("danger", stop_movement=True)], [], mock_term(), ctx=ctx)
         result, _ = engine.process_line("there is danger ahead")
         ctx.discover_task.cancel.assert_called_once()
         assert ctx.discover_active is False
@@ -270,9 +246,7 @@ class TestHighlightEngineStopMovement:
         ctx.discover_active = False
         ctx.randomwalk_active = True
         ctx.randomwalk_task = MagicMock()
-        engine = HighlightEngine(
-            [make_rule("danger", stop_movement=True)], [], mock_term(), ctx=ctx
-        )
+        engine = HighlightEngine([make_rule("danger", stop_movement=True)], [], mock_term(), ctx=ctx)
         result, _ = engine.process_line("there is danger ahead")
         ctx.randomwalk_task.cancel.assert_called_once()
         assert ctx.randomwalk_active is False
@@ -282,21 +256,14 @@ class TestHighlightEngineStopMovement:
         ctx = MagicMock()
         ctx.discover_active = True
         ctx.discover_task = MagicMock()
-        engine = HighlightEngine(
-            [make_rule("danger", stop_movement=False)], [], mock_term(), ctx=ctx
-        )
+        engine = HighlightEngine([make_rule("danger", stop_movement=False)], [], mock_term(), ctx=ctx)
         engine.process_line("there is danger ahead")
         ctx.discover_task.cancel.assert_not_called()
 
 
 class TestHighlightEngineAutoreplyBuiltin:
-
     def test_builtin_autoreply_highlight(self):
-        from telix.autoreply import AutoreplyRule
-
-        ar_rules = [
-            AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)
-        ]
+        ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
         engine = HighlightEngine([], ar_rules, mock_term(), autoreply_highlight="black_on_beige")
         line = "A monster appears!"
         result, matched = engine.process_line(line)
@@ -304,11 +271,7 @@ class TestHighlightEngineAutoreplyBuiltin:
         assert "\x1b[30;43m" in result
 
     def test_builtin_disabled(self):
-        from telix.autoreply import AutoreplyRule
-
-        ar_rules = [
-            AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)
-        ]
+        ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
         engine = HighlightEngine([], ar_rules, mock_term(), autoreply_enabled=False)
         line = "A monster appears!"
         result, matched = engine.process_line(line)
@@ -316,10 +279,7 @@ class TestHighlightEngineAutoreplyBuiltin:
 
 
 class TestAutoreplyCaseInsensitive:
-
     def test_case_insensitive_matching(self):
-        from telix.autoreply import parse_entries
-
         entries = [{"pattern": "DANGER", "reply": "flee"}]
         rules = parse_entries(entries)
         assert rules[0].pattern.search("there is danger ahead") is not None
@@ -344,7 +304,6 @@ def make_capture_rule(
 
 
 class TestMultilineHighlight:
-
     def test_multiline_default_false(self):
         rule = make_rule("foo")
         assert rule.multiline is False
@@ -357,11 +316,7 @@ class TestMultilineHighlight:
         assert matched is False
 
     def test_process_block_matches(self):
-        rule = HighlightRule(
-            pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS),
-            highlight="bold_red",
-            multiline=True,
-        )
+        rule = HighlightRule(pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS), highlight="bold_red", multiline=True)
         engine = HighlightEngine([rule], [], mock_term())
         text = "The hearer echoes:\nLytol hijacked the spire\n"
         result, matched = engine.process_block(text)
@@ -369,11 +324,7 @@ class TestMultilineHighlight:
         assert "\x1b[1;31m" in result
 
     def test_process_block_cr_normalization(self):
-        rule = HighlightRule(
-            pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS),
-            highlight="bold_red",
-            multiline=True,
-        )
+        rule = HighlightRule(pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS), highlight="bold_red", multiline=True)
         engine = HighlightEngine([rule], [], mock_term())
         text = "The hearer echoes:\r\nLytol hijacked the spire\n"
         result, matched = engine.process_block(text)
@@ -383,9 +334,7 @@ class TestMultilineHighlight:
     def test_singleline_unaffected(self):
         sl_rule = make_rule("danger", "bold_red")
         ml_rule = HighlightRule(
-            pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS),
-            highlight="bold_red",
-            multiline=True,
+            pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS), highlight="bold_red", multiline=True
         )
         engine = HighlightEngine([sl_rule, ml_rule], [], mock_term())
         result, matched = engine.process_line("there is danger ahead")
@@ -393,11 +342,7 @@ class TestMultilineHighlight:
         assert "\x1b[1;31m" in result
 
     def test_ml_not_in_process_line(self):
-        rule = HighlightRule(
-            pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS),
-            highlight="bold_red",
-            multiline=True,
-        )
+        rule = HighlightRule(pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS), highlight="bold_red", multiline=True)
         engine = HighlightEngine([rule], [], mock_term())
         result, matched = engine.process_line("The hearer echoes:")
         assert matched is False
@@ -405,11 +350,7 @@ class TestMultilineHighlight:
     def test_json_roundtrip(self, tmp_path):
         path = str(tmp_path / "highlights.json")
         rules = [
-            HighlightRule(
-                pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS),
-                highlight="bold_red",
-                multiline=True,
-            )
+            HighlightRule(pattern=re.compile(r"echoes:\n.*hijacked", RE_FLAGS), highlight="bold_red", multiline=True)
         ]
         save_highlights(path, rules, "test:23")
         loaded = load_highlights(path, "test:23")
@@ -447,14 +388,10 @@ class TestMultilineHighlight:
 
 
 class TestHighlightCaptures:
-
     def test_capture_basic(self):
         rule = make_capture_rule(
             r"Adrenaline: (\d+)/(\d+)",
-            captures=[
-                {"key": "Adrenaline", "value": r"\1"},
-                {"key": "MaxAdrenaline", "value": r"\2"},
-            ],
+            captures=[{"key": "Adrenaline", "value": r"\1"}, {"key": "MaxAdrenaline", "value": r"\2"}],
         )
         ctx = MagicMock()
         ctx.captures = {}
@@ -468,9 +405,7 @@ class TestHighlightCaptures:
 
     def test_capture_disabled(self):
         rule = make_capture_rule(
-            r"Adrenaline: (\d+)/(\d+)",
-            captured=False,
-            captures=[{"key": "Adrenaline", "value": r"\1"}],
+            r"Adrenaline: (\d+)/(\d+)", captured=False, captures=[{"key": "Adrenaline", "value": r"\1"}]
         )
         ctx = MagicMock()
         ctx.captures = {}
@@ -520,10 +455,7 @@ class TestHighlightCaptures:
         assert len(loaded) == 1
         assert loaded[0].captured is True
         assert loaded[0].capture_name == "vitals"
-        assert loaded[0].captures == [
-            {"key": "HP", "value": r"\1"},
-            {"key": "MaxHP", "value": r"\2"},
-        ]
+        assert loaded[0].captures == [{"key": "HP", "value": r"\1"}, {"key": "MaxHP", "value": r"\2"}]
 
     def test_capture_custom_channel(self):
         rule = make_capture_rule(r"(\w+) tells you: (.+)", capture_name="tells")

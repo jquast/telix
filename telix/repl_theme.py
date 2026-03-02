@@ -1,6 +1,8 @@
 """Resolve the user's Textual theme into concrete hex colors for the blessed REPL."""
 
-from __future__ import annotations
+import textual.theme
+
+from . import rooms, client_tui_base
 
 DEFAULT_THEME = "gruvbox"
 
@@ -73,11 +75,9 @@ def resolve_theme(theme_name: str) -> dict[str, str]:
     :param theme_name: Name of a Textual built-in theme.
     :returns: Dict mapping token names to ``#rrggbb`` hex strings.
     """
-    from textual.theme import BUILTIN_THEMES
-
-    theme = BUILTIN_THEMES.get(theme_name)
+    theme = textual.theme.BUILTIN_THEMES.get(theme_name)
     if theme is None:
-        theme = BUILTIN_THEMES.get(DEFAULT_THEME)
+        theme = textual.theme.BUILTIN_THEMES.get(DEFAULT_THEME)
     if theme is None:
         return {}
     cs = theme.to_color_system()
@@ -91,15 +91,12 @@ def saved_theme_name(session_key: str) -> str:
     :param session_key: Session identifier (``host:port``), or empty string.
     :returns: Theme name string, or empty if nothing is saved.
     """
-    from .rooms import load_prefs
-    from .client_tui_base import DEFAULTS_KEY
-
     if session_key:
-        prefs = load_prefs(session_key)
+        prefs = rooms.load_prefs(session_key)
         name = prefs.get("tui_theme", "")
         if isinstance(name, str) and name:
             return name
-    prefs = load_prefs(DEFAULTS_KEY)
+    prefs = rooms.load_prefs(client_tui_base.DEFAULTS_KEY)
     name = prefs.get("tui_theme", "")
     return name if isinstance(name, str) else ""
 

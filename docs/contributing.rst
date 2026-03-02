@@ -311,9 +311,12 @@ Style and Static Analysis
 - Import style: ``import module`` everywhere, access via ``module.name``.
   Internal imports use ``from . import module``.  Never ``from X import Y``
   except ``from typing import TYPE_CHECKING`` and inside ``if TYPE_CHECKING:`` blocks.
+- Type annotations are used in source code but prefer omitting them over
+  using ambiguous types or adding ``# type: ignore`` comments. Tests must
+  not use type annotations at all; tests are excluded from type checking.
 - do not wrote unicode em-dash, arrows, or similar characters in code or documentation.
 - use tox to run tests, linters, and formatters, to ensure requirements are met exactly.
-- Max line length: 100 characters
+- Max line length: 120 characters
 - Sphinx-style reStructuredText docstrings
 - Average test coverage expected (~50%)
   - layout, design, and TUI interaction is not tested

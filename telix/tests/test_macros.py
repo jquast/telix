@@ -4,13 +4,18 @@ from __future__ import annotations
 
 # std imports
 import json
+import types
+import asyncio
 import logging
+from unittest.mock import patch
 
 # 3rd party
 import pytest
 
-# local
 from telix.macros import Macro, load_macros, save_macros, build_macro_dispatch
+
+# local
+from telix.client_repl import expand_commands
 
 SK = "test.host:23"
 
@@ -18,16 +23,7 @@ SK = "test.host:23"
 def test_load_macros_valid(tmp_path):
     fp = tmp_path / "macros.json"
     fp.write_text(
-        json.dumps(
-            {
-                SK: {
-                    "macros": [
-                        {"key": "KEY_F5", "text": "look;"},
-                        {"key": "KEY_ALT_N", "text": "north;"},
-                    ]
-                }
-            }
-        )
+        json.dumps({SK: {"macros": [{"key": "KEY_F5", "text": "look;"}, {"key": "KEY_ALT_N", "text": "north;"}]}})
     )
     macros = load_macros(str(fp), SK)
     assert len(macros) == 2
@@ -43,11 +39,7 @@ def test_load_macros_missing_file():
 
 def test_load_macros_empty_key_skipped(tmp_path):
     fp = tmp_path / "macros.json"
-    fp.write_text(
-        json.dumps(
-            {SK: {"macros": [{"key": "", "text": "skip"}, {"key": "KEY_F6", "text": "keep;"}]}}
-        )
-    )
+    fp.write_text(json.dumps({SK: {"macros": [{"key": "", "text": "skip"}, {"key": "KEY_F6", "text": "keep;"}]}}))
     macros = load_macros(str(fp), SK)
     assert len(macros) == 1
     assert macros[0].key == "KEY_F6"
@@ -100,15 +92,9 @@ def test_save_macros_unicode(tmp_path):
 
 def test_build_dispatch_skips_editor_keymap_conflicts(caplog):
     pytest.importorskip("blessed")
-    import types
-
-    from telix.macros import build_macro_dispatch
 
     writer = types.SimpleNamespace(log=logging.getLogger("test"))
-    macros = [
-        Macro(key="KEY_LEFT", text="should be skipped"),
-        Macro(key="KEY_ALT_E", text="should be kept"),
-    ]
+    macros = [Macro(key="KEY_LEFT", text="should be skipped"), Macro(key="KEY_ALT_E", text="should be kept")]
     with caplog.at_level(logging.WARNING):
         result = build_macro_dispatch(macros, writer, writer.log)
     assert "KEY_LEFT" not in result
@@ -128,26 +114,13 @@ def test_toggle_macro_roundtrip(tmp_path):
 
 def test_toggle_default_state_false(tmp_path):
     fp = tmp_path / "macros.json"
-    fp.write_text(
-        json.dumps(
-            {
-                SK: {
-                    "macros": [
-                        {"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"}
-                    ]
-                }
-            }
-        )
-    )
+    fp.write_text(json.dumps({SK: {"macros": [{"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"}]}}))
     loaded = load_macros(str(fp), SK)
     assert loaded[0].toggle_state is False
 
 
 def test_toggle_dispatch_alternates():
     pytest.importorskip("blessed")
-    import types
-    import asyncio
-    from unittest.mock import patch
 
     sent: list[str] = []
 
@@ -182,14 +155,10 @@ def test_non_toggle_macro_unchanged(tmp_path):
 
 
 def test_expand_commands():
-    from telix.client_repl import expand_commands
-
     cmds = expand_commands("look;inventory;")
     assert cmds == ["look", "inventory"]
 
 
 def test_expand_commands_no_semicolon():
-    from telix.client_repl import expand_commands
-
     cmds = expand_commands("partial text")
     assert cmds == ["partial text"]

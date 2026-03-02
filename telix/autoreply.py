@@ -23,8 +23,7 @@ from collections.abc import Callable, Awaitable
 import wcwidth
 
 # local
-from . import paths
-from . import client_repl_render
+from . import paths, client_repl_render
 
 if TYPE_CHECKING:
     from .session_context import SessionContext
@@ -49,10 +48,7 @@ VITAL_PCT_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 # Maps raw-value condition key to GMCP Char.Vitals field names.
-VITAL_RAW_KEYS: dict[str, tuple[str, ...]] = {
-    "HP": ("hp", "HP"),
-    "MP": ("mp", "MP", "mana", "sp", "SP"),
-}
+VITAL_RAW_KEYS: dict[str, tuple[str, ...]] = {"HP": ("hp", "HP"), "MP": ("mp", "MP", "mana", "sp", "SP")}
 
 
 def get_vital_raw(key: str, vitals: dict[str, typing.Any]) -> int | None:
@@ -209,7 +205,7 @@ def check_condition(when: dict[str, str], ctx: SessionContext) -> tuple[bool, st
     return True, ""
 
 
-@dataclass
+@dataclasses.dataclass
 class AutoreplyRule:
     r"""
     A single autoreply pattern-action rule.
@@ -232,7 +228,7 @@ class AutoreplyRule:
     reply: str
     always: bool = False
     enabled: bool = True
-    when: dict[str, str] = field(default_factory=dict)
+    when: dict[str, str] = dataclasses.field(default_factory=dict)
     immediate: bool = False
     last_fired: str = ""
     case_sensitive: bool = False
@@ -248,7 +244,7 @@ def parse_entries(entries: list[dict[str, str]]) -> list[AutoreplyRule]:
             continue
         always = bool(entry.get("always", False))
         enabled = bool(entry.get("enabled", True))
-        when_raw: Any = entry.get("when", {})
+        when_raw: typing.Any = entry.get("when", {})
         when = dict(when_raw) if isinstance(when_raw, dict) else {}
         immediate = bool(entry.get("immediate", False))
         last_fired = str(entry.get("last_fired", ""))
@@ -326,10 +322,8 @@ def save_autoreplies(path: str, rules: list[AutoreplyRule], session_key: str) ->
             for r in rules
         ]
     }
-    from .paths import atomic_write
-
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    atomic_write(path, content)
+    paths.atomic_write(path, content)
 
 
 def extract_group_source(pattern_src: str, group_num: int) -> str | None:
@@ -357,12 +351,7 @@ def extract_group_source(pattern_src: str, group_num: int) -> str | None:
             if i + 1 < n and pattern_src[i + 1] == "?":
                 # (?:...) (?=...) (?!...) (?<=...) (?<!...) are non-capturing
                 # (?P<name>...) is capturing
-                if (
-                    i + 2 < n
-                    and pattern_src[i + 2] == "P"
-                    and i + 3 < n
-                    and pattern_src[i + 3] == "<"
-                ):
+                if i + 2 < n and pattern_src[i + 2] == "P" and i + 3 < n and pattern_src[i + 3] == "<":
                     cap_count += 1
                 # else non-capturing, don't increment
             else:
@@ -515,7 +504,7 @@ class SearchBuffer:
         :param echo_filter: Set of sent command strings to suppress.
         :returns: ``True`` if new complete lines were added.
         """
-        stripped = strip_sequences(text)
+        stripped = wcwidth.strip_sequences(text)
         if not stripped:
             return False
 
@@ -614,9 +603,7 @@ class SearchBuffer:
         if self.last_match_line == 0 and excess > 0:
             self.last_match_col = 0
 
-    async def wait_for_pattern(
-        self, pattern: re.Pattern[str], timeout: float
-    ) -> re.Match[str] | None:
+    async def wait_for_pattern(self, pattern: re.Pattern[str], timeout: float) -> re.Match[str] | None:
         """
         Wait for *pattern* to appear in the buffer within *timeout* seconds.
 
@@ -654,7 +641,7 @@ class SearchBuffer:
                 return None
 
 
-@dataclass
+@dataclasses.dataclass
 class ExclusiveState:
     """
     Mutable bundle of exclusive-mode state variables.
@@ -778,7 +765,7 @@ class AutoreplyEngine:
         """Fraction of until/untils timeout elapsed, 0.0-1.0, or ``None``."""
         if self.until_deadline <= self.until_start:
             return None
-        now = monotonic()
+        now = time.monotonic()
         if now >= self.until_deadline:
             return 1.0
         if now <= self.until_start:
@@ -856,10 +843,7 @@ class AutoreplyEngine:
                         ok, desc = check_condition(rule.when, self.ctx)
                         if not ok:
                             self.log.info(
-                                "autoreply: %s #%d skipped, condition failed: %s",
-                                log_prefix,
-                                rule_idx + 1,
-                                desc,
+                                "autoreply: %s #%d skipped, condition failed: %s", log_prefix, rule_idx + 1, desc
                             )
                             self.condition_failed = (rule_idx + 1, desc)
                             self.condition_blocked.add(rule_idx)
@@ -867,7 +851,7 @@ class AutoreplyEngine:
                             break
                     self._cycle_matched.add(rule_idx)
                     self._buffer.advance_match(match.start(), len(match.group(0)))
-                    rule.last_fired = datetime.now(timezone.utc).isoformat()
+                    rule.last_fired = datetime.datetime.now(datetime.timezone.utc).isoformat()
                     if hasattr(self.ctx, "mark_autoreplies_dirty"):
                         self.ctx.mark_autoreplies_dirty()
                     reply = substitute_groups(rule.reply, match)
@@ -894,7 +878,7 @@ class AutoreplyEngine:
                 self._last_matched_pattern = rule.pattern.pattern
                 self._cycle_matched.add(rule_idx)
                 self._buffer.advance_match(match.start(), len(match.group(0)))
-                rule.last_fired = datetime.now(timezone.utc).isoformat()
+                rule.last_fired = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 if hasattr(self.ctx, "mark_autoreplies_dirty"):
                     self.ctx.mark_autoreplies_dirty()
                 reply = substitute_groups(rule.reply, match)
@@ -946,19 +930,14 @@ class AutoreplyEngine:
 
         :param reply_text: Fully substituted reply string.
         """
-        from .client_repl_commands import (
-            StepResult,
-            DispatchHooks,
-            dispatch_one,
-            expand_commands_ex,
-        )
+        from . import client_repl_commands  # noqa: PLC0415  # circular
 
-        expanded = expand_commands_ex(reply_text)
+        expanded = client_repl_commands.expand_commands_ex(reply_text)
         writer = self.ctx.writer
         mask_send = writer is not None and getattr(writer, "will_echo", False)
         activity_cb = getattr(self.ctx, "on_autoreply_activity", None)
 
-        hooks = DispatchHooks(
+        hooks = client_repl_commands.DispatchHooks(
             ctx=self.ctx,
             log=self.log,
             wait_fn=self.wait_fn,
@@ -973,12 +952,12 @@ class AutoreplyEngine:
         )
         sent_count = 0
         for idx, cmd in enumerate(expanded.commands):
-            result = await dispatch_one(
+            result = await client_repl_commands.dispatch_one(
                 cmd, idx, sent_count, expanded.immediate_set, hooks, mask_send=mask_send
             )
-            if result is StepResult.ABORT:
+            if result is client_repl_commands.StepResult.ABORT:
                 return
-            if result is StepResult.SENT:
+            if result is client_repl_commands.StepResult.SENT:
                 sent_count += 1
         self.status = ""
 
@@ -1007,10 +986,10 @@ class AutoreplyEngine:
             self.echo_fn(cmd)
         writer = self.ctx.writer
         if writer is not None and getattr(writer, "will_echo", False):
-            self.ctx.active_command = scramble_password()
+            self.ctx.active_command = client_repl_render.scramble_password()
         else:
             self.ctx.active_command = cmd
-        self.ctx.active_command_time = monotonic()
+        self.ctx.active_command_time = time.monotonic()
         if self.ctx.cx_dot is not None:
             self.ctx.cx_dot.trigger()
         if self.ctx.tx_dot is not None:

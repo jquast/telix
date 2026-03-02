@@ -6,51 +6,36 @@ list/edit screens, the abstract list-editor base, help panes, and the
 editor app infrastructure.  No imports from other ``client_tui_*`` files.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
+import abc
 import sys
 import json
+import typing
 import logging
 import datetime
 import subprocess
-from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
-from dataclasses import asdict, fields, dataclass
+import dataclasses
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from textual.widget import Widget
 
 # 3rd party
-from textual import events
-from textual.app import App, ComposeResult, ScreenStackError
-from textual.screen import Screen
-from textual.binding import Binding
-from textual.widgets import (
-    Input,
-    Label,
-    Button,
-    Footer,
-    Select,
-    Static,
-    Switch,
-    Markdown,
-    RadioSet,
-    DataTable,
-    RadioButton,
-    ContentSwitcher,
-)
-from textual.css.query import NoMatches
-from textual.containers import Vertical, Horizontal, VerticalScroll
+import textual.app
+import textual.events
+import textual.screen
+import textual.binding
+import textual.widgets
+import textual.css.query
+import textual.containers
+
+# local
+from . import util, paths, rooms
 
 # Reset SGR, cursor, alt-screen, mouse, and bracketed paste,
 # then move cursor home and clear the screen so tracebacks start clean.
-TERMINAL_CLEANUP = (
-    "\x1b[m\x1b[?25h\x1b[?1049l"
-    "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l"
-    "\x1b[H\x1b[2J"
-)
+TERMINAL_CLEANUP = "\x1b[m\x1b[?25h\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[H\x1b[2J"
 
 
 def restore_opost() -> None:
@@ -61,7 +46,7 @@ def restore_opost() -> None:
     fails to fully restore termios (or we catch an exception before it gets the chance), newlines
     render as bare LF producing staircase output.
     """
-    import termios
+    import termios  # noqa: PLC0415
 
     try:
         fd = sys.stdout.fileno()
@@ -110,8 +95,6 @@ ENCODINGS = (
     "petscii",
 )
 
-# local
-from .paths import DATA_DIR, CONFIG_DIR, SESSIONS_FILE  # noqa: E402
 
 DEFAULTS_KEY = "__defaults__"
 BATCH_SIZE = 100
@@ -144,8 +127,8 @@ FLAG_TO_WIDGET: dict[str, str] = {
 
 
 def handle_arrow_navigation(
-    screen: Screen,
-    event: events.Key,
+    screen: textual.screen.Screen,
+    event: textual.events.Key,
     button_col_selector: str,
     table_selector: str,
     form_selector: str = "",
@@ -156,24 +139,24 @@ def handle_arrow_navigation(
     :param screen: The screen handling the key event.
     :param event: The key event.
     :param button_col_selector: CSS selector for the button column container.
-    :param table_selector: CSS selector for the DataTable.
+    :param table_selector: CSS selector for the textual.widgets.DataTable.
     :param form_selector: CSS selector for the inline form (optional).
     """
     focused = screen.focused
     buttons = list(screen.query(f"{button_col_selector} Button"))
-    table = screen.query_one(table_selector, DataTable)
+    table = screen.query_one(table_selector, textual.widgets.DataTable)
 
     # When the form is visible, handle navigation within form fields.
     if form_selector:
         try:
             form = screen.query_one(form_selector)
-        except NoMatches:
+        except textual.css.query.NoMatches:
             form = None
         if form is not None and form.display:
-            form_fields: list[Input | Switch | Button] = [
+            form_fields: list[textual.widgets.Input | textual.widgets.Switch | textual.widgets.Button] = [
                 w
                 for w in form.query("Input, Switch, Button")
-                if isinstance(w, (Input, Switch, Button))
+                if isinstance(w, (textual.widgets.Input, textual.widgets.Switch, textual.widgets.Button))
             ]
             if focused in form_fields:
                 idx = form_fields.index(focused)
@@ -183,21 +166,21 @@ def handle_arrow_navigation(
                 elif event.key == "down" and idx < len(form_fields) - 1:
                     form_fields[idx + 1].focus()
                     event.prevent_default()
-                elif event.key == "left" and isinstance(focused, (Switch, Button)):
+                elif event.key == "left" and isinstance(focused, (textual.widgets.Switch, textual.widgets.Button)):
                     if buttons:
                         screen.call_later(buttons[0].focus)
                     event.prevent_default()
                 return
-            if isinstance(focused, Button) and focused in buttons:
+            if isinstance(focused, textual.widgets.Button) and focused in buttons:
                 if event.key == "right" and form_fields:
                     screen.call_later(form_fields[0].focus)
                     event.prevent_default()
                     return
 
-    if isinstance(focused, Input):
+    if isinstance(focused, textual.widgets.Input):
         return
 
-    if isinstance(focused, Button) and focused in buttons:
+    if isinstance(focused, textual.widgets.Button) and focused in buttons:
         idx = buttons.index(focused)
         if event.key == "up" and idx > 0:
             buttons[idx - 1].focus()
@@ -222,7 +205,7 @@ def build_tooltips() -> dict[str, str]:
     global TOOLTIP_CACHE
     if TOOLTIP_CACHE is not None:
         return TOOLTIP_CACHE
-    from telnetlib3.client import _get_argument_parser
+    from telnetlib3.client import _get_argument_parser  # noqa: PLC0415, ICN003
 
     parser = _get_argument_parser()
     tips: dict[str, str] = {}
@@ -238,7 +221,7 @@ def build_tooltips() -> dict[str, str]:
     return tips
 
 
-@dataclass
+@dataclasses.dataclass
 class SessionConfig:
     """
     Persistent configuration for a single telnet session.
@@ -303,18 +286,18 @@ class SessionConfig:
 
 
 def ensure_dirs() -> None:
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(paths.CONFIG_DIR, exist_ok=True)
+    os.makedirs(paths.DATA_DIR, exist_ok=True)
 
 
 def load_sessions() -> dict[str, SessionConfig]:
     """Load session configs from ``~/.config/telix/sessions.json``."""
     ensure_dirs()
-    if not os.path.exists(SESSIONS_FILE):
+    if not os.path.exists(paths.SESSIONS_FILE):
         return {}
-    with open(SESSIONS_FILE, encoding="utf-8") as f:
+    with open(paths.SESSIONS_FILE, encoding="utf-8") as f:
         data = json.load(f)
-    known = {f.name for f in fields(SessionConfig)}
+    known = {f.name for f in dataclasses.fields(SessionConfig)}
     result: dict[str, SessionConfig] = {}
     for key, val in data.items():
         filtered = {k: v for k, v in val.items() if k in known}
@@ -324,12 +307,10 @@ def load_sessions() -> dict[str, SessionConfig]:
 
 def save_sessions(sessions: dict[str, SessionConfig]) -> None:
     """Save session configs to ``~/.config/telix/sessions.json``."""
-    from .paths import atomic_write
-
     ensure_dirs()
-    data = {key: asdict(cfg) for key, cfg in sessions.items()}
+    data = {key: dataclasses.asdict(cfg) for key, cfg in sessions.items()}
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    atomic_write(str(SESSIONS_FILE), content)
+    paths.atomic_write(str(paths.SESSIONS_FILE), content)
 
 
 CMD_STR_FLAGS: list[tuple[str, str, object]] = [
@@ -367,13 +348,7 @@ def build_command(config: SessionConfig) -> list[str]:
 
     Only emits flags that differ from the CLI defaults.
     """
-    cmd = [
-        sys.executable,
-        "-c",
-        "from telnetlib3.client import main; main()",
-        config.host,
-        str(config.port),
-    ]
+    cmd = [sys.executable, "-c", "from telnetlib3.client import main; main()", config.host, str(config.port)]
 
     if not config.no_repl:
         cmd.extend(["--shell", "telix.client_shell.telix_client_shell"])
@@ -414,22 +389,20 @@ def build_command(config: SessionConfig) -> list[str]:
 
 def relative_time(iso_str: str) -> str:
     """Return a short relative-time string like ``'5m ago'`` or ``'3d ago'``."""
-    from .util import relative_time
-
-    return relative_time(iso_str)
+    return util.relative_time(iso_str)
 
 
-class SessionListScreen(Screen[None]):
+class SessionListScreen(textual.screen.Screen[None]):
     """Main screen: table of saved sessions with action buttons."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("q", "quit_app", "Quit"),
-        Binding("n", "new_session", "New"),
-        Binding("e", "edit_session", "Edit"),
-        Binding("b", "toggle_bookmark", "Bookmark"),
-        Binding("d", "delete_session", "Delete"),
-        Binding("enter", "connect", "Connect"),
-        Binding("f1", "show_help", "Help"),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("q", "quit_app", "Quit"),
+        textual.binding.Binding("n", "new_session", "New"),
+        textual.binding.Binding("e", "edit_session", "Edit"),
+        textual.binding.Binding("b", "toggle_bookmark", "Bookmark"),
+        textual.binding.Binding("d", "delete_session", "Delete"),
+        textual.binding.Binding("enter", "connect", "Connect"),
+        textual.binding.Binding("f1", "show_help", "Help"),
     ]
 
     CSS = """
@@ -481,29 +454,29 @@ class SessionListScreen(Screen[None]):
         self.pending_rows: list[tuple[str, SessionConfig]] = []
         self.refresh_gen: int = 0
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build the session list layout."""
-        with Vertical(id="session-panel"):
-            yield Input(placeholder="Search sessions\u2026", id="session-search")
-            with Horizontal(id="session-body"):
-                with Vertical(id="button-col"):
-                    yield Button("Connect", variant="primary", id="connect-btn")
-                    yield Button("New", variant="success", id="add-btn")
-                    yield Button("Bookmark", variant="default", id="bookmark-btn")
-                    yield Button("Delete", variant="error", id="delete-btn")
-                    yield Button("Edit", variant="warning", id="edit-btn")
-                yield DataTable(id="session-table")
-        yield Footer()
+        with textual.containers.Vertical(id="session-panel"):
+            yield textual.widgets.Input(placeholder="Search sessions\u2026", id="session-search")
+            with textual.containers.Horizontal(id="session-body"):
+                with textual.containers.Vertical(id="button-col"):
+                    yield textual.widgets.Button("Connect", variant="primary", id="connect-btn")
+                    yield textual.widgets.Button("New", variant="success", id="add-btn")
+                    yield textual.widgets.Button("Bookmark", variant="default", id="bookmark-btn")
+                    yield textual.widgets.Button("Delete", variant="error", id="delete-btn")
+                    yield textual.widgets.Button("Edit", variant="warning", id="edit-btn")
+                yield textual.widgets.DataTable(id="session-table")
+        yield textual.widgets.Footer()
 
     def on_mount(self) -> None:
         """Load sessions and populate the data table."""
         self.sessions = load_sessions()
         if not self.sessions:
-            from .directory import directory_to_sessions
+            from .directory import directory_to_sessions  # noqa: PLC0415
 
             self.sessions = directory_to_sessions()
             save_sessions(self.sessions)
-        table = self.query_one("#session-table", DataTable)
+        table = self.query_one("#session-table", textual.widgets.DataTable)
         table.cursor_type = "row"
         table.add_column(" ", width=4, key="icon")
         table.add_columns("Host/Name", "Port", "Enc", "Last", "Flags")
@@ -535,7 +508,7 @@ class SessionListScreen(Screen[None]):
             parts.append("ts")
         return " ".join(parts)
 
-    def add_rows(self, table: DataTable, items: list[tuple[str, SessionConfig]]) -> None:
+    def add_rows(self, table: textual.widgets.DataTable, items: list[tuple[str, SessionConfig]]) -> None:
         """Add a list of ``(key, cfg)`` pairs as rows to *table*."""
         for key, cfg in items:
             table.add_row(
@@ -552,7 +525,7 @@ class SessionListScreen(Screen[None]):
         """Rebuild the session table, loading rows in batches."""
         self.refresh_gen += 1
         gen = self.refresh_gen
-        table = self.query_one("#session-table", DataTable)
+        table = self.query_one("#session-table", textual.widgets.DataTable)
         table.clear()
         needle = search.strip().lower()
         items = [
@@ -575,13 +548,13 @@ class SessionListScreen(Screen[None]):
         """Add the next batch of rows; bail if a newer refresh has started."""
         if gen != self.refresh_gen:
             return
-        table = self.query_one("#session-table", DataTable)
+        table = self.query_one("#session-table", textual.widgets.DataTable)
         batch, self.pending_rows = (self.pending_rows[:BATCH_SIZE], self.pending_rows[BATCH_SIZE:])
         self.add_rows(table, batch)
         if self.pending_rows:
             self.call_later(self.load_next_batch, gen)
 
-    def on_input_changed(self, event: Input.Changed) -> None:
+    def on_input_changed(self, event: textual.widgets.Input.Changed) -> None:
         """Filter session table when search input changes."""
         if event.input.id == "session-search":
             self.refresh_table(event.value)
@@ -593,16 +566,16 @@ class SessionListScreen(Screen[None]):
         return [k for k in self.sessions if k != DEFAULTS_KEY]
 
     def selected_key(self) -> str | None:
-        table = self.query_one("#session-table", DataTable)
+        table = self.query_one("#session-table", textual.widgets.DataTable)
         if table.row_count == 0:
             return None
         row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
         return str(row_key.value)
 
-    def on_key(self, event: events.Key) -> None:
+    def on_key(self, event: textual.events.Key) -> None:
         """Arrow/Home/End keys navigate between search, buttons, and the table."""
-        search_input = self.query_one("#session-search", Input)
-        table = self.query_one("#session-table", DataTable)
+        search_input = self.query_one("#session-search", textual.widgets.Input)
+        table = self.query_one("#session-table", textual.widgets.DataTable)
 
         if event.key in ("up", "down"):
             if self.focused is search_input and event.key == "down":
@@ -622,7 +595,7 @@ class SessionListScreen(Screen[None]):
         elif event.key in ("up", "down", "left", "right"):
             handle_arrow_navigation(self, event, "#button-col", "#session-table")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Dispatch button press to the appropriate action."""
         handlers = {
             "connect-btn": self.action_connect,
@@ -636,7 +609,7 @@ class SessionListScreen(Screen[None]):
         if handler:
             handler()
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+    def on_data_table_row_selected(self, event: textual.widgets.DataTable.RowSelected) -> None:
         """Connect on double-click or Enter."""
         self.action_connect()
 
@@ -647,13 +620,11 @@ class SessionListScreen(Screen[None]):
     def action_new_session(self) -> None:
         """Open editor for a new session pre-filled with defaults."""
         defaults = self.sessions.get(DEFAULTS_KEY, SessionConfig())
-        new_cfg = SessionConfig(**asdict(defaults))
+        new_cfg = SessionConfig(**dataclasses.asdict(defaults))
         new_cfg.name = ""
         new_cfg.host = ""
         new_cfg.last_connected = ""
-        self.app.push_screen(
-            SessionEditScreen(config=new_cfg, is_new=True), callback=self.do_edit_result
-        )
+        self.app.push_screen(SessionEditScreen(config=new_cfg, is_new=True), callback=self.do_edit_result)
 
     def require_selected(self) -> str | None:
         """Return selected session key, or notify and return ``None``."""
@@ -686,7 +657,7 @@ class SessionListScreen(Screen[None]):
 
     def action_delete_session(self) -> None:
         """Delete the selected session after confirmation."""
-        from .client_tui_dialogs import ConfirmDialogScreen
+        from .client_tui_dialogs import ConfirmDialogScreen  # noqa: PLC0415
 
         key = self.require_selected()
         if key is None:
@@ -700,8 +671,7 @@ class SessionListScreen(Screen[None]):
                 self.notify(f"Deleted {key}")
 
         self.app.push_screen(
-            ConfirmDialogScreen(title="Delete Session", body=f"Delete session '{key}'?"),
-            callback=do_confirm,
+            ConfirmDialogScreen(title="Delete Session", body=f"Delete session '{key}'?"), callback=do_confirm
         )
 
     def action_toggle_bookmark(self) -> None:
@@ -783,14 +753,14 @@ class SessionListScreen(Screen[None]):
 
     def select_row(self, key: str) -> None:
         """Move the table cursor to the row with the given key."""
-        table = self.query_one("#session-table", DataTable)
+        table = self.query_one("#session-table", textual.widgets.DataTable)
         for row_idx, row_key in enumerate(table.rows):
             if str(row_key.value) == key:
                 table.move_cursor(row=row_idx)
                 break
 
 
-class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
+class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: ignore[misc]
     """Full-screen form for adding or editing a session."""
 
     CSS = """
@@ -941,16 +911,14 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
     }
     """
 
-    def __init__(
-        self, config: SessionConfig, is_defaults: bool = False, is_new: bool = False
-    ) -> None:
+    def __init__(self, config: SessionConfig, is_defaults: bool = False, is_new: bool = False) -> None:
         """Initialize edit screen with session config and mode flags."""
         super().__init__()
         self.config = config
         self.is_defaults = is_defaults
         self.is_new = is_new
 
-    TAB_IDS: ClassVar[list[tuple[str, str]]] = [
+    TAB_IDS: typing.ClassVar[list[tuple[str, str]]] = [
         ("Connection", "tab-connection"),
         ("Terminal", "tab-terminal"),
         ("Display", "tab-display"),
@@ -958,157 +926,147 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
     ]
 
     @staticmethod
-    def field_row(label: str, *widgets: Widget, row_class: str = "field-row") -> Horizontal:
+    def field_row(label: str, *widgets: Widget, row_class: str = "field-row") -> textual.containers.Horizontal:
         """Return a ``Horizontal`` row with a label and widgets."""
-        return Horizontal(Label(label, classes="field-label"), *widgets, classes=row_class)
+        return textual.containers.Horizontal(
+            textual.widgets.Label(label, classes="field-label"), *widgets, classes=row_class
+        )
 
-    def compose_connection_tab(self, cfg: SessionConfig) -> ComposeResult:
+    def compose_connection_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Connection tab pane."""
         if not self.is_defaults:
             yield self.field_row(
                 "Name",
-                Input(
-                    value=cfg.name,
-                    placeholder="optional display name",
-                    id="name",
-                    classes="field-input",
+                textual.widgets.Input(
+                    value=cfg.name, placeholder="optional display name", id="name", classes="field-input"
                 ),
             )
-            yield Horizontal(
-                Label("Host:Port", classes="field-label"),
-                Input(value=cfg.host, placeholder="hostname", id="host", classes="field-input"),
-                Static(":", id="host-port-sep"),
-                Input(value=str(cfg.port), placeholder="23", id="port"),
+            yield textual.containers.Horizontal(
+                textual.widgets.Label("Host:Port", classes="field-label"),
+                textual.widgets.Input(value=cfg.host, placeholder="hostname", id="host", classes="field-input"),
+                textual.widgets.Static(":", id="host-port-sep"),
+                textual.widgets.Input(value=str(cfg.port), placeholder="23", id="port"),
                 classes="field-row",
             )
-        with Horizontal(id="ssl-compress-row"):
-            with Vertical(id="server-type-col"):
-                yield Label("Server Type")
-                with RadioSet(id="server-type-radio"):
-                    yield RadioButton("BBS", id="type-bbs")
-                    yield RadioButton("MUD", id="type-mud")
-            with Vertical(id="compression-col"):
-                yield Label("MCCP Compression")
-                with RadioSet(id="compression-radio"):
-                    yield RadioButton(
-                        "Passive", value=cfg.compression is None, id="compress-passive"
-                    )
-                    yield RadioButton("Yes", value=cfg.compression is True, id="compress-yes")
-                    yield RadioButton("No", value=cfg.compression is False, id="compress-no")
-            with Vertical(id="ssl-timeout-col"):
-                with Horizontal(classes="switch-row"):
-                    yield Label("SSL/TLS", id="ssl-label")
-                    yield Switch(value=cfg.ssl, id="ssl")
-                with Horizontal(classes="switch-row"):
-                    yield Label("Timeout", id="timeout-label")
-                    yield Input(value=str(cfg.connect_timeout), id="connect-timeout")
+        with textual.containers.Horizontal(id="ssl-compress-row"):
+            with textual.containers.Vertical(id="server-type-col"):
+                yield textual.widgets.Label("Server Type")
+                with textual.widgets.RadioSet(id="server-type-radio"):
+                    yield textual.widgets.RadioButton("BBS", id="type-bbs")
+                    yield textual.widgets.RadioButton("MUD", id="type-mud")
+            with textual.containers.Vertical(id="compression-col"):
+                yield textual.widgets.Label("MCCP Compression")
+                with textual.widgets.RadioSet(id="compression-radio"):
+                    yield textual.widgets.RadioButton("Passive", value=cfg.compression is None, id="compress-passive")
+                    yield textual.widgets.RadioButton("Yes", value=cfg.compression is True, id="compress-yes")
+                    yield textual.widgets.RadioButton("No", value=cfg.compression is False, id="compress-no")
+            with textual.containers.Vertical(id="ssl-timeout-col"):
+                with textual.containers.Horizontal(classes="switch-row"):
+                    yield textual.widgets.Label("SSL/TLS", id="ssl-label")
+                    yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
+                with textual.containers.Horizontal(classes="switch-row"):
+                    yield textual.widgets.Label("Timeout", id="timeout-label")
+                    yield textual.widgets.Input(value=str(cfg.connect_timeout), id="connect-timeout")
 
-    def compose_terminal_tab(self, cfg: SessionConfig) -> ComposeResult:
+    def compose_terminal_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Terminal tab pane."""
         yield self.field_row(
             "TERM",
-            Input(
-                value=cfg.term,
-                placeholder=os.environ.get("TERM", "unknown"),
-                id="term",
-                classes="field-input",
+            textual.widgets.Input(
+                value=cfg.term, placeholder=os.environ.get("TERM", "unknown"), id="term", classes="field-input"
             ),
         )
-        with Horizontal(id="mode-repl-row"):
-            with Vertical(id="mode-col"):
-                yield Label("Terminal Mode")
-                with RadioSet(id="mode-radio"):
-                    yield RadioButton("Auto-detect", value=cfg.mode == "auto", id="mode-auto")
-                    yield RadioButton("Raw mode", value=cfg.mode == "raw", id="mode-raw")
-                    yield RadioButton("Line mode", value=cfg.mode == "line", id="mode-line")
-            with Vertical(id="repl-col"), Horizontal(classes="switch-row"):
+        with textual.containers.Horizontal(id="mode-repl-row"):
+            with textual.containers.Vertical(id="mode-col"):
+                yield textual.widgets.Label("Terminal Mode")
+                with textual.widgets.RadioSet(id="mode-radio"):
+                    yield textual.widgets.RadioButton("Auto-detect", value=cfg.mode == "auto", id="mode-auto")
+                    yield textual.widgets.RadioButton("Raw mode", value=cfg.mode == "raw", id="mode-raw")
+                    yield textual.widgets.RadioButton("Line mode", value=cfg.mode == "line", id="mode-line")
+            with textual.containers.Vertical(id="repl-col"), textual.containers.Horizontal(classes="switch-row"):
                 repl_dim = "" if cfg.mode != "raw" else " dimmed"
-                yield Label("Advanced REPL", id="repl-label", classes=f"field-label{repl_dim}")
-                yield Switch(value=not cfg.no_repl, id="use-repl", disabled=cfg.mode == "raw")
+                yield textual.widgets.Label("Advanced REPL", id="repl-label", classes=f"field-label{repl_dim}")
+                yield textual.widgets.Switch(value=not cfg.no_repl, id="use-repl", disabled=cfg.mode == "raw")
         enc = cfg.encoding or "utf-8"
         is_retro = enc.lower() in ("atascii", "petscii")
-        with Horizontal(classes="field-row"):
-            yield Label("Encoding", id="enc-label")
-            yield Select(
+        with textual.containers.Horizontal(classes="field-row"):
+            yield textual.widgets.Label("Encoding", id="enc-label")
+            yield textual.widgets.Select(
                 [(e, e) for e in ENCODINGS],
                 value=enc if enc in ENCODINGS else "utf-8",
                 id="encoding",
                 allow_blank=False,
             )
-            yield Label("Errors", id="enc-errors-label")
-            yield Select(
-                [(v, v) for v in ("replace", "ignore", "strict")],
-                value=cfg.encoding_errors,
-                id="encoding-errors",
+            yield textual.widgets.Label("Errors", id="enc-errors-label")
+            yield textual.widgets.Select(
+                [(v, v) for v in ("replace", "ignore", "strict")], value=cfg.encoding_errors, id="encoding-errors"
             )
         dim = "" if is_retro else " dimmed"
-        with Horizontal(id="keys-eol-row"):
-            with Horizontal(classes="switch-row"):
-                yield Label("ANSI Keys", id="ansi-keys-label", classes=f"field-label{dim}")
-                yield Switch(value=cfg.ansi_keys, id="ansi-keys", disabled=not is_retro)
-            with Horizontal(classes="switch-row"):
-                yield Label("ASCII EOL", id="ascii-eol-label", classes=f"field-label{dim}")
-                yield Switch(value=cfg.ascii_eol, id="ascii-eol", disabled=not is_retro)
+        with textual.containers.Horizontal(id="keys-eol-row"):
+            with textual.containers.Horizontal(classes="switch-row"):
+                yield textual.widgets.Label("ANSI Keys", id="ansi-keys-label", classes=f"field-label{dim}")
+                yield textual.widgets.Switch(value=cfg.ansi_keys, id="ansi-keys", disabled=not is_retro)
+            with textual.containers.Horizontal(classes="switch-row"):
+                yield textual.widgets.Label("ASCII EOL", id="ascii-eol-label", classes=f"field-label{dim}")
+                yield textual.widgets.Switch(value=cfg.ascii_eol, id="ascii-eol", disabled=not is_retro)
 
-    def compose_display_tab(self, cfg: SessionConfig) -> ComposeResult:
+    def compose_display_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Display tab pane."""
-        yield Horizontal(
-            Label("Color Palette", classes="field-label"),
-            Select(
-                [(v, v) for v in ("vga", "xterm", "none")], value=cfg.colormatch, id="colormatch"
-            ),
-            Static("", id="palette-preview"),
+        yield textual.containers.Horizontal(
+            textual.widgets.Label("Color Palette", classes="field-label"),
+            textual.widgets.Select([(v, v) for v in ("vga", "xterm", "none")], value=cfg.colormatch, id="colormatch"),
+            textual.widgets.Static("", id="palette-preview"),
             classes="field-row",
         )
-        with Horizontal(classes="switch-row"):
-            yield Label("iCE Colors", classes="field-label")
-            yield Switch(value=cfg.ice_colors, id="ice-colors")
+        with textual.containers.Horizontal(classes="switch-row"):
+            yield textual.widgets.Label("iCE Colors", classes="field-label")
+            yield textual.widgets.Switch(value=cfg.ice_colors, id="ice-colors")
 
-    def compose_advanced_tab(self, cfg: SessionConfig) -> ComposeResult:
+    def compose_advanced_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Advanced tab pane."""
         yield self.field_row(
-            "Send Environ", Input(value=cfg.send_environ, id="send-environ", classes="field-input")
+            "Send Environ", textual.widgets.Input(value=cfg.send_environ, id="send-environ", classes="field-input")
         )
-        yield Horizontal(
-            Label("Log Level:", classes="field-label"),
-            Select(
+        yield textual.containers.Horizontal(
+            textual.widgets.Label("Log Level:", classes="field-label"),
+            textual.widgets.Select(
                 [(v, v) for v in ("trace", "debug", "info", "warn", "error", "critical")],
                 value=cfg.loglevel,
                 id="loglevel",
             ),
-            Label("file:", classes="field-label-short"),
-            Input(value=cfg.logfile, placeholder="path", id="logfile", classes="field-input"),
+            textual.widgets.Label("file:", classes="field-label-short"),
+            textual.widgets.Input(value=cfg.logfile, placeholder="path", id="logfile", classes="field-input"),
             classes="field-row",
         )
         yield self.field_row(
             "Typescript",
-            Input(value=cfg.typescript, placeholder="path", id="typescript", classes="field-input"),
+            textual.widgets.Input(value=cfg.typescript, placeholder="path", id="typescript", classes="field-input"),
         )
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         """Build the tabbed session editor layout."""
         cfg = self.config
-        with Vertical(id="edit-panel"):
-            with Horizontal(id="tab-bar"):
+        with textual.containers.Vertical(id="edit-panel"):
+            with textual.containers.Horizontal(id="tab-bar"):
                 for i, (label, tab_id) in enumerate(self.TAB_IDS):
-                    btn = Button(label, id=f"tabbtn-{tab_id}")
+                    btn = textual.widgets.Button(label, id=f"tabbtn-{tab_id}")
                     if i == 0:
                         btn.add_class("active-tab")
                     yield btn
 
-            with ContentSwitcher(id="tab-content", initial="tab-connection"):
-                with Vertical(id="tab-connection", classes="tab-pane"):
+            with textual.widgets.ContentSwitcher(id="tab-content", initial="tab-connection"):
+                with textual.containers.Vertical(id="tab-connection", classes="tab-pane"):
                     yield from self.compose_connection_tab(cfg)
-                with Vertical(id="tab-terminal", classes="tab-pane"):
+                with textual.containers.Vertical(id="tab-terminal", classes="tab-pane"):
                     yield from self.compose_terminal_tab(cfg)
-                with Vertical(id="tab-display", classes="tab-pane"):
+                with textual.containers.Vertical(id="tab-display", classes="tab-pane"):
                     yield from self.compose_display_tab(cfg)
-                with Vertical(id="tab-advanced", classes="tab-pane"):
+                with textual.containers.Vertical(id="tab-advanced", classes="tab-pane"):
                     yield from self.compose_advanced_tab(cfg)
 
-            with Horizontal(id="bottom-bar"):
-                yield Button("Cancel", variant="error", id="cancel-btn")
-                yield Button("Save", variant="success", id="save-btn")
+            with textual.containers.Horizontal(id="bottom-bar"):
+                yield textual.widgets.Button("Cancel", variant="error", id="cancel-btn")
+                yield textual.widgets.Button("Save", variant="success", id="save-btn")
 
     def on_mount(self) -> None:
         """Apply argparse-derived tooltips to form widgets."""
@@ -1117,88 +1075,82 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
             try:
                 widget = self.query_one(f"#{widget_id}")
                 widget.tooltip = help_text
-            except NoMatches:
+            except textual.css.query.NoMatches:
                 pass
         self.update_palette_preview()
-        for radio_set in self.query(RadioSet):
+        for radio_set in self.query(textual.widgets.RadioSet):
             idx = radio_set.pressed_index
             if idx >= 0:
                 radio_set._selected = idx
 
-    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+    def on_radio_set_changed(self, event: textual.widgets.RadioSet.Changed) -> None:
         """Handle radio-set changes for server type and terminal mode."""
         if event.radio_set.id == "server-type-radio":
             self.apply_server_type(event.pressed.id)
         elif event.radio_set.id == "mode-radio":
             is_raw = event.pressed.id == "mode-raw"
-            repl_switch = self.query_one("#use-repl", Switch)
+            repl_switch = self.query_one("#use-repl", textual.widgets.Switch)
             repl_switch.disabled = is_raw
-            self.query_one("#repl-label", Label).set_class(is_raw, "dimmed")
+            self.query_one("#repl-label", textual.widgets.Label).set_class(is_raw, "dimmed")
 
     def select_radio(self, radio_set_id: str, button_id: str) -> None:
         """Select a radio button by deselecting all siblings first."""
-        radio_set = self.query_one(f"#{radio_set_id}", RadioSet)
-        for btn in radio_set.query(RadioButton):
+        radio_set = self.query_one(f"#{radio_set_id}", textual.widgets.RadioSet)
+        for btn in radio_set.query(textual.widgets.RadioButton):
             btn.value = False
-        self.query_one(f"#{button_id}", RadioButton).value = True
+        self.query_one(f"#{button_id}", textual.widgets.RadioButton).value = True
 
     def apply_server_type(self, button_id: str) -> None:
         """Apply preset field values for BBS or MUD server type."""
         if button_id == "type-bbs":
-            self.query_one("#colormatch", Select).value = "vga"
-            self.query_one("#ice-colors", Switch).value = True
+            self.query_one("#colormatch", textual.widgets.Select).value = "vga"
+            self.query_one("#ice-colors", textual.widgets.Switch).value = True
             self.select_radio("mode-radio", "mode-raw")
-            self.query_one("#use-repl", Switch).value = False
-            self.query_one("#use-repl", Switch).disabled = True
-            self.query_one("#repl-label", Label).set_class(True, "dimmed")
+            self.query_one("#use-repl", textual.widgets.Switch).value = False
+            self.query_one("#use-repl", textual.widgets.Switch).disabled = True
+            self.query_one("#repl-label", textual.widgets.Label).set_class(True, "dimmed")
             self.select_radio("compression-radio", "compress-passive")
             self.update_palette_preview()
-            self.notify(
-                "BBS: Color Palette vga, iCE Colors on, Raw mode,"
-                " REPL off, MCCP Compression passive"
-            )
+            self.notify("BBS: Color Palette vga, iCE Colors on, Raw mode, REPL off, MCCP Compression passive")
         elif button_id == "type-mud":
             self.select_radio("compression-radio", "compress-yes")
             self.select_radio("mode-radio", "mode-line")
-            self.query_one("#use-repl", Switch).value = True
-            self.query_one("#use-repl", Switch).disabled = False
-            self.query_one("#repl-label", Label).set_class(False, "dimmed")
-            self.query_one("#colormatch", Select).value = "none"
-            self.query_one("#ice-colors", Switch).value = False
+            self.query_one("#use-repl", textual.widgets.Switch).value = True
+            self.query_one("#use-repl", textual.widgets.Switch).disabled = False
+            self.query_one("#repl-label", textual.widgets.Label).set_class(False, "dimmed")
+            self.query_one("#colormatch", textual.widgets.Select).value = "none"
+            self.query_one("#ice-colors", textual.widgets.Switch).value = False
             self.update_palette_preview()
-            self.notify(
-                "MUD: MCCP Compression yes, Line mode,"
-                " REPL on, Color Palette none, iCE Colors off"
-            )
+            self.notify("MUD: MCCP Compression yes, Line mode, REPL on, Color Palette none, iCE Colors off")
 
-    def on_select_changed(self, event: Select.Changed) -> None:
+    def on_select_changed(self, event: textual.widgets.Select.Changed) -> None:
         """React to Select widget changes."""
         if event.select.id == "colormatch":
             self.update_palette_preview()
         elif event.select.id == "encoding":
             is_retro = str(event.value).lower() in ("atascii", "petscii")
-            self.query_one("#ansi-keys", Switch).disabled = not is_retro
-            self.query_one("#ascii-eol", Switch).disabled = not is_retro
+            self.query_one("#ansi-keys", textual.widgets.Switch).disabled = not is_retro
+            self.query_one("#ascii-eol", textual.widgets.Switch).disabled = not is_retro
             for label_id in ("#ansi-keys-label", "#ascii-eol-label"):
-                label = self.query_one(label_id, Label)
+                label = self.query_one(label_id, textual.widgets.Label)
                 label.set_class(not is_retro, "dimmed")
 
-    def on_switch_changed(self, event: Switch.Changed) -> None:
+    def on_switch_changed(self, event: textual.widgets.Switch.Changed) -> None:
         """Update palette preview when ice_colors changes."""
         if event.switch.id == "ice-colors":
             self.update_palette_preview()
 
     def update_palette_preview(self) -> None:
         """Render CP437 full-block color preview for the selected palette."""
-        from telnetlib3.color_filter import PALETTES
+        from telnetlib3.color_filter import PALETTES  # noqa: PLC0415
 
-        palette_name = self.query_one("#colormatch", Select).value
-        preview = self.query_one("#palette-preview", Static)
+        palette_name = self.query_one("#colormatch", textual.widgets.Select).value
+        preview = self.query_one("#palette-preview", textual.widgets.Static)
         if palette_name == "none" or palette_name not in PALETTES:
             preview.update("")
             return
         palette = PALETTES[palette_name]
-        ice = self.query_one("#ice-colors", Switch).value
+        ice = self.query_one("#ice-colors", textual.widgets.Switch).value
         block = "\u2588"
         fg_blocks = "".join(f"[rgb({r},{g},{b})]{block}[/]" for r, g, b in palette)
         bg_count = 16 if ice else 8
@@ -1207,21 +1159,21 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
 
     def switch_to_tab(self, tab_id: str) -> None:
         """Activate the given tab and update button styling."""
-        self.query_one("#tab-content", ContentSwitcher).current = tab_id
+        self.query_one("#tab-content", textual.widgets.ContentSwitcher).current = tab_id
         for btn in self.query("#tab-bar Button"):
             btn.remove_class("active-tab")
             if btn.id == f"tabbtn-{tab_id}":
                 btn.add_class("active-tab")
 
-    def active_tab_focusables(self) -> list[Any]:
+    def active_tab_focusables(self) -> list[typing.Any]:
         """Return focusable widgets in the currently visible tab pane."""
-        current = self.query_one("#tab-content", ContentSwitcher).current
+        current = self.query_one("#tab-content", textual.widgets.ContentSwitcher).current
         if not current:
             return []
         pane = self.query_one(f"#{current}")
         return [w for w in pane.query("Input, Select, Switch, RadioButton") if not w.disabled]
 
-    def on_key(self, event: events.Key) -> None:
+    def on_key(self, event: textual.events.Key) -> None:
         """Arrow key navigation for tabs, fields, and buttons."""
         focused = self.focused
         tab_buttons = list(self.query("#tab-bar Button"))
@@ -1268,7 +1220,8 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                 if idx > 0:
                     focusables[idx - 1].focus()
                 else:
-                    current = self.query_one("#tab-content", ContentSwitcher).current
+                    switcher = self.query_one("#tab-content", textual.widgets.ContentSwitcher)
+                    current = switcher.current
                     for btn in tab_buttons:
                         if btn.id == f"tabbtn-{current}":
                             btn.focus()
@@ -1281,7 +1234,7 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                     bottom_buttons[0].focus()
                 event.prevent_default()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle save, cancel, and tab switching buttons."""
         btn_id = event.button.id or ""
         if btn_id == "save-btn":
@@ -1301,54 +1254,54 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
         cfg = SessionConfig()
 
         if not self.is_defaults:
-            cfg.name = self.query_one("#name", Input).value.strip()
-            cfg.host = self.query_one("#host", Input).value.strip()
-            cfg.port = int_val(self.query_one("#port", Input).value, 23)
+            cfg.name = self.query_one("#name", textual.widgets.Input).value.strip()
+            cfg.host = self.query_one("#host", textual.widgets.Input).value.strip()
+            cfg.port = int_val(self.query_one("#port", textual.widgets.Input).value, 23)
         else:
             cfg.name = DEFAULTS_KEY
 
-        cfg.ssl = self.query_one("#ssl", Switch).value
+        cfg.ssl = self.query_one("#ssl", textual.widgets.Switch).value
         cfg.ssl_no_verify = False
 
         cfg.last_connected = self.config.last_connected
 
-        cfg.term = self.query_one("#term", Input).value.strip()
-        cfg.encoding = self.query_one("#encoding", Select).value
-        cfg.encoding_errors = self.query_one("#encoding-errors", Select).value
+        cfg.term = self.query_one("#term", textual.widgets.Input).value.strip()
+        cfg.encoding = self.query_one("#encoding", textual.widgets.Select).value
+        cfg.encoding_errors = self.query_one("#encoding-errors", textual.widgets.Select).value
 
-        if self.query_one("#mode-raw", RadioButton).value:
+        if self.query_one("#mode-raw", textual.widgets.RadioButton).value:
             cfg.mode = "raw"
-        elif self.query_one("#mode-line", RadioButton).value:
+        elif self.query_one("#mode-line", textual.widgets.RadioButton).value:
             cfg.mode = "line"
         else:
             cfg.mode = "auto"
 
-        cfg.ansi_keys = self.query_one("#ansi-keys", Switch).value
-        cfg.ascii_eol = self.query_one("#ascii-eol", Switch).value
+        cfg.ansi_keys = self.query_one("#ansi-keys", textual.widgets.Switch).value
+        cfg.ascii_eol = self.query_one("#ascii-eol", textual.widgets.Switch).value
 
-        cfg.colormatch = self.query_one("#colormatch", Select).value
+        cfg.colormatch = self.query_one("#colormatch", textual.widgets.Select).value
         cfg.background_color = "#000000"
-        cfg.ice_colors = self.query_one("#ice-colors", Switch).value
+        cfg.ice_colors = self.query_one("#ice-colors", textual.widgets.Switch).value
 
-        cfg.connect_timeout = float_val(self.query_one("#connect-timeout", Input).value, 10.0)
+        timeout_input = self.query_one("#connect-timeout", textual.widgets.Input)
+        cfg.connect_timeout = float_val(timeout_input.value, 10.0)
 
-        if self.query_one("#compress-yes", RadioButton).value:
+        if self.query_one("#compress-yes", textual.widgets.RadioButton).value:
             cfg.compression = True
-        elif self.query_one("#compress-no", RadioButton).value:
+        elif self.query_one("#compress-no", textual.widgets.RadioButton).value:
             cfg.compression = False
         else:
             cfg.compression = None
 
         cfg.send_environ = (
-            self.query_one("#send-environ", Input).value.strip()
-            or "TERM,LANG,COLUMNS,LINES,COLORTERM"
+            self.query_one("#send-environ", textual.widgets.Input).value.strip() or "TERM,LANG,COLUMNS,LINES,COLORTERM"
         )
         cfg.always_will = self.config.always_will
         cfg.always_do = self.config.always_do
-        cfg.loglevel = self.query_one("#loglevel", Select).value
-        cfg.logfile = self.query_one("#logfile", Input).value.strip()
-        cfg.typescript = self.query_one("#typescript", Input).value.strip()
-        cfg.no_repl = not self.query_one("#use-repl", Switch).value
+        cfg.loglevel = self.query_one("#loglevel", textual.widgets.Select).value
+        cfg.logfile = self.query_one("#logfile", textual.widgets.Input).value.strip()
+        cfg.typescript = self.query_one("#typescript", textual.widgets.Input).value.strip()
+        cfg.no_repl = not self.query_one("#use-repl", textual.widgets.Switch).value
 
         return cfg
 
@@ -1369,12 +1322,12 @@ def float_val(text: str, default: float) -> float:
 
 def get_help_topic(topic: str) -> str:
     """Load help text for a TUI dialog topic from bundled markdown files."""
-    from telix.help import get_help  # deferred to avoid import cost
+    from telix.help import get_help  # noqa: PLC0415  deferred to avoid import cost
 
     return get_help(topic)
 
 
-class HelpPane(Vertical):
+class HelpPane(textual.containers.Vertical):
     """Widget containing help content -- embeddable in a tab or standalone screen."""
 
     DEFAULT_CSS = """
@@ -1391,7 +1344,7 @@ class HelpPane(Vertical):
     #help-scroll {
         height: 1fr;
     }
-    #help-scroll Markdown {
+    #help-scroll textual.widgets.Markdown {
         margin: 0 1;
     }
     """
@@ -1400,10 +1353,10 @@ class HelpPane(Vertical):
         super().__init__()
         self.topic = topic
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         content = get_help_topic(self.topic)
-        with Vertical(id="help-dialog"), VerticalScroll(id="help-scroll"):
-            yield Markdown(content, id="help-content")
+        with textual.containers.Vertical(id="help-dialog"), textual.containers.VerticalScroll(id="help-scroll"):
+            yield textual.widgets.Markdown(content, id="help-content")
 
     def update_topic(self, topic: str) -> None:
         """
@@ -1416,34 +1369,34 @@ class HelpPane(Vertical):
         self.topic = topic
         content = get_help_topic(topic)
         try:
-            md = self.query_one("#help-content", Markdown)
+            md = self.query_one("#help-content", textual.widgets.Markdown)
             md.update(content)
-        except NoMatches:
+        except textual.css.query.NoMatches:
             pass
 
 
-class CommandHelpScreen(Screen[None]):
+class CommandHelpScreen(textual.screen.Screen[None]):
     """Scrollable help screen with context-specific documentation."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "close", "Exit"),
-        Binding("q", "close", "Exit", show=False),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "close", "Exit"),
+        textual.binding.Binding("q", "close", "Exit", show=False),
     ]
 
     def __init__(self, topic: str = "macro") -> None:
         super().__init__()
         self.pane = HelpPane(topic=topic)
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         yield self.pane
-        yield Footer()
+        yield textual.widgets.Footer()
 
     def action_close(self) -> None:
         """Dismiss the help screen."""
         self.dismiss(None)
 
 
-class EditListPane(Vertical):
+class EditListPane(textual.containers.Vertical):
     """Base pane for list-editor UIs (macros, autoreplies, etc.)."""
 
     DEFAULT_CSS = """
@@ -1468,8 +1421,8 @@ class EditListPane(Vertical):
     .edit-table { height: 1fr; min-height: 4; overflow-x: hidden; }
     .edit-form { height: 1fr; }
     .edit-form .field-row { height: 3; margin: 0; }
-    .edit-form Input { width: 1fr; border: tall grey; }
-    .edit-form Input:focus { border: tall $accent; }
+    .edit-form textual.widgets.Input { width: 1fr; border: tall grey; }
+    .edit-form textual.widgets.Input:focus { border: tall $accent; }
     .edit-form-buttons { height: 3; align-horizontal: right; }
     .edit-form-buttons Button { width: auto; min-width: 10; margin-left: 1; }
     .insert-btn { width: auto; min-width: 0; margin-left: 1; }
@@ -1484,19 +1437,19 @@ class EditListPane(Vertical):
     .form-btn-spacer { width: 1; }
     """
 
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "cancel_or_close", "Cancel", priority=True),
-        Binding("f1", "show_help", "Help", show=True),
-        Binding("plus", "reorder_hint", "Change Priority", key_display="+/=/-", show=True),
-        Binding("enter", "save_hint", "Save", show=True),
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "cancel_or_close", "Cancel", priority=True),
+        textual.binding.Binding("f1", "show_help", "Help", show=True),
+        textual.binding.Binding("plus", "reorder_hint", "Change Priority", key_display="+/=/-", show=True),
+        textual.binding.Binding("enter", "save_hint", "Save", show=True),
     ]
 
     @property
-    @abstractmethod
+    @abc.abstractmethod
     def prefix(self) -> str: ...
 
     @property
-    @abstractmethod
+    @abc.abstractmethod
     def noun(self) -> str:
         """Display noun for this editor, e.g. 'Macro' or 'Autoreply'."""
 
@@ -1506,8 +1459,8 @@ class EditListPane(Vertical):
         return self.noun + "s"
 
     @property
-    @abstractmethod
-    def items(self) -> list[Any]: ...
+    @abc.abstractmethod
+    def items(self) -> list[typing.Any]: ...
 
     def item_label(self, idx: int) -> str:
         """Return a display label for the item at *idx*."""
@@ -1526,7 +1479,7 @@ class EditListPane(Vertical):
         """Dismiss the parent screen or exit the app."""
         try:
             self.screen.dismiss(result)
-        except ScreenStackError:
+        except textual.app.ScreenStackError:
             self.app.exit()
 
     @property
@@ -1535,13 +1488,13 @@ class EditListPane(Vertical):
 
     def fit_growable_columns(self) -> None:
         """Distribute remaining table width equally among growable columns."""
-        table = self.query_one(f"#{self.prefix}-table", DataTable)
+        table = self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable)
         avail = table.size.width
         if avail <= 0:
             return
         pad = table.cell_padding
         fixed_total = 0
-        growable: list[Any] = []
+        growable: list[typing.Any] = []
         for col in table.ordered_columns:
             if str(col.key) in self.growable_keys:
                 growable.append(col)
@@ -1556,7 +1509,7 @@ class EditListPane(Vertical):
             col.width = max(each - 2 * pad, 4)
         table.refresh()
 
-    def on_resize(self, event: events.Resize) -> None:
+    def on_resize(self, event: textual.events.Resize) -> None:
         """Recompute growable column widths on terminal resize."""
         if self.growable_keys:
             self.call_after_refresh(self.fit_growable_columns)
@@ -1565,21 +1518,21 @@ class EditListPane(Vertical):
         """Enable or disable the add/edit/copy buttons."""
         pfx = self.prefix
         for suffix in ("add", "edit", "copy"):
-            self.query_one(f"#{pfx}-{suffix}", Button).disabled = disabled
+            self.query_one(f"#{pfx}-{suffix}", textual.widgets.Button).disabled = disabled
 
     def hide_form(self) -> None:
         pfx = self.prefix
         self.query_one(f"#{pfx}-form").display = False
         self.query_one(f"#{pfx}-table").display = True
         try:
-            self.query_one(f"#{pfx}-search", Input).display = True
-        except NoMatches:
+            self.query_one(f"#{pfx}-search", textual.widgets.Input).display = True
+        except textual.css.query.NoMatches:
             pass
         self.editing_idx = None
         self.set_action_buttons_disabled(False)
-        self.query_one(f"#{pfx}-table", DataTable).focus()
+        self.query_one(f"#{pfx}-table", textual.widgets.DataTable).focus()
 
-    def finalize_edit(self, entry: Any, is_valid: bool) -> None:
+    def finalize_edit(self, entry: typing.Any, is_valid: bool) -> None:
         """Insert or update an item, refresh, and hide the form."""
         if is_valid:
             if self.editing_idx is not None:
@@ -1589,11 +1542,12 @@ class EditListPane(Vertical):
                 target_row = len(self.items)
                 self.items.append(entry)
             self.refresh_table()
-            self.query_one(f"#{self.prefix}-table", DataTable).move_cursor(row=target_row)
+            table = self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable)
+            table.move_cursor(row=target_row)
         self.hide_form()
 
     def selected_idx(self) -> int | None:
-        table = self.query_one(f"#{self.prefix}-table", DataTable)
+        table = self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable)
         if table.row_count == 0:
             return None
         row_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key
@@ -1615,7 +1569,7 @@ class EditListPane(Vertical):
         if idx is not None and idx < len(self.items):
             self.items.insert(idx + 1, self.items[idx])
             self.refresh_table()
-            table = self.query_one(f"#{self.prefix}-table", DataTable)
+            table = self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable)
             table.move_cursor(row=idx + 1)
 
     def reorder(self, move_down: bool) -> None:
@@ -1628,10 +1582,10 @@ class EditListPane(Vertical):
             return
         items[idx], items[target] = items[target], items[idx]
         self.refresh_table()
-        table = self.query_one(f"#{self.prefix}-table", DataTable)
+        table = self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable)
         table.move_cursor(row=target)
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def on_input_submitted(self, event: textual.widgets.Input.Submitted) -> None:
         """Submit the form when Enter is pressed in an input field."""
         if self.form_visible:
             event.stop()
@@ -1658,23 +1612,23 @@ class EditListPane(Vertical):
         """Return True if item at *idx* matches the search *query*."""
         return True
 
-    def on_input_changed(self, event: Input.Changed) -> None:
+    def on_input_changed(self, event: textual.widgets.Input.Changed) -> None:
         """Filter table when search input changes."""
         if event.input.id == f"{self.prefix}-search":
             self.search_query = event.value
             self.refresh_table()
 
-    def on_key(self, event: events.Key) -> None:
+    def on_key(self, event: textual.events.Key) -> None:
         """Arrow/Home/End/+/- keys navigate and reorder the table."""
         pfx = self.prefix
         search_id = f"#{pfx}-search"
         try:
-            search_input = self.query_one(search_id, Input)
-        except NoMatches:
+            search_input = self.query_one(search_id, textual.widgets.Input)
+        except textual.css.query.NoMatches:
             search_input = None
 
         if search_input is not None and event.key in ("up", "down"):
-            table = self.query_one(f"#{pfx}-table", DataTable)
+            table = self.query_one(f"#{pfx}-table", textual.widgets.DataTable)
             if self.screen.focused is search_input and event.key == "down":
                 table.focus()
                 event.prevent_default()
@@ -1685,23 +1639,19 @@ class EditListPane(Vertical):
                 return
 
         if event.key in ("home", "end"):
-            table = self.query_one(f"#{self.prefix}-table", DataTable)
+            table = self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable)
             if self.screen.focused is table and table.row_count > 0:
                 row = 0 if event.key == "home" else table.row_count - 1
                 table.move_cursor(row=row)
                 event.prevent_default()
         elif event.key in ("up", "down", "left", "right"):
             handle_arrow_navigation(
-                self.screen,
-                event,
-                f"#{self.prefix}-button-col",
-                f"#{self.prefix}-table",
-                f"#{self.prefix}-form",
+                self.screen, event, f"#{self.prefix}-button-col", f"#{self.prefix}-table", f"#{self.prefix}-form"
             )
         elif event.key in ("plus", "minus", "equals_sign") and not self.form_visible:
             self.reorder(event.key in ("plus", "equals_sign"))
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+    def on_data_table_row_selected(self, event: textual.widgets.DataTable.RowSelected) -> None:
         """Double-click or Enter on a table row opens it for editing."""
         row_pos = int(str(event.row_key.value))
         if self.filtered_indices:
@@ -1720,7 +1670,7 @@ class EditListPane(Vertical):
         self.show_form()
 
     def action_delete(self) -> None:
-        from .client_tui_dialogs import ConfirmDialogScreen
+        from .client_tui_dialogs import ConfirmDialogScreen  # noqa: PLC0415
 
         if self.form_visible:
             self.hide_form()
@@ -1736,9 +1686,7 @@ class EditListPane(Vertical):
 
             self.app.push_screen(
                 ConfirmDialogScreen(
-                    title=f"Delete {self.noun}",
-                    body=f"Delete {self.noun.lower()} '{label}'?",
-                    show_dont_ask=False,
+                    title=f"Delete {self.noun}", body=f"Delete {self.noun.lower()} '{label}'?", show_dont_ask=False
                 ),
                 callback=do_confirm,
             )
@@ -1753,12 +1701,12 @@ class EditListPane(Vertical):
         self.save_to_file()
         self.request_close(True)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle common list-editor button presses."""
         btn = event.button.id or ""
         pfx = self.prefix
         suffix = btn.removeprefix(pfx + "-") if btn.startswith(pfx + "-") else ""
-        handlers: dict[str, Any] = {
+        handlers: dict[str, typing.Any] = {
             "add": self.action_add,
             "edit": self.edit_selected,
             "copy": self.copy_selected,
@@ -1783,7 +1731,7 @@ class EditListPane(Vertical):
     def insert_command(self, cmd: str) -> None:
         """Insert a command at the cursor position, adding ``;`` separators."""
         if self.form_visible:
-            inp = self.query_one(f"#{self.text_input_id}", Input)
+            inp = self.query_one(f"#{self.text_input_id}", textual.widgets.Input)
             val = inp.value
             pos = inp.cursor_position
             before = val[:pos]
@@ -1803,7 +1751,7 @@ class EditListPane(Vertical):
 
     def pick_room_for_travel(self) -> None:
         """Open room picker and insert a travel command."""
-        from .client_tui_dialogs import RoomPickerScreen
+        from .client_tui_dialogs import RoomPickerScreen  # noqa: PLC0415
 
         rooms_file = self.rooms_path
         if not rooms_file or not os.path.exists(rooms_file):
@@ -1820,7 +1768,7 @@ class EditListPane(Vertical):
             kwargs["current_room_file"] = self.current_room_path
         self.app.push_screen(RoomPickerScreen(**kwargs), callback=do_pick)
 
-    COMMAND_BUTTONS: ClassVar[dict[str, str]] = {
+    COMMAND_BUTTONS: typing.ClassVar[dict[str, str]] = {
         "btn-when": "`when HP%>=99`",
         "btn-until": "`until 10 pattern`",
         "btn-delay": "`delay 1s`",
@@ -1836,13 +1784,13 @@ class EditListPane(Vertical):
         if cmd is not None:
             self.insert_command(cmd)
 
-    @abstractmethod
-    def show_form(self, *args: Any) -> None: ...
+    @abc.abstractmethod
+    def show_form(self, *args: typing.Any) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     def submit_form(self) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     def refresh_table(self) -> None: ...
 
     def update_count_label(self) -> None:
@@ -1850,18 +1798,18 @@ class EditListPane(Vertical):
         n_total = len(self.items)
         n_shown = len(self.filtered_indices)
         noun = self.noun_plural
-        label = self.query_one(f"#{self.prefix}-count", Static)
+        label = self.query_one(f"#{self.prefix}-count", textual.widgets.Static)
         if self.search_query:
             label.update(f"{n_shown:,}/{n_total:,} {noun}")
         else:
             label.update(f"{n_total:,} {noun}")
         self.call_after_refresh(self.fit_growable_columns)
 
-    @abstractmethod
+    @abc.abstractmethod
     def save_to_file(self) -> None: ...
 
 
-class EditListScreen(Screen["bool | None"]):
+class EditListScreen(textual.screen.Screen["bool | None"]):
     """Thin screen wrapper around an ``EditListPane``."""
 
     @property
@@ -1873,9 +1821,9 @@ class EditListScreen(Screen["bool | None"]):
     def pane(self, value: EditListPane) -> None:
         self.__pane = value
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> textual.app.ComposeResult:
         yield self.pane
-        yield Footer()
+        yield textual.widgets.Footer()
 
 
 # ---------------------------------------------------------------------------
@@ -1883,10 +1831,10 @@ class EditListScreen(Screen["bool | None"]):
 # ---------------------------------------------------------------------------
 
 
-class EditorApp(App[None]):
+class EditorApp(textual.app.App[None]):
     """Minimal Textual app for standalone macro/autoreply editing."""
 
-    def __init__(self, screen: Screen[bool | None], session_key: str = "") -> None:
+    def __init__(self, screen: textual.screen.Screen[bool | None], session_key: str = "") -> None:
         """Initialize with the editor screen to push."""
         super().__init__()
         self.editor_screen = screen
@@ -1903,14 +1851,14 @@ class EditorApp(App[None]):
         """
         if not self.exit_renderables:
             return
-        from rich.console import Console
+        from rich.console import Console  # noqa: PLC0415
 
         console = Console(file=sys.stdout, markup=False, highlight=False)
         for renderable in self.exit_renderables:
             console.print(renderable)
         self.exit_renderables.clear()
 
-    def on_mouse_down(self, event: events.MouseDown) -> None:
+    def on_mouse_down(self, event: textual.events.MouseDown) -> None:
         """Paste X11 primary selection on middle-click."""
         if event.button != 2:
             return
@@ -1947,14 +1895,12 @@ class EditorApp(App[None]):
             getattr(driver, "mouse_pixels", "?"),
             getattr(driver, "in_band_window_resize", "?"),
         )
-        from .rooms import load_prefs
-
         saved_theme = ""
         if self.session_key:
-            prefs = load_prefs(self.session_key)
+            prefs = rooms.load_prefs(self.session_key)
             saved_theme = prefs.get("tui_theme", "")
         if not saved_theme:
-            saved_theme = load_prefs(DEFAULTS_KEY).get("tui_theme", "")
+            saved_theme = rooms.load_prefs(DEFAULTS_KEY).get("tui_theme", "")
         if isinstance(saved_theme, str) and saved_theme:
             self.theme = saved_theme
         else:
@@ -1965,12 +1911,10 @@ class EditorApp(App[None]):
         """Persist theme choice to per-session and global preferences."""
         if not new:
             return
-        from .rooms import load_prefs, save_prefs
-
         save_key = self.session_key or DEFAULTS_KEY
-        prefs = load_prefs(save_key)
+        prefs = rooms.load_prefs(save_key)
         prefs["tui_theme"] = new
-        save_prefs(save_key, prefs)
+        rooms.save_prefs(save_key, prefs)
 
 
 def patch_writer_thread_queue() -> None:
@@ -1985,7 +1929,7 @@ def patch_writer_thread_queue() -> None:
     prevents the deadlock.
     """
     try:
-        import textual.drivers.writer_thread as wt
+        import textual.drivers.writer_thread as wt  # noqa: PLC0415
 
         wt.MAX_QUEUED_WRITES = 0
     except (ImportError, AttributeError):
@@ -2006,15 +1950,10 @@ def restore_blocking_fds(logfile: str = "") -> None:
 
     :param logfile: Optional path to the parent's logfile for child logging.
     """
-    import os as os
-    import sys as sys
-    import logging as logging
 
     if logfile:
         logging.basicConfig(
-            filename=logfile,
-            level=logging.DEBUG,
-            format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+            filename=logfile, level=logging.DEBUG, format="%(asctime)s %(levelname)-5s %(name)s: %(message)s"
         )
 
     log = logging.getLogger(__name__)
@@ -2036,10 +1975,7 @@ def restore_blocking_fds(logfile: str = "") -> None:
         except OSError:
             pass
     log.debug(
-        "child post-fix: fd0_blocking=%s fd1=%s fd2=%s",
-        os.get_blocking(0),
-        os.get_blocking(1),
-        os.get_blocking(2),
+        "child post-fix: fd0_blocking=%s fd1=%s fd2=%s", os.get_blocking(0), os.get_blocking(1), os.get_blocking(2)
     )
 
 
@@ -2077,7 +2013,7 @@ def run_editor_app(app: EditorApp) -> None:
     try:
         app.run()
     except BaseException:
-        import traceback as tb_mod
+        import traceback as tb_mod  # noqa: PLC0415
 
         sys.stdout.write(TERMINAL_CLEANUP)
         sys.stdout.flush()
@@ -2096,7 +2032,7 @@ def run_editor_app(app: EditorApp) -> None:
 
 def pause_before_exit() -> None:
     """Prompt user to press RETURN so they can read error output."""
-    import termios
+    import termios  # noqa: PLC0415
 
     sys.stdout.write("\r\nPress RETURN to continue...\r\n")
     sys.stdout.flush()
@@ -2116,7 +2052,7 @@ def pause_before_exit() -> None:
         pass
 
 
-def launch_editor(screen: Screen[Any], session_key: str = "", logfile: str = "") -> None:
+def launch_editor(screen: textual.screen.Screen[typing.Any], session_key: str = "", logfile: str = "") -> None:
     """Common bootstrap for standalone editor entry points."""
     restore_blocking_fds(logfile)
     log_child_diagnostics()

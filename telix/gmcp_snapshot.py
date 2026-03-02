@@ -5,21 +5,19 @@ Persists all received GMCP packages to a JSON file with per-package timestamps, 
 analysis and progress bar auto-detection.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
 import json
+import typing
 import datetime
-from typing import Any
 
 # local
-from .paths import atomic_json_write
+from . import paths
 
 __all__ = ("load_gmcp_snapshot", "save_gmcp_snapshot")
 
 
-def save_gmcp_snapshot(path: str, session_key: str, gmcp_data: dict[str, Any]) -> None:
+def save_gmcp_snapshot(path: str, session_key: str, gmcp_data: dict[str, typing.Any]) -> None:
     """
     Merge current GMCP data into the on-disk snapshot.
 
@@ -35,15 +33,15 @@ def save_gmcp_snapshot(path: str, session_key: str, gmcp_data: dict[str, Any]) -
         return
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     existing = load_raw(path)
-    packages: dict[str, Any] = existing.get("packages", {})
+    packages: dict[str, typing.Any] = existing.get("packages", {})
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     for pkg_name, pkg_data in gmcp_data.items():
         packages[pkg_name] = {"data": pkg_data, "last_updated": now}
     snapshot = {"session_key": session_key, "last_updated": now, "packages": packages}
-    atomic_json_write(path, snapshot)
+    paths.atomic_json_write(path, snapshot)
 
 
-def load_gmcp_snapshot(path: str) -> dict[str, Any]:
+def load_gmcp_snapshot(path: str) -> dict[str, typing.Any]:
     """
     Read a GMCP snapshot from disk.
 
@@ -54,7 +52,7 @@ def load_gmcp_snapshot(path: str) -> dict[str, Any]:
     return data.get("packages", {})
 
 
-def load_raw(path: str) -> dict[str, Any]:
+def load_raw(path: str) -> dict[str, typing.Any]:
     """Read raw JSON from *path*, returning empty dict on missing/invalid file."""
     if not os.path.exists(path):
         return {}

@@ -5,18 +5,60 @@ from __future__ import annotations
 # std imports
 import os
 import sys
+import time
 import types
 import asyncio
+import logging
+import threading
 from typing import Any
 
 # 3rd party
 import pytest
+from blessed.line_editor import LineEditor, LineHistory
+from telnetlib3.client_shell import Terminal
 
 if sys.platform == "win32":
     pytest.skip("POSIX-only tests", allow_module_level=True)
 
 # local
-from telix.client_repl import ScrollRegion
+from telix.paths import DATA_DIR, history_path
+from telix.macros import Macro, load_macros, save_macros
+from telix.autoreply import SearchBuffer, AutoreplyEngine
+from telix.client_repl import (
+    TRAVEL_RE,
+    STYLE_NORMAL,
+    COMMAND_DELAY,
+    PASSWORD_CHAR,
+    STYLE_AUTOREPLY,
+    ReplSession,
+    ScrollRegion,
+    LineHoldBuffer,
+    get_term,
+    fmt_value,
+    randomwalk,
+    make_styles,
+    autodiscover,
+    load_history,
+    send_chained,
+    collapse_runs,
+    repl_scaffold,
+    expand_commands,
+    save_history_entry,
+    render_command_queue,
+    split_incomplete_esc,
+    handle_travel_commands,
+)
+from telix.session_context import CommandQueue, SessionContext
+from telix.client_repl_render import SEXTANT, SCRAMBLE_LEN, idle_rgb, idle_ar_rgb, scramble_password
+from telix.client_repl_travel import MAX_STUCK_RETRIES
+from telix.client_repl_commands import (
+    StepResult,
+    DispatchHooks,
+    dispatch_one,
+    active_cmd_fg,
+    pending_cmd_rgb,
+    expand_commands_ex,
+)
 
 
 class MockTransport:
@@ -143,8 +185,6 @@ def test_scroll_region_restore_cursor() -> None:
 
 def test_scramble_password_empty_buf_no_replace() -> None:
     """str.replace with empty search inserts between every char; guard against it."""
-    from telix.client_repl import PASSWORD_CHAR
-    from telix.client_repl_render import scramble_password
 
     raw = "\x1b[45;1H\x1b[48;2;26;0;0m\x1b[0m" + (" " * 80)
     search = PASSWORD_CHAR * 0
@@ -162,7 +202,6 @@ def test_scramble_password_empty_buf_no_replace() -> None:
 @pytest.mark.asyncio
 async def test_adjusted_naws_active_scroll() -> None:
     pytest.importorskip("blessed")
-    from telix.client_repl import repl_scaffold
 
     writer = mock_writer()
     writer.handle_send_naws = lambda: (24, 80)
@@ -183,7 +222,6 @@ async def test_adjusted_naws_active_scroll() -> None:
 @pytest.mark.asyncio
 async def test_adjusted_naws_inactive_returns_terminal_size() -> None:
     pytest.importorskip("blessed")
-    from telix.client_repl import repl_scaffold
 
     writer = mock_writer()
     writer.handle_send_naws = lambda: (24, 80)
@@ -206,7 +244,6 @@ async def test_adjusted_naws_inactive_returns_terminal_size() -> None:
 async def test_naws_restored_on_exception() -> None:
     """handle_send_naws is restored even if repl_scaffold body raises."""
     pytest.importorskip("blessed")
-    from telix.client_repl import repl_scaffold
 
     def orig_handler() -> tuple[int, int]:
         return (24, 80)
@@ -231,7 +268,6 @@ async def test_naws_restored_on_exception() -> None:
 async def test_naws_restored_on_normal_exit() -> None:
     """handle_send_naws is restored after normal scaffold exit."""
     pytest.importorskip("blessed")
-    from telix.client_repl import repl_scaffold
 
     def orig_handler() -> tuple[int, int]:
         return (24, 80)
@@ -281,8 +317,6 @@ async def test_naws_restored_on_normal_exit() -> None:
     ],
 )
 def test_expand_commands(line: str, expected: list[str]) -> None:
-    from telix.client_repl import expand_commands
-
     assert expand_commands(line) == expected
 
 
@@ -303,19 +337,13 @@ def test_expand_commands(line: str, expected: list[str]) -> None:
         (r"say \||look", ["say |", "look"], frozenset({1})),
     ],
 )
-def test_expand_commands_ex(
-    line: str, expected_cmds: list[str], expected_imm: frozenset[int]
-) -> None:
-    from telix.client_repl_commands import expand_commands_ex
-
+def test_expand_commands_ex(line: str, expected_cmds: list[str], expected_imm: frozenset[int]) -> None:
     result = expand_commands_ex(line)
     assert result.commands == expected_cmds
     assert result.immediate_set == expected_imm
 
 
 def test_expand_commands_with_pipe_separator() -> None:
-    from telix.client_repl import expand_commands
-
     assert expand_commands("a|b") == ["a", "b"]
 
 
@@ -334,8 +362,6 @@ def test_expand_commands_with_pipe_separator() -> None:
     ],
 )
 def test_fmt_value(value: int, expected: str) -> None:
-    from telix.client_repl import fmt_value
-
     assert fmt_value(value) == expected
 
 
@@ -363,8 +389,6 @@ def test_fmt_value(value: int, expected: str) -> None:
     ],
 )
 def test_split_incomplete_esc(data: bytes, flush: bytes, hold: bytes) -> None:
-    from telix.client_repl import split_incomplete_esc
-
     got_flush, got_hold = split_incomplete_esc(data)
     assert got_flush == flush
     assert got_hold == hold
@@ -392,18 +416,12 @@ def test_split_incomplete_esc(data: bytes, flush: bytes, hold: bytes) -> None:
     ],
 )
 def test_travel_re_matching(cmd: str, match: bool) -> None:
-    from telix.client_repl import TRAVEL_RE
-
     assert bool(TRAVEL_RE.match(cmd)) is match
 
 
 def test_style_normal_populated() -> None:
     pytest.importorskip("blessed")
-    from telix.client_repl import make_styles
-
     make_styles()
-    from telix.client_repl import STYLE_NORMAL
-
     assert isinstance(STYLE_NORMAL, dict)
     assert STYLE_NORMAL["text_sgr"] != ""
     assert STYLE_NORMAL["bg_sgr"] != ""
@@ -412,11 +430,7 @@ def test_style_normal_populated() -> None:
 
 def test_style_autoreply_populated() -> None:
     pytest.importorskip("blessed")
-    from telix.client_repl import make_styles
-
     make_styles()
-    from telix.client_repl import STYLE_AUTOREPLY
-
     assert isinstance(STYLE_AUTOREPLY, dict)
     assert STYLE_AUTOREPLY["text_sgr"] != ""
     assert STYLE_AUTOREPLY["bg_sgr"] != ""
@@ -424,18 +438,13 @@ def test_style_autoreply_populated() -> None:
 
 def test_style_normal_and_autoreply_differ() -> None:
     pytest.importorskip("blessed")
-    from telix.client_repl import make_styles
-
     make_styles()
-    from telix.client_repl import STYLE_NORMAL, STYLE_AUTOREPLY
-
     assert STYLE_NORMAL["bg_sgr"] != STYLE_AUTOREPLY["bg_sgr"]
     assert STYLE_NORMAL["text_sgr"] != STYLE_AUTOREPLY["text_sgr"]
 
 
 def test_render_input_line_basic() -> None:
     blessed = pytest.importorskip("blessed")
-    from blessed.line_editor import LineEditor
 
     term = blessed.Terminal(force_styling=True)
     editor = LineEditor(max_width=80)
@@ -450,7 +459,6 @@ def test_render_input_line_basic() -> None:
 async def test_scaffold_resize_handler_updates_scroll() -> None:
     """repl_scaffold resize handler updates scroll region dimensions."""
     pytest.importorskip("blessed")
-    from telix.client_repl import repl_scaffold
 
     writer = mock_writer()
     writer.handle_send_naws = lambda: (24, 80)
@@ -471,9 +479,6 @@ async def test_scaffold_resize_handler_updates_scroll() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 def test_resize_pending_flag_is_threading_event() -> None:
     """Terminal._resize_pending is a threading.Event (signal-safe)."""
-    import threading
-
-    from telnetlib3.client_shell import Terminal
 
     writer = mock_writer()
     writer.client = True
@@ -498,10 +503,6 @@ def test_resize_pending_flag_is_threading_event() -> None:
 
 def test_load_history_populates_entries(tmp_path: os.PathLike[str]) -> None:
     pytest.importorskip("blessed")
-    from blessed.line_editor import LineHistory
-
-    from telix.client_repl import load_history
-
     hfile = tmp_path / "history"
     hfile.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
     history = LineHistory()
@@ -510,8 +511,6 @@ def test_load_history_populates_entries(tmp_path: os.PathLike[str]) -> None:
 
 
 def test_save_history_entry_appends(tmp_path: os.PathLike[str]) -> None:
-    from telix.client_repl import save_history_entry
-
     hfile = tmp_path / "history"
     save_history_entry("first", str(hfile))
     save_history_entry("second", str(hfile))
@@ -521,18 +520,12 @@ def test_save_history_entry_appends(tmp_path: os.PathLike[str]) -> None:
 
 def test_load_history_missing_file(tmp_path: os.PathLike[str]) -> None:
     pytest.importorskip("blessed")
-    from blessed.line_editor import LineHistory
-
-    from telix.client_repl import load_history
-
     history = LineHistory()
     load_history(history, str(tmp_path / "does-not-exist"))
     assert history.entries == []
 
 
 def test_history_path_per_session() -> None:
-    from telix.paths import history_path
-
     p1 = history_path("mud.example.com:4000")
     p2 = history_path("other.host:23")
     assert p1 != p2
@@ -542,8 +535,6 @@ def test_history_path_per_session() -> None:
 
 
 def test_history_path_no_traversal() -> None:
-    from telix.paths import DATA_DIR, history_path
-
     malicious = "../../etc/passwd:22"
     result = history_path(malicious)
     assert result.startswith(DATA_DIR)
@@ -554,8 +545,6 @@ class DynamicRoomContext:
     """SessionContext subclass with property-based current_room_num."""
 
     def __init__(self, room_num: str, room_sequence: list[str] | None) -> None:
-        from telix.session_context import SessionContext
-
         self.real_ctx = SessionContext(session_key="test")
         self.room_val = room_num
         self.seq_iter = iter(room_sequence) if room_sequence else None
@@ -615,10 +604,6 @@ class WalkWriter:
 @pytest.mark.asyncio
 async def test_randomwalk_stuck_room_stops(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """After 3 consecutive failed moves, randomwalk marks exits exhausted and stops."""
-    import logging
-
-    from telix.client_repl import randomwalk
-    from telix.client_repl_travel import MAX_STUCK_RETRIES
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -634,13 +619,8 @@ async def test_randomwalk_stuck_room_stops(monkeypatch: pytest.MonkeyPatch, fast
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_retries_when_temporarily_stuck(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_retries_when_temporarily_stuck(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Walker retries after temporary block and continues when exit clears."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}, "room2": {"south": "room1"}}
     seq = (
@@ -663,13 +643,8 @@ async def test_randomwalk_retries_when_temporarily_stuck(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_resets_stuck_on_success(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_resets_stuck_on_success(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """A successful move after a blocked exit continues walking."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "room2", "south": "room3"},
@@ -694,13 +669,8 @@ async def test_randomwalk_resets_stuck_on_success(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_autodiscover_stuck_gateway_stops(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_autodiscover_stuck_gateway_stops(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """After 3 failures from the same room, autodiscover stops."""
-    import logging
-
-    from telix.client_repl import autodiscover
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "gw1"},
@@ -730,13 +700,8 @@ async def test_autodiscover_stuck_gateway_stops(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_autodiscover_blocked_edge_avoids_retrying(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_autodiscover_blocked_edge_avoids_retrying(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """When a path edge is impassable, subsequent gateways behind it are skipped."""
-    import logging
-
-    from telix.client_repl import autodiscover
 
     adj: dict[str, dict[str, str]] = {
         "start": {"portal": "island"},
@@ -782,9 +747,6 @@ async def test_autodiscover_blocked_edge_avoids_retrying(
 @pytest.mark.asyncio
 async def test_send_chained_mixed_uses_move_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Consecutive identical commands in a mixed list get movement delay pacing."""
-    import logging
-
-    from telix.client_repl import COMMAND_DELAY, send_chained
 
     sleep_args: list[float] = []
     real_sleep = asyncio.sleep
@@ -814,9 +776,6 @@ async def test_send_chained_mixed_uses_move_pacing(monkeypatch: pytest.MonkeyPat
 @pytest.mark.asyncio
 async def test_send_chained_repeated_non_move(monkeypatch: pytest.MonkeyPatch) -> None:
     """Repeated non-movement commands all execute with delay pacing."""
-    import logging
-
-    from telix.client_repl import COMMAND_DELAY, send_chained
 
     sleep_args: list[float] = []
     real_sleep = asyncio.sleep
@@ -843,7 +802,6 @@ async def test_send_chained_repeated_non_move(monkeypatch: pytest.MonkeyPatch) -
 
 def test_collapse_runs_basic() -> None:
     """Consecutive identical commands are collapsed into count×cmd groups."""
-    from telix.client_repl import collapse_runs
 
     result = collapse_runs(["e", "e", "e", "n", "n", "rocks"])
     assert result == [("3\u00d7e", 0, 2), ("2\u00d7n", 3, 4), ("rocks", 5, 5)]
@@ -851,7 +809,6 @@ def test_collapse_runs_basic() -> None:
 
 def test_collapse_runs_single() -> None:
     """A single command produces one entry with no count prefix."""
-    from telix.client_repl import collapse_runs
 
     result = collapse_runs(["look"])
     assert result == [("look", 0, 0)]
@@ -859,7 +816,6 @@ def test_collapse_runs_single() -> None:
 
 def test_collapse_runs_all_same() -> None:
     """All-identical list collapses to one group."""
-    from telix.client_repl import collapse_runs
 
     result = collapse_runs(["e", "e", "e", "e"])
     assert result == [("4\u00d7e", 0, 3)]
@@ -867,7 +823,6 @@ def test_collapse_runs_all_same() -> None:
 
 def test_collapse_runs_with_start() -> None:
     """Collapsing from a non-zero start skips earlier entries."""
-    from telix.client_repl import collapse_runs
 
     result = collapse_runs(["e", "e", "e", "n", "n", "rocks"], start=3)
     assert result == [("2\u00d7n", 3, 4), ("rocks", 5, 5)]
@@ -875,7 +830,6 @@ def test_collapse_runs_with_start() -> None:
 
 def test_collapse_runs_empty_start_past_end() -> None:
     """Start index beyond commands returns empty list."""
-    from telix.client_repl import collapse_runs
 
     assert collapse_runs(["e", "n"], start=5) == []
 
@@ -884,9 +838,6 @@ def test_collapse_runs_empty_start_past_end() -> None:
 @pytest.mark.asyncio
 async def test_send_chained_queue_cancellation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Setting cancelled on a CommandQueue stops send_chained early."""
-    import logging
-
-    from telix.client_repl import CommandQueue, send_chained
 
     real_sleep = asyncio.sleep
 
@@ -928,9 +879,6 @@ async def test_send_chained_queue_cancellation(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.asyncio
 async def test_send_chained_delay_pauses(monkeypatch: pytest.MonkeyPatch) -> None:
     """Backtick delay commands in a chained sequence pause without sending."""
-    import logging
-
-    from telix.client_repl import send_chained
 
     sleep_args: list[float] = []
     real_sleep = asyncio.sleep
@@ -957,7 +905,6 @@ async def test_send_chained_delay_pauses(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def dispatch_hooks(**overrides: Any) -> tuple[Any, list[str], list[str]]:
     """Build a DispatchHooks with recording send/echo and return (hooks, sent, echoed)."""
-    from telix.client_repl_commands import DispatchHooks
 
     sent: list[str] = []
     echoed: list[str] = []
@@ -979,14 +926,10 @@ def dispatch_hooks(**overrides: Any) -> tuple[Any, list[str], list[str]]:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "cmd, expected_result",
-    [("`delay 0ms`", "HANDLED"), ("`delay 1s`", "HANDLED"), ("`delay 500ms`", "HANDLED")],
+    "cmd, expected_result", [("`delay 0ms`", "HANDLED"), ("`delay 1s`", "HANDLED"), ("`delay 500ms`", "HANDLED")]
 )
-async def test_dispatch_one_delay(
-    monkeypatch: pytest.MonkeyPatch, cmd: str, expected_result: str
-) -> None:
+async def test_dispatch_one_delay(monkeypatch: pytest.MonkeyPatch, cmd: str, expected_result: str) -> None:
     """Delay commands return HANDLED."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     sleep_args: list[float] = []
     real_sleep = asyncio.sleep
@@ -1006,15 +949,13 @@ async def test_dispatch_one_delay(
 @pytest.mark.asyncio
 async def test_dispatch_one_delay_calls_progress(monkeypatch: pytest.MonkeyPatch) -> None:
     """Delay command calls on_progress and on_progress_clear."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     real_sleep = asyncio.sleep
     monkeypatch.setattr(asyncio, "sleep", lambda d: real_sleep(0))
     progress_calls: list[tuple[float, float]] = []
     clear_calls: list[int] = []
     hooks, _, _ = dispatch_hooks(
-        on_progress=lambda s, d: progress_calls.append((s, d)),
-        on_progress_clear=lambda: clear_calls.append(1),
+        on_progress=lambda s, d: progress_calls.append((s, d)), on_progress_clear=lambda: clear_calls.append(1)
     )
     result = await dispatch_one("`delay 2s`", 0, 0, frozenset(), hooks)
     assert result is StepResult.HANDLED
@@ -1026,13 +967,10 @@ async def test_dispatch_one_delay_calls_progress(monkeypatch: pytest.MonkeyPatch
 @pytest.mark.asyncio
 async def test_dispatch_one_when_pass() -> None:
     """When condition that passes returns HANDLED."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     hooks, sent, _ = dispatch_hooks(
         ctx=types.SimpleNamespace(
-            gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}},
-            captures={},
-            autoreply_engine=None,
+            gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={}, autoreply_engine=None
         )
     )
     result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
@@ -1044,13 +982,10 @@ async def test_dispatch_one_when_pass() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_when_fail() -> None:
     """When condition that fails returns ABORT."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     hooks, sent, _ = dispatch_hooks(
         ctx=types.SimpleNamespace(
-            gmcp_data={"Char.Vitals": {"hp": "20", "maxhp": "100"}},
-            captures={},
-            autoreply_engine=None,
+            gmcp_data={"Char.Vitals": {"hp": "20", "maxhp": "100"}}, captures={}, autoreply_engine=None
         )
     )
     result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
@@ -1062,7 +997,6 @@ async def test_dispatch_one_when_fail() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_plain_send_first_skips_wait() -> None:
     """First plain send (sent_count=0) does not call wait_fn."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     wait_calls: list[int] = []
 
@@ -1081,7 +1015,6 @@ async def test_dispatch_one_plain_send_first_skips_wait() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_plain_send_subsequent_waits() -> None:
     """Subsequent plain sends (sent_count>0) call wait_fn."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     wait_calls: list[int] = []
 
@@ -1099,7 +1032,6 @@ async def test_dispatch_one_plain_send_subsequent_waits() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_immediate_skips_wait() -> None:
     """Commands in the immediate set skip wait_fn even when sent_count>0."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     wait_calls: list[int] = []
 
@@ -1117,8 +1049,6 @@ async def test_dispatch_one_immediate_skips_wait() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_until_timeout_aborts() -> None:
     """Until command that times out returns ABORT."""
-    from telix.autoreply import SearchBuffer
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     buf = SearchBuffer(max_lines=100)
     hooks, sent, _ = dispatch_hooks(search_buffer=buf)
@@ -1131,8 +1061,6 @@ async def test_dispatch_one_until_timeout_aborts() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_until_matches() -> None:
     """Until command returns HANDLED when pattern appears."""
-    from telix.autoreply import SearchBuffer
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     buf = SearchBuffer(max_lines=100)
     hooks, sent, _ = dispatch_hooks(search_buffer=buf)
@@ -1151,8 +1079,6 @@ async def test_dispatch_one_until_matches() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_untils_case_sensitive_no_match() -> None:
     """Untils (case-sensitive) times out when casing doesn't match."""
-    from telix.autoreply import SearchBuffer
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     buf = SearchBuffer(max_lines=100)
     hooks, sent, _ = dispatch_hooks(search_buffer=buf)
@@ -1170,7 +1096,6 @@ async def test_dispatch_one_untils_case_sensitive_no_match() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_one_mask_send() -> None:
     """When mask_send=True, status shows (masked) instead of command."""
-    from telix.client_repl_commands import StepResult, dispatch_one
 
     status_log: list[str] = []
     hooks, sent, _ = dispatch_hooks(on_status=status_log.append)
@@ -1183,7 +1108,6 @@ async def test_dispatch_one_mask_send() -> None:
 def test_render_command_queue_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Queue wider than terminal is truncated with ellipsis."""
     pytest.importorskip("blessed")
-    from telix.client_repl import CommandQueue, get_term, render_command_queue
 
     stdout, transport = mock_stdout()
 
@@ -1207,9 +1131,6 @@ def test_render_command_queue_truncation(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_render_command_queue_highlight_active() -> None:
     """Active run uses subdued foreground, pending runs use dim grey."""
     pytest.importorskip("blessed")
-    from telix.client_repl import CommandQueue, get_term, render_command_queue
-    from telix.client_repl_commands import active_cmd_fg, pending_cmd_rgb
-
     stdout, transport = mock_stdout()
 
     blessed_term = get_term()
@@ -1252,7 +1173,6 @@ class FakeEngine:
 
 
 class TestActivityHint:
-
     def test_none_engine(self):
         assert activity_hint(None) == ""
 
@@ -1276,8 +1196,6 @@ class TestActivityHint:
 
 
 def test_modem_dot_idle_before_trigger():
-    from telix.client_repl_render import idle_rgb
-
     dot = ActivityDot()
     assert dot.intensity() == 0.0
     assert not dot.is_animating()
@@ -1285,8 +1203,6 @@ def test_modem_dot_idle_before_trigger():
 
 
 def test_modem_dot_peak_after_trigger(monkeypatch):
-    import time as time
-
     now = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
 
@@ -1301,10 +1217,6 @@ def test_modem_dot_peak_after_trigger(monkeypatch):
 
 
 def test_modem_dot_idle_after_duration(monkeypatch):
-    import time as time
-
-    from telix.client_repl_render import idle_rgb
-
     now = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
 
@@ -1317,15 +1229,11 @@ def test_modem_dot_idle_after_duration(monkeypatch):
 
 
 def test_modem_dot_yellow_peak():
-    from telix.client_repl_render import idle_rgb
-
     dot = ActivityDot(peak_rgb=peak_yellow())
     assert dot.color() == idle_rgb()
 
 
 def test_modem_dot_retrigger_during_glowdown(monkeypatch):
-    import time as time
-
     now = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
 
@@ -1341,8 +1249,6 @@ def test_modem_dot_retrigger_during_glowdown(monkeypatch):
 
 
 def test_modem_dot_autoreply_bg_uses_alt_idle():
-    from telix.client_repl_render import idle_ar_rgb
-
     dot = ActivityDot()
     assert dot.color(autoreply_bg=True) == idle_ar_rgb()
 
@@ -1366,12 +1272,7 @@ def testlerp_rgb_midpoint():
 class CommandTrackingContext(DynamicRoomContext):
     """Context that changes room based on commands written, not read count."""
 
-    def __init__(
-        self,
-        room_num: str,
-        adj: dict[str, dict[str, str]],
-        blocked_directions: set[tuple[str, str]],
-    ) -> None:
+    def __init__(self, room_num: str, adj: dict[str, dict[str, str]], blocked_directions: set[tuple[str, str]]) -> None:
         super().__init__(room_num, room_sequence=None)
         self.adj = adj
         self.blocked = blocked_directions
@@ -1391,12 +1292,7 @@ class CommandTrackingContext(DynamicRoomContext):
 class TrackingWalkWriter(WalkWriter):
     """Walk writer that updates room based on commands sent."""
 
-    def __init__(
-        self,
-        room_num: str,
-        adj: dict[str, dict[str, str]],
-        blocked_directions: set[tuple[str, str]],
-    ) -> None:
+    def __init__(self, room_num: str, adj: dict[str, dict[str, str]], blocked_directions: set[tuple[str, str]]) -> None:
         self.sent: list[str] = []
         self.echo_log: list[str] = []
         self.ctx = CommandTrackingContext(room_num, adj, blocked_directions)
@@ -1418,13 +1314,8 @@ class TrackingWalkWriter(WalkWriter):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_blocked_exit_tries_other_direction(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_blocked_exit_tries_other_direction(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """When one exit is blocked, randomwalk marks it and uses the other."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "room2", "south": "room3"},
@@ -1442,13 +1333,8 @@ async def test_randomwalk_blocked_exit_tries_other_direction(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_autodiscover_skips_persistently_blocked_exits(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_autodiscover_skips_persistently_blocked_exits(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Pre-seeded blocked_exits are never attempted by autodiscover."""
-    import logging
-
-    from telix.client_repl import autodiscover
 
     adj: dict[str, dict[str, str]] = {"room1": {"east": "room2", "west": "room3"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -1459,7 +1345,6 @@ async def test_autodiscover_skips_persistently_blocked_exits(
         return [("room1", "east", "room2"), ("room1", "west", "room3")]
 
     writer.ctx.room_graph.find_branches = fake_find_branches
-
 
     def track_send(direction: str) -> None:
         explored_dirs.append(direction)
@@ -1476,13 +1361,8 @@ async def test_autodiscover_skips_persistently_blocked_exits(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_resume_randomwalk_from_same_room(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_resume_randomwalk_from_same_room(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Resume carries over visited set from the previous randomwalk."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}, "room2": {"south": "room1"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -1505,9 +1385,6 @@ async def test_resume_randomwalk_from_same_room(
 @pytest.mark.asyncio
 async def test_resume_not_used_on_room_change(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Resume state is NOT used when the room changed since last walk."""
-    import logging
-
-    from telix.client_repl import handle_travel_commands
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -1526,8 +1403,6 @@ async def test_resume_not_used_on_room_change(monkeypatch: pytest.MonkeyPatch, f
 
 
 def test_travel_re_matches_resume() -> None:
-    from telix.client_repl import TRAVEL_RE
-
     assert TRAVEL_RE.match("`resume`") is not None
     assert TRAVEL_RE.match("`RESUME`") is not None
 
@@ -1536,9 +1411,6 @@ def test_travel_re_matches_resume() -> None:
 @pytest.mark.asyncio
 async def test_randomwalk_bounce_detection(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Walker detects 2-room bounce and blocks the bouncing direction."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     # Need enough rooms that reachable.issubset(visited) doesn't
     # trigger before the bounce is detected.  room3/room4 are
@@ -1562,13 +1434,8 @@ async def test_randomwalk_bounce_detection(monkeypatch: pytest.MonkeyPatch, fast
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_bounce_blocks_reverse(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_bounce_blocks_reverse(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """After bounce-blocking dead-end south, also block the reverse (north into dead-end)."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     # dead_end has only south → junction; junction has north → dead_end and south → room3.
     # The walker should not get stuck re-entering dead_end after blocking its south exit.
@@ -1589,13 +1456,8 @@ async def test_randomwalk_bounce_blocks_reverse(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_corridor_no_false_bounce(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_corridor_no_false_bounce(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Corridor with exits on both ends must not trigger bounce-blocking."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "hub": {"southeast": "corridor_a", "east": "market"},
@@ -1615,13 +1477,8 @@ async def test_randomwalk_corridor_no_false_bounce(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_blocked_exit_not_global(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_blocked_exit_not_global(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """A blocked exit (A->east->B) must not prevent reaching B from C->north->B."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"east": "room2", "south": "room3"},
@@ -1640,13 +1497,8 @@ async def test_randomwalk_blocked_exit_not_global(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_noncardinal_deprioritized(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_noncardinal_deprioritized(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """Non-cardinal exits (up, enter, etc.) are tried after cardinal ones."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "room2", "up": "room3"},
@@ -1657,9 +1509,7 @@ async def test_randomwalk_noncardinal_deprioritized(
 
     await randomwalk(writer.ctx, logging.getLogger("test"), limit=3)
 
-    sent_dirs = [
-        s.decode("utf-8").strip() if isinstance(s, bytes) else s.strip() for s in writer.sent
-    ]
+    sent_dirs = [s.decode("utf-8").strip() if isinstance(s, bytes) else s.strip() for s in writer.sent]
     first_move = sent_dirs[0]
     assert first_move == "north"
 
@@ -1668,9 +1518,6 @@ async def test_randomwalk_noncardinal_deprioritized(
 @pytest.mark.asyncio
 async def test_randomwalk_visit_level(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """With visit_level=2 the walk continues until every room is visited twice."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "room2"},
@@ -1685,9 +1532,7 @@ async def test_randomwalk_visit_level(monkeypatch: pytest.MonkeyPatch, fast_slee
     assert len(visited_msgs) == 1
     assert "2x" in visited_msgs[0]
 
-    sent_dirs = [
-        s.decode("utf-8").strip() if isinstance(s, bytes) else s.strip() for s in writer.sent
-    ]
+    sent_dirs = [s.decode("utf-8").strip() if isinstance(s, bytes) else s.strip() for s in writer.sent]
     assert len(sent_dirs) >= 4
 
 
@@ -1695,9 +1540,6 @@ async def test_randomwalk_visit_level(monkeypatch: pytest.MonkeyPatch, fast_slee
 @pytest.mark.asyncio
 async def test_randomwalk_visit_level_1(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """With visit_level=1 the walk stops after visiting each room once."""
-    import logging
-
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "room2"},
@@ -1712,15 +1554,11 @@ async def test_randomwalk_visit_level_1(monkeypatch: pytest.MonkeyPatch, fast_sl
     assert len(visited_msgs) == 1
     assert "1x" in visited_msgs[0]
 
-    sent_dirs = [
-        s.decode("utf-8").strip() if isinstance(s, bytes) else s.strip() for s in writer.sent
-    ]
+    sent_dirs = [s.decode("utf-8").strip() if isinstance(s, bytes) else s.strip() for s in writer.sent]
     assert len(sent_dirs) >= 2
 
 
 def test_macro_last_used_round_trip(tmp_path: Any) -> None:
-    from telix.macros import Macro, load_macros, save_macros
-
     path = str(tmp_path / "macros.json")
     macros = [
         Macro(key="KEY_F1", text="test", last_used="2025-06-01T12:00:00+00:00"),
@@ -1735,10 +1573,6 @@ def test_macro_last_used_round_trip(tmp_path: Any) -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
 async def test_randomwalk_skips_blocked_rooms(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
-    import logging
-
-    from telix.client_repl import randomwalk
-
     adj: dict[str, dict[str, str]] = {
         "room1": {"north": "room2", "south": "room3"},
         "room2": {"south": "room1"},
@@ -1755,10 +1589,6 @@ async def test_randomwalk_skips_blocked_rooms(monkeypatch: pytest.MonkeyPatch, f
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
 async def test_home_travel_command(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
-    import logging
-
-    from telix.client_repl import handle_travel_commands
-
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}, "room2": {"south": "room1"}}
     writer = WalkWriter(room_num="room1", adj=adj)
     writer.ctx.room_graph.room_area = lambda num: "town"
@@ -1782,8 +1612,6 @@ async def test_home_travel_command(monkeypatch: pytest.MonkeyPatch, fast_sleep) 
 
 
 def test_travel_re_matches_home() -> None:
-    from telix.client_repl import TRAVEL_RE
-
     assert TRAVEL_RE.match("`home`") is not None
     assert TRAVEL_RE.match("`HOME`") is not None
 
@@ -1803,8 +1631,6 @@ class MockHighlightEngine:
 
 class TestLineHoldBuffer:
     def make_buf(self, engine: Any = None):  # -> LineHoldBuffer
-        from telix.client_repl import LineHoldBuffer
-
         return LineHoldBuffer(lambda: engine)
 
     def test_complete_line_passes_through(self) -> None:
@@ -1907,7 +1733,6 @@ class TestLineHoldBuffer:
 
 def test_typescript_file_default_none() -> None:
     """SessionContext.typescript_file defaults to None."""
-    from telix.session_context import SessionContext
 
     ctx = SessionContext()
     assert ctx.typescript_file is None
@@ -1915,13 +1740,8 @@ def test_typescript_file_default_none() -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_send_chained_typescript_no_echo(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_send_chained_typescript_no_echo(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """When echo is off, send_chained records commands to typescript."""
-    import logging
-
-    from telix.client_repl import send_chained
 
     real_sleep = asyncio.sleep
 
@@ -1952,13 +1772,8 @@ async def test_send_chained_typescript_no_echo(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_send_chained_typescript_echo_on(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_send_chained_typescript_echo_on(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """When echo is on, send_chained does not record to typescript."""
-    import logging
-
-    from telix.client_repl import send_chained
 
     real_sleep = asyncio.sleep
 
@@ -1989,9 +1804,6 @@ def test_echo_autoreply_writes_typescript(tmp_path: Any) -> None:
     """echo_autoreply writes the command to typescript_file."""
     pytest.importorskip("blessed")
 
-    from telix.client_repl import ReplSession
-    from telix.session_context import SessionContext
-
     bt = types.SimpleNamespace(restore="", save="", cyan="", normal="", move_yx=lambda row, col: "")
     scroll = types.SimpleNamespace(input_row=0)
     stdout_writer, _ = mock_stdout()
@@ -2007,9 +1819,7 @@ def test_echo_autoreply_writes_typescript(tmp_path: Any) -> None:
     repl.stdout = stdout_writer
     repl.ctx = ctx
     repl.replay_buf = []
-    repl.editor = types.SimpleNamespace(
-        display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[]
-    )
+    repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
     repl.telnet_writer = types.SimpleNamespace(will_echo=False)
 
     repl.echo_autoreply("look")
@@ -2022,9 +1832,6 @@ def test_echo_autoreply_writes_typescript(tmp_path: Any) -> None:
 def test_echo_autoreply_no_typescript() -> None:
     """echo_autoreply with no typescript_file does not crash."""
     pytest.importorskip("blessed")
-
-    from telix.client_repl import ReplSession
-    from telix.session_context import SessionContext
 
     bt = types.SimpleNamespace(restore="", save="", cyan="", normal="", move_yx=lambda row, col: "")
     scroll = types.SimpleNamespace(input_row=0)
@@ -2039,9 +1846,7 @@ def test_echo_autoreply_no_typescript() -> None:
     repl.stdout = stdout_writer
     repl.ctx = ctx
     repl.replay_buf = []
-    repl.editor = types.SimpleNamespace(
-        display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[]
-    )
+    repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
     repl.telnet_writer = types.SimpleNamespace(will_echo=False)
 
     repl.echo_autoreply("look")
@@ -2050,9 +1855,6 @@ def test_echo_autoreply_no_typescript() -> None:
 def test_echo_autoreply_masks_when_will_echo(tmp_path: Any) -> None:
     """echo_autoreply masks display and typescript when will_echo is True."""
     pytest.importorskip("blessed")
-
-    from telix.client_repl import ReplSession
-    from telix.session_context import SessionContext
 
     bt = types.SimpleNamespace(restore="", save="", cyan="", normal="", move_yx=lambda row, col: "")
     scroll = types.SimpleNamespace(input_row=0)
@@ -2069,9 +1871,7 @@ def test_echo_autoreply_masks_when_will_echo(tmp_path: Any) -> None:
     repl.stdout = stdout_writer
     repl.ctx = ctx
     repl.replay_buf = []
-    repl.editor = types.SimpleNamespace(
-        display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[]
-    )
+    repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
     repl.telnet_writer = types.SimpleNamespace(will_echo=True)
 
     repl.echo_autoreply("secret123")
@@ -2079,8 +1879,6 @@ def test_echo_autoreply_masks_when_will_echo(tmp_path: Any) -> None:
 
     ts_content = ts_path.read_text(encoding="utf-8", newline="")
     assert ts_content == "\r\n"
-
-    from telix.client_repl_render import SEXTANT, SCRAMBLE_LEN
 
     display_output = bytes(stdout_buf.data).decode()
     assert "secret123" not in display_output
@@ -2095,8 +1893,6 @@ def test_echo_autoreply_masks_when_will_echo(tmp_path: Any) -> None:
 def test_typescript_will_echo_writes_bare_crlf(tmp_path: Any) -> None:
     """When will_echo is True, read_input writes bare \\r\\n to typescript."""
     pytest.importorskip("blessed")
-
-    from telix.session_context import SessionContext
 
     ctx = SessionContext()
     ts_path = tmp_path / "typescript"
@@ -2120,9 +1916,6 @@ def test_typescript_will_echo_writes_bare_crlf(tmp_path: Any) -> None:
 @pytest.mark.asyncio
 async def test_handle_travel_noreply_parsed(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """``noreply`` keyword is parsed and passed to autodiscover."""
-    import logging
-
-    from telix.client_repl import handle_travel_commands
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -2143,14 +1936,8 @@ async def test_handle_travel_noreply_parsed(monkeypatch: pytest.MonkeyPatch, fas
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_randomwalk_noreply_disables_engine(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_randomwalk_noreply_disables_engine(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """``noreply=True`` disables autoreply engine during randomwalk and restores after."""
-    import logging
-
-    from telix.autoreply import AutoreplyEngine
-    from telix.client_repl import randomwalk
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -2166,14 +1953,8 @@ async def test_randomwalk_noreply_disables_engine(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
-async def test_autodiscover_noreply_disables_engine(
-    monkeypatch: pytest.MonkeyPatch, fast_sleep
-) -> None:
+async def test_autodiscover_noreply_disables_engine(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """``noreply=True`` disables autoreply engine during autodiscover and restores after."""
-    import logging
-
-    from telix.autoreply import AutoreplyEngine
-    from telix.client_repl import autodiscover
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}, "room2": {"south": "room1"}}
     writer = WalkWriter(room_num="room1", adj=adj)
@@ -2196,9 +1977,6 @@ async def test_autodiscover_noreply_disables_engine(
 @pytest.mark.asyncio
 async def test_resume_inherits_noreply(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     """``resume`` picks up ``noreply`` from saved walk state."""
-    import logging
-
-    from telix.client_repl import handle_travel_commands
 
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}}
     writer = WalkWriter(room_num="room1", adj=adj)

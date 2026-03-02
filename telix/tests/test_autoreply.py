@@ -19,6 +19,7 @@ from telix.autoreply import (
     ExclusiveState,
     AutoreplyEngine,
     compare,
+    parse_entries,
     check_condition,
     load_autoreplies,
     save_autoreplies,
@@ -173,16 +174,7 @@ def test_load_autoreplies_invalid_regex(tmp_path):
 def test_load_autoreplies_empty_pattern_skipped(tmp_path):
     fp = tmp_path / "empty.json"
     fp.write_text(
-        json.dumps(
-            {
-                SK: {
-                    "autoreplies": [
-                        {"pattern": "", "reply": "x"},
-                        {"pattern": "valid", "reply": "y"},
-                    ]
-                }
-            }
-        )
+        json.dumps({SK: {"autoreplies": [{"pattern": "", "reply": "x"}, {"pattern": "valid", "reply": "y"}]}})
     )
     rules = load_autoreplies(str(fp), SK)
     assert len(rules) == 1
@@ -204,9 +196,7 @@ def test_save_autoreplies_roundtrip(tmp_path):
     fp = tmp_path / "autoreplies.json"
     original = [
         AutoreplyRule(pattern=re.compile(r"\d+ gold"), reply="get gold;"),
-        AutoreplyRule(
-            pattern=re.compile(r"(\w+) attacks", re.MULTILINE | re.DOTALL), reply="kill \\1;"
-        ),
+        AutoreplyRule(pattern=re.compile(r"(\w+) attacks", re.MULTILINE | re.DOTALL), reply="kill \\1;"),
     ]
     save_autoreplies(str(fp), original, SK)
     loaded = load_autoreplies(str(fp), SK)
@@ -292,12 +282,7 @@ def test_extract_group_source_nested():
 
 @pytest.mark.parametrize(
     "captured, expected",
-    [
-        ("Shield", "shield"),
-        ("SHIELD", "shield"),
-        ("amplifier", "amplifier"),
-        ("ENHANCER", "enhancer"),
-    ],
+    [("Shield", "shield"), ("SHIELD", "shield"), ("amplifier", "amplifier"), ("ENHANCER", "enhancer")],
 )
 def test_resolve_group_value_case_insensitive_alternation(captured, expected):
     pat_src = r"^A level \d+.*(amplifier|enhancer|shield)"
@@ -682,26 +667,18 @@ async def test_all_rules_exclusive_only_first_fires():
     "entries,checks",
     [
         (
-            [
-                {"pattern": "died", "reply": "look;", "always": True},
-                {"pattern": "hello", "reply": "world;"},
-            ],
+            [{"pattern": "died", "reply": "look;", "always": True}, {"pattern": "hello", "reply": "world;"}],
             [(0, "always", True), (1, "always", False)],
         ),
         (
             [{"pattern": "a", "reply": "b;", "enabled": False}, {"pattern": "c", "reply": "d;"}],
             [(0, "enabled", False), (1, "enabled", True)],
         ),
-        (
-            [{"pattern": "bear", "reply": "kill bear;", "when": {"HP%": ">50"}}],
-            [(0, "when", {"HP%": ">50"})],
-        ),
+        ([{"pattern": "bear", "reply": "kill bear;", "when": {"HP%": ">50"}}], [(0, "when", {"HP%": ">50"})]),
         ([{"pattern": "bear", "reply": "kill bear;"}], [(0, "when", {})]),
     ],
 )
 def test_parse_entries_field(entries, checks):
-    from telix.autoreply import parse_entries
-
     rules = parse_entries(entries)
     for idx, field, expected in checks:
         assert getattr(rules[idx], field) == expected
@@ -714,9 +691,7 @@ def test_parse_entries_field(entries, checks):
         ({"enabled": False}, "enabled", False, True, "enabled", False, True),
     ],
 )
-def test_save_autoreplies_field_roundtrip(
-    tmp_path, rule_kwargs, field, exp0, exp1, json_key, json_in_0, json_absent_1
-):
+def test_save_autoreplies_field_roundtrip(tmp_path, rule_kwargs, field, exp0, exp1, json_key, json_in_0, json_absent_1):
     fp = tmp_path / "autoreplies.json"
     original = [
         AutoreplyRule(pattern=re.compile(r"(\w+) attacks"), reply=r"kill \1;", **rule_kwargs),
@@ -806,10 +781,7 @@ async def test_prompt_cycle_dedup_blocks_same_rule():
     """Once on_prompt activates cycle tracking, a rule fires at most once per cycle."""
     writer, written = mock_writer()
     rules = [
-        AutoreplyRule(
-            pattern=re.compile(r"(^Corpse of|^\w+ times 'Corpse)", re.MULTILINE),
-            reply="look in corpse;",
-        )
+        AutoreplyRule(pattern=re.compile(r"(^Corpse of|^\w+ times 'Corpse)", re.MULTILINE), reply="look in corpse;")
     ]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.on_prompt()
@@ -960,9 +932,7 @@ async def test_search_buffer_wait_for_pattern_case_sensitive():
 @pytest.mark.asyncio
 async def test_on_prompt_clears_buffer_prevents_stale_rematch():
     writer, written = mock_writer()
-    rules = [
-        AutoreplyRule(pattern=re.compile(r"^Corpse of", re.MULTILINE), reply="look in corpse;")
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"^Corpse of", re.MULTILINE), reply="look in corpse;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.on_prompt()
 
@@ -981,10 +951,7 @@ async def test_on_prompt_clears_buffer_prevents_stale_rematch():
 async def test_on_prompt_clears_buffer_dotall_no_cross_record():
     writer, written = mock_writer()
     rules = [
-        AutoreplyRule(
-            pattern=re.compile(r"Corpse contains:.*?(\d+ solaris)", re.DOTALL),
-            reply=r"get all solaris;",
-        )
+        AutoreplyRule(pattern=re.compile(r"Corpse contains:.*?(\d+ solaris)", re.DOTALL), reply=r"get all solaris;")
     ]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.on_prompt()
@@ -1076,9 +1043,7 @@ def mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
         randomwalk_active=False,
         randomwalk_auto_evaluate=False,
         randomwalk_auto_survey=False,
-        gmcp_data={
-            "Char.Vitals": {"hp": str(hp), "maxhp": str(maxhp), "mp": str(mp), "maxmp": str(maxmp)}
-        },
+        gmcp_data={"Char.Vitals": {"hp": str(hp), "maxhp": str(maxhp), "mp": str(mp), "maxmp": str(maxmp)}},
     )
     return ctx, written
 
@@ -1160,9 +1125,7 @@ def test_check_condition_captures(when, captures, ok):
 
 
 def test_check_condition_captures_gmcp_priority():
-    ctx = types.SimpleNamespace(
-        gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={"HP": 20}
-    )
+    ctx = types.SimpleNamespace(gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={"HP": 20})
     ok, desc = check_condition({"HP": ">50"}, ctx)
     assert ok is True
 
@@ -1185,11 +1148,7 @@ def test_check_condition_gmcp_arbitrary_key(when, gmcp_data, ok):
 
 def test_save_autoreplies_when_roundtrip(tmp_path):
     fp = tmp_path / "ar.json"
-    rules = [
-        AutoreplyRule(
-            pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50", "MP%": ">30"}
-        )
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50", "MP%": ">30"})]
     save_autoreplies(str(fp), rules, "test:23")
     loaded = load_autoreplies(str(fp), "test:23")
     assert loaded[0].when == {"HP%": ">50", "MP%": ">30"}
@@ -1205,9 +1164,7 @@ def test_save_autoreplies_when_empty_not_saved(tmp_path):
 
 def test_save_autoreplies_immediate_roundtrip(tmp_path):
     fp = tmp_path / "ar.json"
-    rules = [
-        AutoreplyRule(pattern=re.compile(r"ship arrived"), reply="enter ship;", immediate=True)
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"ship arrived"), reply="enter ship;", immediate=True)]
     save_autoreplies(str(fp), rules, "test:23")
     loaded = load_autoreplies(str(fp), "test:23")
     assert loaded[0].immediate is True
@@ -1223,13 +1180,7 @@ def test_save_autoreplies_immediate_false_not_saved(tmp_path):
 
 def test_save_autoreplies_case_sensitive_roundtrip(tmp_path):
     fp = tmp_path / "ar.json"
-    rules = [
-        AutoreplyRule(
-            pattern=re.compile(r"DEAD", re.MULTILINE | re.DOTALL),
-            reply="loot;",
-            case_sensitive=True,
-        )
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"DEAD", re.MULTILINE | re.DOTALL), reply="loot;", case_sensitive=True)]
     save_autoreplies(str(fp), rules, "test:23")
     loaded = load_autoreplies(str(fp), "test:23")
     assert loaded[0].case_sensitive is True
@@ -1246,9 +1197,7 @@ def test_save_autoreplies_case_sensitive_false_not_saved(tmp_path):
 
 def test_load_autoreplies_case_insensitive_by_default(tmp_path):
     fp = tmp_path / "ar.json"
-    fp.write_text(
-        json.dumps({"test:23": {"autoreplies": [{"pattern": "hello", "reply": "world;"}]}})
-    )
+    fp.write_text(json.dumps({"test:23": {"autoreplies": [{"pattern": "hello", "reply": "world;"}]}}))
     loaded = load_autoreplies(str(fp), "test:23")
     assert loaded[0].case_sensitive is False
     assert loaded[0].pattern.flags & re.IGNORECASE
@@ -1257,13 +1206,7 @@ def test_load_autoreplies_case_insensitive_by_default(tmp_path):
 def test_load_autoreplies_case_sensitive_flag(tmp_path):
     fp = tmp_path / "ar.json"
     fp.write_text(
-        json.dumps(
-            {
-                "test:23": {
-                    "autoreplies": [{"pattern": "DEAD", "reply": "loot;", "case_sensitive": True}]
-                }
-            }
-        )
+        json.dumps({"test:23": {"autoreplies": [{"pattern": "DEAD", "reply": "loot;", "case_sensitive": True}]}})
     )
     loaded = load_autoreplies(str(fp), "test:23")
     assert loaded[0].case_sensitive is True
@@ -1418,9 +1361,7 @@ def test_exclusive_state_clear():
 def test_autoreply_last_fired_round_trip(tmp_path):
     path = str(tmp_path / "autoreplies.json")
     rules = [
-        AutoreplyRule(
-            pattern=re.compile("hello"), reply="world", last_fired="2025-06-01T12:00:00+00:00"
-        ),
+        AutoreplyRule(pattern=re.compile("hello"), reply="world", last_fired="2025-06-01T12:00:00+00:00"),
         AutoreplyRule(pattern=re.compile("foo"), reply="bar"),
     ]
     save_autoreplies(path, rules, "localhost:23")
@@ -1500,9 +1441,7 @@ async def test_inline_when_raw_mp_passes():
 @pytest.mark.asyncio
 async def test_inline_until_waits_for_match():
     ctx, written = mock_writer()
-    rules = [
-        AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 died\\.`;glance;")
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 died\\.`;glance;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.05)
@@ -1517,9 +1456,7 @@ async def test_inline_until_waits_for_match():
 @pytest.mark.asyncio
 async def test_inline_until_matches_partial_line():
     ctx, written = mock_writer()
-    rules = [
-        AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 Password:`;secret;")
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 Password:`;secret;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.05)
@@ -1534,9 +1471,7 @@ async def test_inline_until_matches_partial_line():
 @pytest.mark.asyncio
 async def test_inline_until_timeout_aborts():
     ctx, written = mock_writer()
-    rules = [
-        AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 0.02 died\\.`;glance;")
-    ]
+    rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 0.02 died\\.`;glance;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.05)

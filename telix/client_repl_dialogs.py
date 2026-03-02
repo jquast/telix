@@ -2,13 +2,32 @@
 
 # std imports
 import os
+import re
 import sys
+import json
 import asyncio
 import logging
+import tempfile
+import subprocess
 from typing import TYPE_CHECKING, Any
+
+from .help import get_help
+from .paths import CONFIG_DIR as config_dir
 
 # local
 from .paths import safe_terminal_size
+from .rooms import load_prefs, save_prefs, read_fasttravel
+from .rooms import rooms_path as rooms_path_fn
+from .rooms import fasttravel_path as fasttravel_path_fn
+from .rooms import current_room_path as current_room_path_fn
+from .macros import load_macros
+from .autoreply import load_autoreplies
+from .repl_theme import invalidate_cache as invalidate_theme_cache
+from .highlighter import load_highlights
+from .progressbars import load_progressbars
+from .gmcp_snapshot import save_gmcp_snapshot
+from .client_repl_render import make_styles
+from .client_repl_travel import fast_travel
 
 if TYPE_CHECKING:
     from .session_context import SessionContext
@@ -32,9 +51,7 @@ def get_logfile_path() -> str:
     return ""
 
 
-def confirm_dialog(
-    title: str, body: str, warning: str = "", replay_buf: Any | None = None
-) -> bool:
+def confirm_dialog(title: str, body: str, warning: str = "", replay_buf: Any | None = None) -> bool:
     """
     Show a Textual confirmation dialog in a subprocess.
 
@@ -48,11 +65,12 @@ def confirm_dialog(
     :param replay_buf: Optional replay buffer for screen repaint.
     :returns: Whether the user confirmed.
     """
-    import json as json
-    import tempfile
-    import subprocess
-
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="confirm-")
     os.close(fd)
@@ -61,7 +79,7 @@ def confirm_dialog(
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import confirm_dialog_main; "
+        "import sys; from telix.client_tui_dialogs import confirm_dialog_main; "
         "confirm_dialog_main(sys.argv[1], sys.argv[2],"
         " warning=sys.argv[3], result_file=sys.argv[4],"
         " logfile=sys.argv[5])",
@@ -131,11 +149,12 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
     :returns: Command string (e.g. ``"`randomwalk 2 autosearch`"``) on
         confirm, or ``None`` on cancel.
     """
-    import json as json
-    import tempfile
-    import subprocess
-
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     default_visit_level = 2
     default_auto_search = False
@@ -143,8 +162,6 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
     default_auto_survey = False
     default_autoreplies = True
     if session_key:
-        from .rooms import load_prefs
-
         prefs = load_prefs(session_key)
         default_visit_level = int(prefs.get("randomwalk_visit_level", 2))
         default_auto_search = bool(prefs.get("randomwalk_auto_search", False))
@@ -159,7 +176,7 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import randomwalk_dialog_main; "
+        "import sys; from telix.client_tui_dialogs import randomwalk_dialog_main; "
         "randomwalk_dialog_main(result_file=sys.argv[1],"
         " default_visit_level=sys.argv[2],"
         " default_auto_search=sys.argv[3],"
@@ -201,15 +218,10 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
         if not data.get("confirmed", False):
             return None
         if session_key:
-            from .rooms import load_prefs as load_prefs
-            from .rooms import save_prefs
-
             save_data = load_prefs(session_key)
             save_data["randomwalk_visit_level"] = int(data.get("visit_level", default_visit_level))
             save_data["randomwalk_auto_search"] = bool(data.get("auto_search", default_auto_search))
-            save_data["randomwalk_auto_evaluate"] = bool(
-                data.get("auto_evaluate", default_auto_evaluate)
-            )
+            save_data["randomwalk_auto_evaluate"] = bool(data.get("auto_evaluate", default_auto_evaluate))
             save_data["randomwalk_auto_survey"] = bool(data.get("auto_survey", default_auto_survey))
             save_data["randomwalk_autoreplies"] = bool(data.get("autoreplies", default_autoreplies))
             save_prefs(session_key, save_data)
@@ -235,11 +247,12 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
     :returns: Command string (e.g. ``"`autodiscover bfs`"``) on
         confirm, or ``None`` on cancel.
     """
-    import json as json
-    import tempfile
-    import subprocess
-
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     default_strategy = "bfs"
     default_auto_search = False
@@ -247,8 +260,6 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
     default_auto_survey = False
     default_autoreplies = True
     if session_key:
-        from .rooms import load_prefs
-
         prefs = load_prefs(session_key)
         saved = prefs.get("autodiscover_strategy", "bfs")
         if saved in ("bfs", "dfs"):
@@ -265,7 +276,7 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import autodiscover_dialog_main; "
+        "import sys; from telix.client_tui_dialogs import autodiscover_dialog_main; "
         "autodiscover_dialog_main(result_file=sys.argv[1],"
         " default_strategy=sys.argv[2],"
         " default_auto_search=sys.argv[3],"
@@ -307,23 +318,12 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
         if not data.get("confirmed", False):
             return None
         if session_key:
-            from .rooms import load_prefs as load_prefs
-            from .rooms import save_prefs
-
             save_data = load_prefs(session_key)
             save_data["autodiscover_strategy"] = str(data.get("strategy", default_strategy))
-            save_data["autodiscover_auto_search"] = bool(
-                data.get("auto_search", default_auto_search)
-            )
-            save_data["autodiscover_auto_evaluate"] = bool(
-                data.get("auto_evaluate", default_auto_evaluate)
-            )
-            save_data["autodiscover_auto_survey"] = bool(
-                data.get("auto_survey", default_auto_survey)
-            )
-            save_data["autodiscover_autoreplies"] = bool(
-                data.get("autoreplies", default_autoreplies)
-            )
+            save_data["autodiscover_auto_search"] = bool(data.get("auto_search", default_auto_search))
+            save_data["autodiscover_auto_evaluate"] = bool(data.get("auto_evaluate", default_auto_evaluate))
+            save_data["autodiscover_auto_survey"] = bool(data.get("auto_survey", default_auto_survey))
+            save_data["autodiscover_autoreplies"] = bool(data.get("autoreplies", default_autoreplies))
             save_prefs(session_key, save_data)
         return str(data.get("command", f"`autodiscover {default_strategy}`"))
     except (OSError, ValueError):
@@ -337,8 +337,6 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
 
 def strip_md(text: str) -> str:
     """Strip markdown bold/code markers from text."""
-    import re
-
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"`(.+?)`", r"\1", text)
     return text.strip()
@@ -351,8 +349,6 @@ def render_help_md(has_gmcp: bool = False) -> list[str]:
     :param has_gmcp: Whether GMCP room data is available.
     :rtype: list[str]
     """
-    from .help import get_help
-
     md = get_help("keybindings")
     lines: list[str] = []
     in_header_row = False
@@ -385,9 +381,7 @@ def render_help_md(has_gmcp: bool = False) -> list[str]:
     return lines
 
 
-def show_help(
-    macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp: bool = False
-) -> None:
+def show_help(macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp: bool = False) -> None:
     """
     Launch the keybindings help viewer as a Textual TUI subprocess.
 
@@ -395,15 +389,18 @@ def show_help(
     :param replay_buf: Optional replay buffer for screen repaint on return.
     :param has_gmcp: Unused (kept for API compatibility).
     """
-    import subprocess
-
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import show_help_main; "
+        "import sys; from telix.client_tui_editors import show_help_main; "
         "show_help_main(topic=sys.argv[1], logfile=sys.argv[2])",
         "keybindings",
         logfile,
@@ -439,7 +436,7 @@ def pause_on_subprocess_error(result: Any | None) -> None:
     """
     if result is None or result.returncode == 0:
         return
-    from .client_repl import get_term
+    from .client_repl import get_term  # noqa: PLC0415 - circular
 
     term = get_term()
     sys.stdout.write(term.move_yx(term.height - 1, 0))
@@ -451,9 +448,7 @@ def pause_on_subprocess_error(result: Any | None) -> None:
         pass
 
 
-def launch_unified_editor(
-    initial_tab: str, ctx: "SessionContext", replay_buf: Any | None = None
-) -> None:
+def launch_unified_editor(initial_tab: str, ctx: "SessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the unified tabbed TUI editor as a subprocess.
 
@@ -464,16 +459,12 @@ def launch_unified_editor(
     :param ctx: Session context with file path and definition attributes.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    import json as json
-    import tempfile
-    import subprocess
-
-    from .paths import CONFIG_DIR as config_dir
-    from .rooms import rooms_path as rooms_path_fn
-    from .rooms import fasttravel_path as fasttravel_path_fn
-    from .rooms import read_fasttravel
-    from .rooms import current_room_path as current_room_path_fn
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     session_key = ctx.session_key
     logfile = get_logfile_path()
@@ -490,8 +481,6 @@ def launch_unified_editor(
     # Flush GMCP snapshot so the bars editor can read it.
     gmcp_snapshot_file = ctx.gmcp_snapshot_file or ""
     if gmcp_snapshot_file and ctx.gmcp_data:
-        from .gmcp_snapshot import save_gmcp_snapshot
-
         save_gmcp_snapshot(gmcp_snapshot_file, session_key, ctx.gmcp_data)
         ctx.gmcp_dirty = False
 
@@ -538,7 +527,7 @@ def launch_unified_editor(
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import unified_editor_main; " "unified_editor_main()",
+        "import sys; from telix.client_tui_dialogs import unified_editor_main; unified_editor_main()",
         params_json,
     ]
 
@@ -546,7 +535,7 @@ def launch_unified_editor(
 
     global editor_active
     log.debug(
-        "unified_editor: pre-subprocess initial_tab=%s " "TERM=%s COLORTERM=%s terminal_size=%s",
+        "unified_editor: pre-subprocess initial_tab=%s TERM=%s COLORTERM=%s terminal_size=%s",
         initial_tab,
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),
@@ -582,9 +571,6 @@ def launch_unified_editor(
     reload_progressbars(ctx, progressbars_file, session_key, log)
 
     # Rebuild REPL color styles in case the theme was changed.
-    from .repl_theme import invalidate_cache as invalidate_theme_cache
-    from .client_repl_render import make_styles
-
     invalidate_theme_cache()
     make_styles()
 
@@ -596,8 +582,6 @@ def launch_unified_editor(
     # Handle fast travel.
     steps, noreply = read_fasttravel(fasttravel_file)
     if steps:
-        from .client_repl_travel import fast_travel
-
         log.debug("travel: scheduling %d steps (noreply=%s)", len(steps), noreply)
         task = asyncio.ensure_future(fast_travel(steps, ctx, log, noreply=noreply))
         ctx.travel_task = task
@@ -611,9 +595,7 @@ def launch_unified_editor(
         task.add_done_callback(on_done)
 
 
-def launch_tui_editor(
-    editor_type: str, ctx: "SessionContext", replay_buf: Any | None = None
-) -> None:
+def launch_tui_editor(editor_type: str, ctx: "SessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch a TUI editor for macros or autoreplies in a subprocess.
 
@@ -621,10 +603,12 @@ def launch_tui_editor(
     :param ctx: Session context with file path and definition attributes.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    import subprocess
-
-    from .paths import CONFIG_DIR as config_dir
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     session_key = ctx.session_key
 
@@ -632,15 +616,12 @@ def launch_tui_editor(
 
     if editor_type == "macros":
         path = ctx.macros_file or os.path.join(config_dir, "macros.json")
-        from .rooms import rooms_path as rooms_path_fn
-        from .rooms import current_room_path as current_room_path_fn
-
         rp = ctx.rooms_file or rooms_path_fn(session_key)
         crp = ctx.current_room_file or current_room_path_fn(session_key)
         cmd = [
             sys.executable,
             "-c",
-            "import sys; from telix.client_tui import edit_macros_main; "
+            "import sys; from telix.client_tui_editors import edit_macros_main; "
             "edit_macros_main(sys.argv[1], sys.argv[2],"
             " rooms_file=sys.argv[3], current_room_file=sys.argv[4],"
             " logfile=sys.argv[5])",
@@ -655,7 +636,7 @@ def launch_tui_editor(
         cmd = [
             sys.executable,
             "-c",
-            "import sys; from telix.client_tui import edit_highlights_main; "
+            "import sys; from telix.client_tui_editors import edit_highlights_main; "
             "edit_highlights_main(sys.argv[1], sys.argv[2], logfile=sys.argv[3])",
             path,
             session_key,
@@ -666,14 +647,12 @@ def launch_tui_editor(
         snap = ctx.gmcp_snapshot_file or ""
         # Flush GMCP snapshot immediately so the editor subprocess can read it.
         if snap and ctx.gmcp_data:
-            from .gmcp_snapshot import save_gmcp_snapshot
-
             save_gmcp_snapshot(snap, session_key, ctx.gmcp_data)
             ctx.gmcp_dirty = False
         cmd = [
             sys.executable,
             "-c",
-            "import sys; from telix.client_tui import edit_progressbars_main; "
+            "import sys; from telix.client_tui_editors import edit_progressbars_main; "
             "edit_progressbars_main(sys.argv[1], sys.argv[2],"
             " gmcp_snapshot_path=sys.argv[3], logfile=sys.argv[4])",
             path,
@@ -688,7 +667,7 @@ def launch_tui_editor(
         cmd = [
             sys.executable,
             "-c",
-            "import sys; from telix.client_tui import edit_autoreplies_main; "
+            "import sys; from telix.client_tui_editors import edit_autoreplies_main; "
             "edit_autoreplies_main(sys.argv[1], sys.argv[2],"
             " select_pattern=sys.argv[3], logfile=sys.argv[4])",
             path,
@@ -746,8 +725,6 @@ def reload_macros(ctx: "SessionContext", path: str, session_key: str, log: loggi
     """Reload macro definitions from disk and update dispatch."""
     if not os.path.exists(path):
         return
-    from .macros import load_macros
-
     try:
         new_defs = load_macros(path, session_key)
         ctx.macro_defs = new_defs
@@ -760,14 +737,10 @@ def reload_macros(ctx: "SessionContext", path: str, session_key: str, log: loggi
         log.warning("failed to reload macros: %s", exc)
 
 
-def reload_autoreplies(
-    ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
-) -> None:
+def reload_autoreplies(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload autoreply rules from disk after editing."""
     if not os.path.exists(path):
         return
-    from .autoreply import load_autoreplies
-
     try:
         ctx.autoreply_rules = load_autoreplies(path, session_key)
         ctx.autoreplies_file = path
@@ -777,14 +750,10 @@ def reload_autoreplies(
         log.warning("failed to reload autoreplies: %s", exc)
 
 
-def reload_progressbars(
-    ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
-) -> None:
+def reload_progressbars(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload progress bar configs from disk after editing."""
     if not os.path.exists(path):
         return
-    from .progressbars import load_progressbars
-
     try:
         ctx.progressbar_configs = load_progressbars(path, session_key)
         ctx.progressbars_file = path
@@ -794,14 +763,10 @@ def reload_progressbars(
         log.warning("failed to reload progress bars from %s", path)
 
 
-def reload_highlights(
-    ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
-) -> None:
+def reload_highlights(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload highlight rules from disk after editing."""
     if not os.path.exists(path):
         return
-    from .highlighter import load_highlights
-
     try:
         ctx.highlight_rules = load_highlights(path, session_key)
         ctx.highlights_file = path
@@ -821,11 +786,12 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> 
     :param ctx: Session context with chat and capture state.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    import json as json
-    import tempfile
-    import subprocess
-
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     session_key = ctx.session_key
     if not session_key:
@@ -855,7 +821,7 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> 
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import chat_viewer_main; "
+        "import sys; from telix.client_tui_dialogs import chat_viewer_main; "
         "chat_viewer_main(sys.argv[1], sys.argv[2],"
         " initial_channel=sys.argv[3], logfile=sys.argv[4],"
         " capture_file=sys.argv[5])",
@@ -903,19 +869,16 @@ def launch_room_browser(ctx: "SessionContext", replay_buf: Any | None = None) ->
     :param ctx: Session context with session attributes.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    import subprocess
-
-    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
-    from .client_repl_travel import fast_travel
+    from .client_repl import (  # noqa: PLC0415 - circular
+        get_term,
+        blocking_fds,
+        terminal_cleanup,
+        restore_after_subprocess,
+    )
 
     session_key = ctx.session_key
     if not session_key:
         return
-
-    from .rooms import rooms_path as rooms_path_fn
-    from .rooms import fasttravel_path as fasttravel_path_fn
-    from .rooms import read_fasttravel
-    from .rooms import current_room_path as current_room_path_fn
 
     rp = ctx.rooms_file or rooms_path_fn(session_key)
     crp = ctx.current_room_file or current_room_path_fn(session_key)
@@ -925,7 +888,7 @@ def launch_room_browser(ctx: "SessionContext", replay_buf: Any | None = None) ->
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import edit_rooms_main; "
+        "import sys; from telix.client_tui_dialogs import edit_rooms_main; "
         "edit_rooms_main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],"
         " logfile=sys.argv[5])",
         rp,

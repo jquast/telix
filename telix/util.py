@@ -1,7 +1,5 @@
 """Small shared utility functions."""
 
-from __future__ import annotations
-
 # std imports
 import datetime
 

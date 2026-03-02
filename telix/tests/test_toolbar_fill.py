@@ -18,9 +18,7 @@ from telix.client_repl_render import (
 )
 
 
-def text_slot(
-    text, priority=1, order=0, side="left", min_width=0, label="", growable=False, grow_params=None
-):
+def text_slot(text, priority=1, order=0, side="left", min_width=0, label="", growable=False, grow_params=None):
     return ToolbarSlot(
         priority=priority,
         display_order=order,
@@ -52,7 +50,6 @@ def bar_slot(raw, maxval, width, kind, priority=1, order=0):
 
 
 class TestFillToolbarNoGrowable:
-
     def test_no_growable_returns_unchanged(self):
         s1 = text_slot("Lv.5", order=0)
         s2 = text_slot("$100", order=1)
@@ -70,7 +67,6 @@ class TestFillToolbarNoGrowable:
 
 
 class TestFillToolbarGrows:
-
     def test_bar_grows_with_extra_space(self):
         s = bar_slot(50, 100, 20, "hp")
         orig_w = s.width
@@ -112,7 +108,6 @@ class TestFillToolbarGrows:
 
 
 class TestFillToolbarEdgeCases:
-
     def test_single_slot_no_separators(self):
         s = bar_slot(50, 100, 20, "hp")
         left, right, sep = fill_toolbar([s], [], s.width + 20)
@@ -132,7 +127,6 @@ class TestFillToolbarEdgeCases:
 
 
 class TestBarGapWidth:
-
     def test_adjacent_bars_use_bar_gap(self):
         hp = bar_slot(50, 100, 20, "hp", order=0)
         mp = bar_slot(30, 80, 20, "mp", order=1)
@@ -162,7 +156,6 @@ class TestBarGapWidth:
 
 
 class TestLayoutToolbarReturnsSlots:
-
     def test_returns_toolbar_slots(self):
         s = text_slot("hello", priority=1, order=0, side="left")
         left, right = layout_toolbar([s], 80)

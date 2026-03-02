@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 # std imports
+import re
 import sys
+import json
 import datetime
 from typing import Any
-from dataclasses import asdict
+from dataclasses import asdict, fields
+from unittest.mock import MagicMock, patch
 
 # 3rd party
 import pytest
@@ -14,18 +17,27 @@ import pytest
 pytest.importorskip("textual", reason="textual not installed")
 
 # local
+from telix.macros import load_macros
+from telix.autoreply import load_autoreplies
 from telix.client_tui import (
     EDITOR_TABS,
     DEFAULTS_KEY,
     PRIMARY_PASTE_COMMANDS,
+    CapsPane,
+    MacroEditPane,
     SessionConfig,
+    ThemeEditPane,
     AutoreplyTuple,
     MacroEditScreen,
+    RoomBrowserPane,
     TelnetSessionApp,
+    AutoreplyEditPane,
     CommandHelpScreen,
+    HighlightEditPane,
     SessionListScreen,
     TabbedEditorScreen,
     AutoreplyEditScreen,
+    ProgressBarEditPane,
     RandomwalkDialogScreen,
     AutodiscoverDialogScreen,
     int_val,
@@ -43,9 +55,9 @@ from telix.client_tui import (
 
 @pytest.fixture
 def tui_tmp_paths(tmp_path, monkeypatch):
-    monkeypatch.setattr("telix.client_tui_base.SESSIONS_FILE", tmp_path / "s.json")
-    monkeypatch.setattr("telix.client_tui_base.CONFIG_DIR", str(tmp_path))
-    monkeypatch.setattr("telix.client_tui_base.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("telix.paths.SESSIONS_FILE", tmp_path / "s.json")
+    monkeypatch.setattr("telix.paths.CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr("telix.paths.DATA_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -62,9 +74,7 @@ def test_session_config_defaults() -> None:
 
 
 def test_session_config_roundtrip() -> None:
-    cfg = SessionConfig(
-        name="test", host="example.com", port=2323, ssl=True, encoding="cp437", mode="raw"
-    )
+    cfg = SessionConfig(name="test", host="example.com", port=2323, ssl=True, encoding="cp437", mode="raw")
     data = asdict(cfg)
     restored = SessionConfig(**data)
     assert restored == cfg
@@ -73,8 +83,6 @@ def test_session_config_roundtrip() -> None:
 def test_session_config_unknown_fields_ignored() -> None:
     data = asdict(SessionConfig(name="x"))
     data["unknown_future_field"] = 42
-    from dataclasses import fields
-
     known = {f.name for f in fields(SessionConfig)}
     filtered = {k: v for k, v in data.items() if k in known}
     cfg = SessionConfig(**filtered)
@@ -95,7 +103,7 @@ def test_persistence_save_load_roundtrip(tui_tmp_paths) -> None:
 
 
 def test_persistence_load_empty(tui_tmp_paths, monkeypatch) -> None:
-    monkeypatch.setattr("telix.client_tui_base.SESSIONS_FILE", tui_tmp_paths / "nope.json")
+    monkeypatch.setattr("telix.paths.SESSIONS_FILE", tui_tmp_paths / "nope.json")
     assert not load_sessions()
 
 
@@ -128,17 +136,15 @@ def test_build_command_auto_mode_no_flag() -> None:
     "cfg_kwargs,expected_flags",
     [
         ({"ssl": True, "ssl_no_verify": True, "port": 992}, ["--ssl", "--ssl-no-verify"]),
-        (
-            {"colormatch": "cga", "background_color": "#101010"},
-            ["--colormatch", "--background-color"],
-        ),
+        ({"colormatch": "cga", "background_color": "#101010"}, ["--colormatch", "--background-color"]),
         ({"no_repl": True}, ["--no-repl"]),
         ({"connect_timeout": 5.0}, ["--connect-timeout"]),
         ({"ansi_keys": True, "ascii_eol": True}, ["--ansi-keys", "--ascii-eol"]),
     ],
 )
 def test_build_command_flags(
-    cfg_kwargs: dict, expected_flags: list[str]  # type: ignore[type-arg]
+    cfg_kwargs: dict,
+    expected_flags: list[str],  # type: ignore[type-arg]
 ) -> None:
     cfg = SessionConfig(host="h", port=cfg_kwargs.pop("port", 23), **cfg_kwargs)
     cmd = build_command(cfg)
@@ -189,9 +195,7 @@ def test_build_command_connect_timeout_default_omitted() -> None:
 
 
 def test_defaults_inheritance_new_from_defaults() -> None:
-    defaults = SessionConfig(
-        name=DEFAULTS_KEY, encoding="cp437", colormatch="cga", mode="raw", loglevel="debug"
-    )
+    defaults = SessionConfig(name=DEFAULTS_KEY, encoding="cp437", colormatch="cga", mode="raw", loglevel="debug")
     new_cfg = SessionConfig(**asdict(defaults))
     new_cfg.name = "new_session"
     new_cfg.host = "example.com"
@@ -208,7 +212,7 @@ def test_defaults_inheritance_new_from_defaults() -> None:
 def test_persistence_corrupted_json(tui_tmp_paths, monkeypatch) -> None:
     sessions_file = tui_tmp_paths / "sessions.json"
     sessions_file.write_text("{invalid json", encoding="utf-8")
-    monkeypatch.setattr("telix.client_tui_base.SESSIONS_FILE", sessions_file)
+    monkeypatch.setattr("telix.paths.SESSIONS_FILE", sessions_file)
     with pytest.raises(Exception):
         load_sessions()
 
@@ -245,8 +249,6 @@ def test_macro_screen_loads_empty(tmp_path) -> None:
 
 
 def test_macro_screen_loads_file(tmp_path) -> None:
-    import json
-
     sk = "test.host:23"
     fp = tmp_path / "macros.json"
     fp.write_text(json.dumps({sk: {"macros": [{"key": "KEY_F5", "text": "look;"}]}}))
@@ -260,13 +262,8 @@ def test_macro_screen_save(tmp_path) -> None:
     sk = "test.host:23"
     fp = tmp_path / "macros.json"
     screen = MacroEditScreen(path=str(fp), session_key=sk)
-    screen.pane.macros = [
-        ("KEY_F5", "look;", True, "", False, ""),
-        ("KEY_ALT_N", "north;", True, "", False, ""),
-    ]
+    screen.pane.macros = [("KEY_F5", "look;", True, "", False, ""), ("KEY_ALT_N", "north;", True, "", False, "")]
     screen.pane.save_to_file()
-
-    from telix.macros import load_macros
 
     loaded = load_macros(str(fp), sk)
     assert len(loaded) == 2
@@ -283,13 +280,9 @@ def test_autoreply_screen_loads_empty(tmp_path) -> None:
 
 
 def test_autoreply_screen_loads_file(tmp_path) -> None:
-    import json
-
     sk = "test.host:23"
     fp = tmp_path / "autoreplies.json"
-    fp.write_text(
-        json.dumps({sk: {"autoreplies": [{"pattern": r"\d+ gold", "reply": "get gold;"}]}})
-    )
+    fp.write_text(json.dumps({sk: {"autoreplies": [{"pattern": r"\d+ gold", "reply": "get gold;"}]}}))
     screen = AutoreplyEditScreen(path=str(fp), session_key=sk)
     screen.pane.load_from_file()
     assert len(screen.pane.rules) == 1
@@ -303,8 +296,6 @@ def test_autoreply_screen_save(tmp_path) -> None:
     screen.pane.rules = [AutoreplyTuple(r"\d+ gold", "get gold;")]
     screen.pane.save_to_file()
 
-    from telix.autoreply import load_autoreplies
-
     loaded = load_autoreplies(str(fp), sk)
     assert len(loaded) == 1
     assert loaded[0].pattern.pattern == r"\d+ gold"
@@ -312,12 +303,9 @@ def test_autoreply_screen_save(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    "entry_extra,field_idx,expected",
-    [({"when": {"HP%": ">50"}}, 4, {"HP%": ">50"}), ({"immediate": True}, 5, True)],
+    "entry_extra,field_idx,expected", [({"when": {"HP%": ">50"}}, 4, {"HP%": ">50"}), ({"immediate": True}, 5, True)]
 )
 def test_autoreply_screen_loads_field(tmp_path, entry_extra, field_idx, expected) -> None:
-    import json
-
     sk = "test.host:23"
     fp = tmp_path / "autoreplies.json"
     entry = {"pattern": "x", "reply": "y;", **entry_extra}
@@ -336,8 +324,6 @@ def test_autoreply_screen_loads_field(tmp_path, entry_extra, field_idx, expected
     ],
 )
 def test_autoreply_screen_saves_field(tmp_path, rule_kwargs, json_key, expected, absent) -> None:
-    import json
-
     sk = "test.host:23"
     fp = tmp_path / "autoreplies.json"
     screen = AutoreplyEditScreen(path=str(fp), session_key=sk)
@@ -352,8 +338,6 @@ def test_autoreply_screen_saves_field(tmp_path, rule_kwargs, json_key, expected,
 
 
 def test_autoreply_screen_rejects_bad_regex(tmp_path) -> None:
-    import re
-
     fp = tmp_path / "autoreplies.json"
     screen = AutoreplyEditScreen(path=str(fp))
     screen.pane.rules = [AutoreplyTuple("[invalid", "x")]
@@ -387,12 +371,7 @@ def test_helper_relative_time_seconds_ago() -> None:
 
 @pytest.mark.parametrize(
     "func,input_val,fallback,expected",
-    [
-        (int_val, "42", 0, 42),
-        (int_val, "abc", 42, 42),
-        (float_val, "1.5", 0.0, 1.5),
-        (float_val, "abc", 1.5, 1.5),
-    ],
+    [(int_val, "42", 0, 42), (int_val, "abc", 42, 42), (float_val, "1.5", 0.0, 1.5), (float_val, "abc", 1.5, 1.5)],
 )
 def test_helper_val_conversion(func, input_val, fallback, expected) -> None:
     assert func(input_val, fallback) == expected
@@ -462,8 +441,6 @@ def test_help_topic_session_contains_key_sections() -> None:
 
 def test_randomwalk_dialog_writes_visit_level(tmp_path: Any) -> None:
     """The randomwalk dialog writes visit_level to the result file."""
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=3)
     screen.write_result(True, 3)
@@ -482,8 +459,6 @@ def test_randomwalk_dialog_default_visit_level() -> None:
 
 def test_randomwalk_dialog_command_field(tmp_path: Any) -> None:
     """The randomwalk dialog result includes a command string."""
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 3, auto_search=True, auto_evaluate=False)
@@ -495,8 +470,6 @@ def test_randomwalk_dialog_command_field(tmp_path: Any) -> None:
 
 def test_randomwalk_dialog_command_all_flags(tmp_path: Any) -> None:
     """The command string includes both autosearch and autoevaluate."""
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 5, auto_search=True, auto_evaluate=True)
@@ -508,8 +481,6 @@ def test_randomwalk_dialog_command_all_flags(tmp_path: Any) -> None:
 
 def test_randomwalk_dialog_command_no_flags(tmp_path: Any) -> None:
     """The command string omits flags when both are off."""
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, auto_search=False, auto_evaluate=False)
@@ -520,8 +491,6 @@ def test_randomwalk_dialog_command_no_flags(tmp_path: Any) -> None:
 
 
 def test_autodiscover_dialog_writes_bfs(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
     screen.write_result(True, "bfs")
@@ -534,8 +503,6 @@ def test_autodiscover_dialog_writes_bfs(tmp_path: Any) -> None:
 
 
 def test_autodiscover_dialog_writes_dfs(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="dfs")
     screen.write_result(True, "dfs")
@@ -548,8 +515,6 @@ def test_autodiscover_dialog_writes_dfs(tmp_path: Any) -> None:
 
 
 def test_autodiscover_dialog_cancel(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
     screen.write_result(False, "bfs")
@@ -565,13 +530,9 @@ def test_autodiscover_dialog_default_strategy() -> None:
 
 
 def test_autodiscover_dialog_all_flags(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
-    screen.write_result(
-        True, "bfs", auto_search=True, auto_evaluate=True, auto_survey=True, autoreplies=True
-    )
+    screen.write_result(True, "bfs", auto_search=True, auto_evaluate=True, auto_survey=True, autoreplies=True)
 
     with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
@@ -583,8 +544,6 @@ def test_autodiscover_dialog_all_flags(tmp_path: Any) -> None:
 
 
 def test_autodiscover_dialog_noreply(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="dfs")
     screen.write_result(True, "dfs", autoreplies=False)
@@ -596,8 +555,6 @@ def test_autodiscover_dialog_noreply(tmp_path: Any) -> None:
 
 
 def test_autodiscover_dialog_autosurvey_only(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
     screen.write_result(True, "bfs", auto_survey=True)
@@ -609,10 +566,7 @@ def test_autodiscover_dialog_autosurvey_only(tmp_path: Any) -> None:
 
 def test_autodiscover_dialog_default_booleans() -> None:
     screen = AutodiscoverDialogScreen(
-        default_auto_search=True,
-        default_auto_evaluate=True,
-        default_auto_survey=True,
-        default_autoreplies=False,
+        default_auto_search=True, default_auto_evaluate=True, default_auto_survey=True, default_autoreplies=False
     )
     assert screen.default_auto_search is True
     assert screen.default_auto_evaluate is True
@@ -621,8 +575,6 @@ def test_autodiscover_dialog_default_booleans() -> None:
 
 
 def test_randomwalk_dialog_autosurvey(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, auto_survey=True)
@@ -634,8 +586,6 @@ def test_randomwalk_dialog_autosurvey(tmp_path: Any) -> None:
 
 
 def test_randomwalk_dialog_noreply(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, autoreplies=False)
@@ -647,13 +597,9 @@ def test_randomwalk_dialog_noreply(tmp_path: Any) -> None:
 
 
 def test_randomwalk_dialog_all_new_flags(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=3)
-    screen.write_result(
-        True, 3, auto_search=True, auto_evaluate=True, auto_survey=True, autoreplies=True
-    )
+    screen.write_result(True, 3, auto_search=True, auto_evaluate=True, auto_survey=True, autoreplies=True)
 
     with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
@@ -661,8 +607,6 @@ def test_randomwalk_dialog_all_new_flags(tmp_path: Any) -> None:
 
 
 def test_randomwalk_dialog_noreply_with_flags(tmp_path: Any) -> None:
-    import json
-
     result_file = str(tmp_path / "result.json")
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, auto_search=True, autoreplies=False)
@@ -733,8 +677,6 @@ class TestTabbedEditorScreen:
         assert ids == ["highlights", "rooms", "macros", "autoreplies", "captures", "bars", "theme"]
 
     def test_create_pane_macros(self, tmp_path: Any) -> None:
-        from telix.client_tui import MacroEditPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("macros")
@@ -742,8 +684,6 @@ class TestTabbedEditorScreen:
         assert pane.id == "macros"
 
     def test_create_pane_autoreplies(self, tmp_path: Any) -> None:
-        from telix.client_tui import AutoreplyEditPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("autoreplies")
@@ -751,8 +691,6 @@ class TestTabbedEditorScreen:
         assert pane.id == "autoreplies"
 
     def test_create_pane_highlights(self, tmp_path: Any) -> None:
-        from telix.client_tui import HighlightEditPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("highlights")
@@ -760,8 +698,6 @@ class TestTabbedEditorScreen:
         assert pane.id == "highlights"
 
     def test_create_pane_bars(self, tmp_path: Any) -> None:
-        from telix.client_tui import ProgressBarEditPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("bars")
@@ -769,8 +705,6 @@ class TestTabbedEditorScreen:
         assert pane.id == "bars"
 
     def test_create_pane_rooms(self, tmp_path: Any) -> None:
-        from telix.client_tui import RoomBrowserPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("rooms")
@@ -778,8 +712,6 @@ class TestTabbedEditorScreen:
         assert pane.id == "rooms"
 
     def test_create_pane_captures(self, tmp_path: Any) -> None:
-        from telix.client_tui import CapsPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("captures")
@@ -787,8 +719,6 @@ class TestTabbedEditorScreen:
         assert pane.id == "captures"
 
     def test_create_pane_theme(self, tmp_path: Any) -> None:
-        from telix.client_tui import ThemeEditPane
-
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
         pane = screen.create_pane("theme")
@@ -798,21 +728,15 @@ class TestTabbedEditorScreen:
 
 class TestReadPrimarySelection:
     def test_returns_text_from_first_available_helper(self, monkeypatch: Any) -> None:
-        from unittest.mock import MagicMock, patch
-
         fake_result = MagicMock()
         fake_result.returncode = 0
         fake_result.stdout = b"hello world"
         with patch("telix.client_tui_base.subprocess.run", return_value=fake_result) as m:
             result = read_primary_selection()
         assert result == "hello world"
-        m.assert_called_once_with(
-            PRIMARY_PASTE_COMMANDS[0], capture_output=True, timeout=2, check=False
-        )
+        m.assert_called_once_with(PRIMARY_PASTE_COMMANDS[0], capture_output=True, timeout=2, check=False)
 
     def test_tries_next_command_on_file_not_found(self, monkeypatch: Any) -> None:
-        from unittest.mock import MagicMock, patch
-
         fake_result = MagicMock()
         fake_result.returncode = 0
         fake_result.stdout = b"from xsel"
@@ -831,14 +755,10 @@ class TestReadPrimarySelection:
         assert calls[1][0] == "xsel"
 
     def test_returns_empty_when_no_helpers_available(self) -> None:
-        from unittest.mock import patch
-
         with patch("telix.client_tui_base.subprocess.run", side_effect=FileNotFoundError):
             assert read_primary_selection() == ""
 
     def test_skips_helper_with_nonzero_exit(self) -> None:
-        from unittest.mock import MagicMock, patch
-
         fail = MagicMock(returncode=1, stdout=b"")
         ok = MagicMock(returncode=0, stdout=b"ok")
 

@@ -6,15 +6,14 @@ from unittest import mock
 
 # 3rd party
 import pytest
-from telnetlib3.client import _DEFAULT_GMCP_MODULES, TelnetClient, _get_argument_parser
+from telnetlib3.client import _DEFAULT_GMCP_MODULES, TelnetClient, _transform_args, _get_argument_parser
 from telnetlib3.telopt import GMCP
+from telnetlib3.accessories import get_version
 
-CLIENT_DEFAULTS = {
-    "encoding": "utf8",
-    "encoding_errors": "strict",
-    "force_binary": False,
-    "connect_maxwait": 0.02,
-}
+# local
+from telix.client_repl import segmented, vital_bar
+
+CLIENT_DEFAULTS = {"encoding": "utf8", "encoding_errors": "strict", "force_binary": False, "connect_maxwait": 0.02}
 
 
 class MockTransport:
@@ -89,23 +88,12 @@ async def test_ext_callback_registered_for_gmcp():
             {"name": "Dark Forest"},
         ),
         (
-            [
-                ("Char.Vitals", {"hp": 100, "maxhp": 100, "sp": 50, "maxsp": 50}),
-                ("Char.Vitals", {"hp": 63}),
-            ],
+            [("Char.Vitals", {"hp": 100, "maxhp": 100, "sp": 50, "maxsp": 50}), ("Char.Vitals", {"hp": 63})],
             "Char.Vitals",
             {"hp": 63, "maxhp": 100, "sp": 50, "maxsp": 50},
         ),
-        (
-            [("Room.Name", "Old Name"), ("Room.Name", {"name": "New Place"})],
-            "Room.Name",
-            {"name": "New Place"},
-        ),
-        (
-            [("Room.Info", {"name": "Town"}), ("Room.Info", "plain string")],
-            "Room.Info",
-            "plain string",
-        ),
+        ([("Room.Name", "Old Name"), ("Room.Name", {"name": "New Place"})], "Room.Name", {"name": "New Place"}),
+        ([("Room.Info", {"name": "Town"}), ("Room.Info", "plain string")], "Room.Info", "plain string"),
         ([("Core.Goodbye", None)], "Core.Goodbye", None),
     ],
 )
@@ -126,8 +114,6 @@ async def test_on_gmcp_logs_debug_by_default():
 
 def install_telix_gmcp_wrapper(client):
     """Install the same GMCP dispatch wrapper that telix_client_shell uses."""
-    from telnetlib3.telopt import GMCP as GMCP
-
     ctx = client.writer.ctx
     base = client.writer._ext_callback.get(GMCP)
 
@@ -205,8 +191,6 @@ async def test_hello_idempotent():
 
 @pytest.mark.asyncio
 async def test_hello_includes_version():
-    from telnetlib3.accessories import get_version
-
     client, transport = make_connected_client()
     client.writer.always_do = {GMCP}
     transport.data.clear()
@@ -248,8 +232,6 @@ def test_gmcp_modules_cli_default_none():
 
 
 def test_transform_args_gmcp_modules():
-    from telnetlib3.client import _transform_args
-
     parser = _get_argument_parser()
     args = parser.parse_args(["example.com", "--gmcp-modules", "Char 1,IRE.Rift 1"])
     result = _transform_args(args)
@@ -257,8 +239,6 @@ def test_transform_args_gmcp_modules():
 
 
 def test_transform_args_gmcp_modules_none():
-    from telnetlib3.client import _transform_args
-
     parser = _get_argument_parser()
     args = parser.parse_args(["example.com"])
     result = _transform_args(args)
@@ -269,8 +249,6 @@ if sys.platform != "win32":
 
     def test_vital_bar_shows_vitals():
         pytest.importorskip("blessed")
-        from telix.client_repl import segmented, vital_bar
-
         bars = vital_bar(100, 200, 16, "hp")
         text = "".join(t for _, t in bars)
         assert segmented("100/200") in text
@@ -278,8 +256,6 @@ if sys.platform != "win32":
 
     def test_vital_bar_hp_only():
         pytest.importorskip("blessed")
-        from telix.client_repl import segmented, vital_bar
-
         bars = vital_bar(50, None, 16, "hp")
         text = "".join(t for _, t in bars)
         assert segmented("50") in text
@@ -287,8 +263,6 @@ if sys.platform != "win32":
 
     def test_vital_bar_full():
         pytest.importorskip("blessed")
-        from telix.client_repl import segmented, vital_bar
-
         bars = vital_bar(100, 100, 16, "hp")
         text = "".join(t for _, t in bars)
         assert segmented("100/100") in text
@@ -296,8 +270,6 @@ if sys.platform != "win32":
 
     def test_vital_bar_returns_sgr():
         pytest.importorskip("blessed")
-        from telix.client_repl import vital_bar
-
         bars = vital_bar(50, 100, 16, "mp")
         for sgr, text in bars:
             assert not sgr.startswith("fg:#")

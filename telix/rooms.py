@@ -6,21 +6,17 @@ supports shortest-path search via BFS, and persists per-session room
 data to ``~/.local/share/telix/rooms-{host}_{port}.db``.
 """
 
-from __future__ import annotations
-
-# std imports
 import os
 import re
 import json
 import random
+import typing
 import sqlite3
-from typing import Any
-from datetime import datetime, timezone
-from collections import deque
-from dataclasses import field, dataclass
+import datetime
+import collections
+import dataclasses
 
-# local
-from .paths import atomic_write
+from . import paths
 
 EXIT_DIR_RE = re.compile(
     r"\s*"
@@ -40,7 +36,7 @@ def strip_exit_dirs(name: str) -> str:
     return EXIT_DIR_RE.sub("", name)
 
 
-@dataclass
+@dataclasses.dataclass
 class Room:
     """A single room in the GMCP room graph."""
 
@@ -48,7 +44,7 @@ class Room:
     name: str = ""
     area: str = ""
     environment: str = ""
-    exits: dict[str, str] = field(default_factory=dict)
+    exits: dict[str, str] = dataclasses.field(default_factory=dict)
     bookmarked: bool = False
     visit_count: int = 0
     last_visited: str = ""
@@ -82,9 +78,7 @@ class RoomStore:
         if not read_only:
             self.create_tables()
             if session_key:
-                self.conn.execute(
-                    "INSERT OR REPLACE INTO meta VALUES ('session_key', ?)", (session_key,)
-                )
+                self.conn.execute("INSERT OR REPLACE INTO meta VALUES ('session_key', ?)", (session_key,))
                 self.conn.commit()
         self.adj: dict[str, dict[str, str]] = {}
         self.load_adjacency()
@@ -124,9 +118,7 @@ class RoomStore:
         """Load full adjacency graph into memory for BFS."""
         self.adj.clear()
         try:
-            for src, direction, dst in self.conn.execute(
-                "SELECT src_num, direction, dst_num FROM exit"
-            ):
+            for src, direction, dst in self.conn.execute("SELECT src_num, direction, dst_num FROM exit"):
                 self.adj.setdefault(src, {})[direction] = dst
         except sqlite3.OperationalError:
             pass
@@ -135,7 +127,7 @@ class RoomStore:
         """Close the database connection."""
         self.conn.close()
 
-    def row_to_room(self, row: tuple[Any, ...]) -> Room:
+    def row_to_room(self, row: tuple[typing.Any, ...]) -> Room:
         """Convert a SELECT row to a :class:`Room`."""
         num = row[0]
         exits = dict(self.adj.get(num, {}))
@@ -153,10 +145,7 @@ class RoomStore:
             marked=bool(row[9]),
         )
 
-    ROOM_COLS = (
-        "num, name, area, environment, bookmarked, visit_count, last_visited,"
-        " blocked, home, marked"
-    )
+    ROOM_COLS = "num, name, area, environment, bookmarked, visit_count, last_visited, blocked, home, marked"
 
     @property
     def rooms(self) -> dict[str, Room]:
@@ -188,10 +177,7 @@ class RoomStore:
             " FROM room r LEFT JOIN exit e ON r.num = e.src_num"
             " GROUP BY r.num"
         ).fetchall()
-        return [
-            (r[0], r[1], r[2], r[3], bool(r[4]), r[5], bool(r[6]), bool(r[7]), bool(r[8]))
-            for r in rows
-        ]
+        return [(r[0], r[1], r[2], r[3], bool(r[4]), r[5], bool(r[6]), bool(r[7]), bool(r[8])) for r in rows]
 
     def room_area(self, num: str) -> str:
         """Return the area of a single room, or ``""`` if not found."""
@@ -205,9 +191,7 @@ class RoomStore:
         :param num: Room number.
         :returns: :class:`Room` or ``None`` if not found.
         """
-        row = self.conn.execute(
-            f"SELECT {self.ROOM_COLS} FROM room WHERE num = ?", (num,)
-        ).fetchone()
+        row = self.conn.execute(f"SELECT {self.ROOM_COLS} FROM room WHERE num = ?", (num,)).fetchone()
         if row is None:
             return None
         return self.row_to_room(row)
@@ -217,7 +201,7 @@ class RoomStore:
         row = self.conn.execute("SELECT 1 FROM room WHERE num = ?", (num,)).fetchone()
         return row is not None
 
-    def update_room(self, info: dict[str, Any]) -> None:
+    def update_room(self, info: dict[str, typing.Any]) -> None:
         """
         Update or create a room from a GMCP ``Room.Info`` payload.
 
@@ -233,7 +217,7 @@ class RoomStore:
         name = strip_exit_dirs(str(info.get("name", "")))
         area = str(info.get("area", ""))
         environment = str(info.get("environment", ""))
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         self.conn.execute(
             "INSERT INTO room"
@@ -278,16 +262,12 @@ class RoomStore:
         if row is None:
             return False
         new_state = not bool(row[0])
-        self.conn.execute(
-            "UPDATE room SET bookmarked=0, blocked=0, home=0, marked=0 WHERE num = ?", (num,)
-        )
+        self.conn.execute("UPDATE room SET bookmarked=0, blocked=0, home=0, marked=0 WHERE num = ?", (num,))
         if new_state:
             self.conn.execute(f"UPDATE room SET {marker} = 1 WHERE num = ?", (num,))
             if marker == "home":
                 area = row[1]
-                self.conn.execute(
-                    "UPDATE room SET home = 0 WHERE area = ? AND num != ?", (area, num)
-                )
+                self.conn.execute("UPDATE room SET home = 0 WHERE area = ? AND num != ?", (area, num))
         self.conn.commit()
         return new_state
 
@@ -314,16 +294,12 @@ class RoomStore:
         :param area: Area name.
         :returns: Room number string, or ``None`` if no home is set.
         """
-        row = self.conn.execute(
-            "SELECT num FROM room WHERE area = ? AND home = 1", (area,)
-        ).fetchone()
+        row = self.conn.execute("SELECT num FROM room WHERE area = ? AND home = 1", (area,)).fetchone()
         return row[0] if row else None
 
     def blocked_rooms(self) -> frozenset[str]:
         """Return frozenset of all blocked room numbers."""
-        return frozenset(
-            row[0] for row in self.conn.execute("SELECT num FROM room WHERE blocked = 1")
-        )
+        return frozenset(row[0] for row in self.conn.execute("SELECT num FROM room WHERE blocked = 1"))
 
     def room_nums(self) -> frozenset[str]:
         """Return the set of all room numbers in the database."""
@@ -341,7 +317,7 @@ class RoomStore:
         if src not in known:
             return {}
         distances: dict[str, int] = {src: 0}
-        queue: deque[str] = deque([src])
+        queue: collections.deque[str] = collections.deque([src])
         while queue:
             current = queue.popleft()
             d = distances[current]
@@ -351,9 +327,7 @@ class RoomStore:
                     queue.append(target)
         return distances
 
-    def find_path(
-        self, src: str, dst: str, blocked: frozenset[str] = frozenset()
-    ) -> list[str] | None:
+    def find_path(self, src: str, dst: str, blocked: frozenset[str] = frozenset()) -> list[str] | None:
         """
         BFS shortest path from *src* to *dst*.
 
@@ -366,7 +340,7 @@ class RoomStore:
             return None
 
         visited: set[str] = {src}
-        queue: deque[tuple[str, list[str]]] = deque([(src, [])])
+        queue: collections.deque[tuple[str, list[str]]] = collections.deque([(src, [])])
 
         while queue:
             current, path = queue.popleft()
@@ -394,7 +368,7 @@ class RoomStore:
             return None
 
         visited: set[str] = {src}
-        queue: deque[tuple[str, list[tuple[str, str]]]] = deque([(src, [])])
+        queue: collections.deque[tuple[str, list[tuple[str, str]]]] = collections.deque([(src, [])])
 
         while queue:
             current, path = queue.popleft()
@@ -420,19 +394,13 @@ class RoomStore:
             return []
         target_name = row[0]
         rows = self.conn.execute(
-            f"SELECT {self.ROOM_COLS}"
-            " FROM room WHERE name = ? AND num != ?"
-            " ORDER BY last_visited ASC LIMIT ?",
+            f"SELECT {self.ROOM_COLS} FROM room WHERE name = ? AND num != ? ORDER BY last_visited ASC LIMIT ?",
             (target_name, num, limit),
         ).fetchall()
         return [self.row_to_room(r) for r in rows]
 
     def find_branches(
-        self,
-        src: str,
-        limit: int = 99,
-        blocked: frozenset[str] = frozenset(),
-        strategy: str = "bfs",
+        self, src: str, limit: int = 99, blocked: frozenset[str] = frozenset(), strategy: str = "bfs"
     ) -> list[tuple[str, str, str]]:
         """
         Find exits from known rooms leading to unvisited or unknown rooms.
@@ -449,7 +417,7 @@ class RoomStore:
             return []
 
         visited: set[str] = {src}
-        queue: deque[tuple[str, int]] = deque([(src, 0)])
+        queue: collections.deque[tuple[str, int]] = collections.deque([(src, 0)])
         branches: list[tuple[int, str, str, str]] = []
 
         while queue:
@@ -457,9 +425,7 @@ class RoomStore:
             for direction, target in self.adj.get(current, {}).items():
                 if target in blocked:
                     continue
-                target_vc = self.conn.execute(
-                    "SELECT visit_count FROM room WHERE num = ?", (target,)
-                ).fetchone()
+                target_vc = self.conn.execute("SELECT visit_count FROM room WHERE num = ?", (target,)).fetchone()
                 if target_vc is None or target_vc[0] == 0:
                     branches.append((dist, current, direction, target))
                 elif target not in visited:
@@ -468,8 +434,6 @@ class RoomStore:
 
         reverse = strategy == "dfs"
         branches.sort(key=lambda b: b[0], reverse=reverse)
-        # Shuffle branches within each distance tier so autodiscover
-        # does not deterministically prefer one direction.
         shuffled: list[tuple[int, str, str, str]] = []
         i = 0
         while i < len(branches):
@@ -508,16 +472,12 @@ RoomGraph = RoomStore
 
 def xdg_data_dir() -> str:
     """Return XDG data directory for telix."""
-    from .paths import DATA_DIR
-
-    return DATA_DIR
+    return paths.DATA_DIR
 
 
 def session_file_path(prefix: str, session_key: str, ext: str = "") -> str:
     """Return a per-session file path under the XDG data directory."""
-    from .paths import safe_session_slug
-
-    return os.path.join(xdg_data_dir(), f"{prefix}{safe_session_slug(session_key)}{ext}")
+    return os.path.join(xdg_data_dir(), f"{prefix}{paths.safe_session_slug(session_key)}{ext}")
 
 
 def rooms_path(session_key: str) -> str:
@@ -572,7 +532,7 @@ def save_prefs(session_key: str, prefs: dict[str, bool | str]) -> None:
     :param prefs: Dict of preference values (booleans and strings).
     """
     path = prefs_path(session_key)
-    atomic_write(path, json.dumps(prefs, separators=(",", ":")))
+    paths.atomic_write(path, json.dumps(prefs, separators=(",", ":")))
 
 
 def write_current_room(path: str, room_num: str) -> None:
@@ -582,7 +542,7 @@ def write_current_room(path: str, room_num: str) -> None:
     :param path: File path.
     :param room_num: Current room number string.
     """
-    atomic_write(path, room_num)
+    paths.atomic_write(path, room_num)
 
 
 def read_current_room(path: str) -> str:
@@ -608,7 +568,7 @@ def write_fasttravel(path: str, steps: list[tuple[str, str]], noreply: bool = Fa
     :param noreply: If ``True``, disable autoreplies during travel.
     """
     data = {"steps": steps, "noreply": noreply}
-    atomic_write(path, json.dumps(data))
+    paths.atomic_write(path, json.dumps(data))
 
 
 def read_fasttravel(path: str) -> tuple[list[tuple[str, str]], bool]:
@@ -626,10 +586,8 @@ def read_fasttravel(path: str) -> tuple[list[tuple[str, str]], bool]:
         os.unlink(path)
         if isinstance(data, dict):
             steps = [(str(d), str(r)) for d, r in data.get("steps", [])]
-            # Backward compat: old files with "slow" key → noreply=False
             noreply = bool(data.get("noreply", False))
             return steps, noreply
-        # Legacy format: bare list
         return [(str(d), str(r)) for d, r in data], False
     except (OSError, ValueError):
         return [], False
