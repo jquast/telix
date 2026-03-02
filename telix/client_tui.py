@@ -840,6 +840,11 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
     #ssl-compress-row {
         height: auto;
     }
+    #server-type-col {
+        width: auto;
+        max-width: 17;
+        height: auto;
+    }
     #compression-col {
         width: auto;
         max-width: 19;
@@ -849,6 +854,10 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
         width: 1fr;
         height: auto;
         padding-left: 2;
+    }
+    #ssl-label {
+        width: 11;
+        padding-top: 1;
     }
     #timeout-label {
         width: 11;
@@ -955,6 +964,11 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                 classes="field-row",
             )
         with Horizontal(id="ssl-compress-row"):
+            with Vertical(id="server-type-col"):
+                yield Label("Server Type")
+                with RadioSet(id="server-type-radio"):
+                    yield RadioButton("BBS", id="type-bbs")
+                    yield RadioButton("MUD", id="type-mud")
             with Vertical(id="compression-col"):
                 yield Label("MCCP Compression")
                 with RadioSet(id="compression-radio"):
@@ -965,7 +979,7 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                     yield RadioButton("No", value=cfg.compression is False, id="compress-no")
             with Vertical(id="ssl-timeout-col"):
                 with Horizontal(classes="switch-row"):
-                    yield Label("SSL/TLS", classes="field-label")
+                    yield Label("SSL/TLS", id="ssl-label")
                     yield Switch(value=cfg.ssl, id="ssl")
                 with Horizontal(classes="switch-row"):
                     yield Label("Timeout", id="timeout-label")
@@ -1095,12 +1109,50 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                 radio_set._selected = idx
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
-        """Disable REPL switch when raw mode is selected."""
-        if event.radio_set.id == "mode-radio":
+        """Handle radio-set changes for server type and terminal mode."""
+        if event.radio_set.id == "server-type-radio":
+            self._apply_server_type(event.pressed.id)
+        elif event.radio_set.id == "mode-radio":
             is_raw = event.pressed.id == "mode-raw"
             repl_switch = self.query_one("#use-repl", Switch)
             repl_switch.disabled = is_raw
             self.query_one("#repl-label", Label).set_class(is_raw, "dimmed")
+
+    def _select_radio(self, radio_set_id: str, button_id: str) -> None:
+        """Select a radio button by deselecting all siblings first."""
+        radio_set = self.query_one(f"#{radio_set_id}", RadioSet)
+        for btn in radio_set.query(RadioButton):
+            btn.value = False
+        self.query_one(f"#{button_id}", RadioButton).value = True
+
+    def _apply_server_type(self, button_id: str) -> None:
+        """Apply preset field values for BBS or MUD server type."""
+        if button_id == "type-bbs":
+            self.query_one("#colormatch", Select).value = "vga"
+            self.query_one("#ice-colors", Switch).value = True
+            self._select_radio("mode-radio", "mode-raw")
+            self.query_one("#use-repl", Switch).value = False
+            self.query_one("#use-repl", Switch).disabled = True
+            self.query_one("#repl-label", Label).set_class(True, "dimmed")
+            self._select_radio("compression-radio", "compress-passive")
+            self._update_palette_preview()
+            self.notify(
+                "BBS: Color Palette vga, iCE Colors on, Raw mode,"
+                " REPL off, MCCP Compression passive"
+            )
+        elif button_id == "type-mud":
+            self._select_radio("compression-radio", "compress-yes")
+            self._select_radio("mode-radio", "mode-line")
+            self.query_one("#use-repl", Switch).value = True
+            self.query_one("#use-repl", Switch).disabled = False
+            self.query_one("#repl-label", Label).set_class(False, "dimmed")
+            self.query_one("#colormatch", Select).value = "none"
+            self.query_one("#ice-colors", Switch).value = False
+            self._update_palette_preview()
+            self.notify(
+                "MUD: MCCP Compression yes, Line mode,"
+                " REPL on, Color Palette none, iCE Colors off"
+            )
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """React to Select widget changes."""
@@ -3602,7 +3654,7 @@ class ProgressBarEditPane(_EditListPane):
         save_progressbars(self._path, self._session_key, bars)
 
 
-_NAME_COL_BASE = 35
+_NAME_COL_BASE = 17
 _ID_COL_BASE = 10
 
 # Colors for room tree decorations.
@@ -3773,7 +3825,7 @@ class RoomBrowserPane(Vertical):
         """Return the column heading string for the tree."""
         info_label = "[Last]" if self._sort_mode == "last_visited" else "[Dist]"
         nc = self._name_col
-        return f"      {'Name'.ljust(nc)} {'(N)'.rjust(4)} {info_label.rjust(8)}  #ID"
+        return f"      {'Name'.ljust(nc)} {'(N)'.rjust(6)} {info_label.rjust(8)}  #ID"
 
     def compose(self) -> ComposeResult:
         """Build the room browser layout."""
@@ -3821,7 +3873,7 @@ class RoomBrowserPane(Vertical):
         term_w = self.app.size.width
         extra = max(0, term_w - 80)
         self._name_col = _NAME_COL_BASE + extra
-        self._id_width = _ID_COL_BASE + 20
+        self._id_width = _ID_COL_BASE + 5
         tree = self.query_one("#room-tree", Tree)
         tree.show_root = False
         tree.guide_depth = 3
@@ -3944,6 +3996,13 @@ class RoomBrowserPane(Vertical):
             return num
         return num[: width - 1] + "\u2026"
 
+    @staticmethod
+    def _fit_name(name: str, width: int) -> str:
+        """Left-justify *name* to *width*, adding ``\u2026`` if truncated."""
+        if len(name) <= width:
+            return name.ljust(width)
+        return name[: width - 1] + "\u2026"
+
     def _room_label(self, num: str, name: str = "") -> "RichText":
         """Format a child leaf label with muted name, aligned dist/time + id."""
         from rich.text import Text as RichText
@@ -3955,8 +4014,9 @@ class RoomBrowserPane(Vertical):
             dist = self._distances.get(num)
             info_part = f"[{dist}]".rjust(5) if dist is not None else "     "
         id_part = f" #{self._short_id(num)}"
-        name_part = name.ljust(self._name_col)[: self._name_col]
-        label = RichText(f"{name_part} {''.rjust(4)} {info_part}{id_part}")
+        child_col = self._name_col - 1
+        name_part = self._fit_name(name, child_col)
+        label = RichText(f"{name_part} {''.rjust(6)} {info_part}{id_part}")
         if name:
             label.stylize(self._muted_style, 0, len(name_part))
         return label
@@ -4002,8 +4062,8 @@ class RoomBrowserPane(Vertical):
                 show_time = self._sort_mode == "last_visited"
                 if len(members) == 1:
                     num, _area, _exits, bookmarked, lv = members[0]
-                    name_part = name.ljust(self._name_col)[: self._name_col]
-                    count_part = "(1)".rjust(4)
+                    name_part = self._fit_name(name, self._name_col)
+                    count_part = "(1)".rjust(6)
                     if show_time:
                         info_part = _relative_time(lv).rjust(8) if lv else "".rjust(8)
                     else:
@@ -4013,8 +4073,8 @@ class RoomBrowserPane(Vertical):
                     label = f"{name_part} {count_part} {info_part}{id_part}"
                     tree.root.add_leaf(RichText(label), data=num)
                 else:
-                    name_part = name.ljust(self._name_col)[: self._name_col]
-                    count_part = f"({len(members)})".rjust(4)
+                    name_part = self._fit_name(name, self._name_col)
+                    count_part = f"({len(members)})".rjust(6)
                     if show_time:
                         newest = max((m[4] for m in members if m[4]), default="")
                         info_part = _relative_time(newest).rjust(8) if newest else "".rjust(8)
