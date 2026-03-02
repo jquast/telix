@@ -13,7 +13,14 @@ if TYPE_CHECKING:
     from .session_context import SessionContext, _CommandQueue
 
 # local
-from .client_repl_render import _ELLIPSIS, _get_term, _wcswidth, _write_hint, _flash_bg_rgb
+from .client_repl_render import (
+    _ELLIPSIS,
+    _get_term,
+    _wcswidth,
+    _write_hint,
+    _flash_bg_rgb,
+)
+
 
 _REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
 _BACKTICK_RE = re.compile(r"`[^`]*`")
@@ -383,6 +390,7 @@ def _render_active_command(
     flash_elapsed: float = -1.0,
     hint: str = "",
     progress: Optional[float] = None,
+    base_bg_sgr: str = "",
 ) -> int:
     """
     Render a single highlighted active command on the input row.
@@ -394,6 +402,7 @@ def _render_active_command(
     :param flash_elapsed: Seconds since the command was issued.
     :param hint: Right-aligned dim hint text (e.g. autoreply status).
     :param progress: Until timer progress ``0.0..1.0``, or ``None``.
+    :param base_bg_sgr: Fallback background SGR when no flash is active.
     :returns: Display width of the rendered command text.
     """
     blessed_term = _get_term()
@@ -402,7 +411,7 @@ def _render_active_command(
     fg_sgr = str(blessed_term.color_hex(_ACTIVE_CMD_BASE_FG))
 
     bg_rgb = _flash_bg_rgb(_ACTIVE_CMD_BASE_FG, flash_elapsed)
-    bg_sgr = str(blessed_term.on_color_rgb(*bg_rgb)) if bg_rgb else ""
+    bg_sgr = str(blessed_term.on_color_rgb(*bg_rgb)) if bg_rgb else base_bg_sgr
 
     hint_w = len(hint) if hint else 0
     avail = cols - hint_w
@@ -413,8 +422,8 @@ def _render_active_command(
     out.write(f"{fg_sgr}{bg_sgr}{text}{normal}".encode())
     pad = avail - w
     if pad > 0:
-        out.write((" " * pad).encode())
-    _write_hint(hint, out, blessed_term, progress=progress)
+        out.write(f"{base_bg_sgr}{' ' * pad}{normal}".encode())
+    _write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
     out.write(normal.encode())
     return w
 
@@ -678,6 +687,11 @@ def _macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
     :param cmd: Command text.
     """
     log.info("macro: sending %r", cmd)
+    if ctx.writer is not None and getattr(ctx.writer, "will_echo", False):
+        ctx.active_command = "\u2593" * len(cmd)
+    else:
+        ctx.active_command = cmd
+    ctx.active_command_time = _monotonic()
     if ctx.cx_dot is not None:
         ctx.cx_dot.trigger()
     if ctx.tx_dot is not None:

@@ -3789,7 +3789,7 @@ class RoomBrowserPane(Vertical):
     #room-heading { height: 1; text-style: bold; }
     #room-status { height: 1; margin-top: 0; }
     #room-count { width: auto; }
-    #room-exits { width: 1fr; text-align: center; }
+    #room-exits { height: 1; width: 100%; }
     #room-distance { width: auto; text-align: right; }
     #room-marker-bar { height: auto; }
     #room-marker-bar Button { width: 14; min-width: 0; margin-right: 1; }
@@ -3849,8 +3849,8 @@ class RoomBrowserPane(Vertical):
                     yield _RoomTree("Rooms", id="room-tree")
                     with Horizontal(id="room-status"):
                         yield Static("", id="room-count")
-                        yield Static("", id="room-exits")
                         yield Static("", id="room-distance")
+                    yield Static("", id="room-exits")
                     with Horizontal(id="room-marker-bar"):
                         yield Button("Bookmark \u257e", variant="warning", id="room-bookmark")
                         yield Button("Block \u2300", variant="error", id="room-block")
@@ -4442,8 +4442,8 @@ class _RoomPickerPane(RoomBrowserPane):
                     yield _RoomTree("Rooms", id="room-tree")
                     with Horizontal(id="room-status"):
                         yield Static("", id="room-count")
-                        yield Static("", id="room-exits")
                         yield Static("", id="room-distance")
+                    yield Static("", id="room-exits")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle Select/Cancel button presses."""
