@@ -561,7 +561,11 @@ def _sgr_bg(hexcolor: str) -> str:
 
 
 def _vital_bar(
-    current: Any, maximum: Any, width: int, kind: str, flash_elapsed: float = -1.0,
+    current: Any,
+    maximum: Any,
+    width: int,
+    kind: str,
+    flash_elapsed: float = -1.0,
     color_override: Optional[str] = None,
     text_fill_color: Optional[str] = None,
     text_empty_color: Optional[str] = None,
@@ -808,9 +812,14 @@ def _fill_toolbar(
             t_empty = params[6] if len(params) > 6 else None
             inner = slot.width - 2 + bonus
             frags = _vital_bar(
-                raw, maxval, inner, kind,
-                flash_elapsed=flash_elapsed, color_override=c_override,
-                text_fill_color=t_fill, text_empty_color=t_empty,
+                raw,
+                maxval,
+                inner,
+                kind,
+                flash_elapsed=flash_elapsed,
+                color_override=c_override,
+                text_fill_color=t_fill,
+                text_empty_color=t_empty,
             )
             new_w = sum(_wcswidth(t) for _, t in frags)
             return slot._replace(width=new_w, fragments=frags)
@@ -979,7 +988,8 @@ class ToolbarRenderer:
         self.out.write(CURSOR_SHOW.encode())
 
     def schedule_cursor_show(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Schedule the terminal cursor to be shown after a short delay.
+        """
+        Schedule the terminal cursor to be shown after a short delay.
 
         If ``hide_cursor`` is called before the timer fires, the show is
         suppressed.  A later ``schedule_cursor_show`` will try again.
@@ -1016,9 +1026,7 @@ class ToolbarRenderer:
         slots, needs_reflash = self._build_slots(
             engine, ar_active, discover_active, randomwalk_active, now
         )
-        return self._paint(
-            slots, self._is_autoreply_bg(engine), needs_reflash
-        )
+        return self._paint(slots, self._is_autoreply_bg(engine), needs_reflash)
 
     def _ensure_gmcp_ready(self) -> bool:
         """Initialize toolbar on first GMCP data; return ``False`` if no data yet."""
@@ -1162,9 +1170,18 @@ class ToolbarRenderer:
             text_fill = resolve_text_color_hex(cfg.text_color_fill)
             text_empty = resolve_text_color_hex(cfg.text_color_empty)
             if self._vital_slot(
-                tracker, raw, maxval, _BAR_WIDTH, kind, priority, order, now, slots,
+                tracker,
+                raw,
+                maxval,
+                _BAR_WIDTH,
+                kind,
+                priority,
+                order,
+                now,
+                slots,
                 color_override=color,
-                text_fill_color=text_fill, text_empty_color=text_empty,
+                text_fill_color=text_fill,
+                text_empty_color=text_empty,
                 side=side,
             ):
                 needs_reflash = True
@@ -1229,9 +1246,14 @@ class ToolbarRenderer:
         flash_elapsed = tracker.update(raw, now)
         needs_reflash = flash_elapsed >= 0.0
         frags = _vital_bar(
-            raw, maxval, width, kind,
-            flash_elapsed=flash_elapsed, color_override=color_override,
-            text_fill_color=text_fill_color, text_empty_color=text_empty_color,
+            raw,
+            maxval,
+            width,
+            kind,
+            flash_elapsed=flash_elapsed,
+            color_override=color_override,
+            text_fill_color=text_fill_color,
+            text_empty_color=text_empty_color,
         )
         frags_w = sum(_wcswidth(t) for _, t in frags)
         slots.append(
@@ -1245,8 +1267,13 @@ class ToolbarRenderer:
                 label="",
                 growable=True,
                 grow_params=(
-                    raw, maxval, kind, flash_elapsed, color_override,
-                    text_fill_color, text_empty_color,
+                    raw,
+                    maxval,
+                    kind,
+                    flash_elapsed,
+                    color_override,
+                    text_fill_color,
+                    text_empty_color,
                 ),
             )
         )
@@ -1287,13 +1314,11 @@ class ToolbarRenderer:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:
             self._travel_bar_slot(
-                self.ctx.randomwalk_current, self.ctx.randomwalk_total,
-                24, "randomwalk", slots,
+                self.ctx.randomwalk_current, self.ctx.randomwalk_total, 24, "randomwalk", slots
             )
         elif discover_active:
             self._travel_bar_slot(
-                self.ctx.discover_current, self.ctx.discover_total,
-                20, "discover", slots,
+                self.ctx.discover_current, self.ctx.discover_total, 20, "discover", slots
             )
         elif ar_active:
             idx = getattr(engine, "exclusive_rule_index", None)
@@ -1336,7 +1361,7 @@ class ToolbarRenderer:
         from .progressbars import TRAVEL_BAR_NAME, bar_color_at, resolve_text_color_hex
 
         travel_cfg = None
-        for cfg in (self.ctx.progressbar_configs or []):
+        for cfg in self.ctx.progressbar_configs or []:
             if cfg.name == TRAVEL_BAR_NAME or (cfg.name and not cfg.gmcp_package):
                 travel_cfg = cfg
                 break
@@ -1358,9 +1383,13 @@ class ToolbarRenderer:
             side = getattr(travel_cfg, "side", "right")
 
         mode_frags = _vital_bar(
-            cur, tot, width, kind,
+            cur,
+            tot,
+            width,
+            kind,
             color_override=color_override,
-            text_fill_color=text_fill, text_empty_color=text_empty,
+            text_fill_color=text_fill,
+            text_empty_color=text_empty,
         )
         mode_w = sum(_wcswidth(t) for _, t in mode_frags)
         slots.append(
@@ -1373,8 +1402,7 @@ class ToolbarRenderer:
                 min_width=0,
                 label="",
                 growable=True,
-                grow_params=(cur, tot, kind, -1.0, color_override,
-                             text_fill, text_empty),
+                grow_params=(cur, tot, kind, -1.0, color_override, text_fill, text_empty),
             )
         )
 
@@ -1466,10 +1494,11 @@ class ToolbarRenderer:
     def restore_cursor(
         self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool
     ) -> None:
-        """Show the cursor at *row*, *col*, using the stoplight glyph if animating.
+        """
+        Show the cursor at *row*, *col*, using the stoplight glyph if animating.
 
-        Picks the appropriate style and OSC color for normal or autoreply
-        background, then makes the terminal cursor visible.
+        Picks the appropriate style and OSC color for normal or autoreply background, then makes the
+        terminal cursor visible.
         """
         if self.cursor_light(bt, row, col, is_autoreply_bg):
             return
@@ -1508,10 +1537,7 @@ class ToolbarRenderer:
 
                 hint = _activity_hint(engine, bt.width)
                 prog = _until_progress(engine)
-                bg = (
-                    _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg
-                    else _STYLE_NORMAL["bg_sgr"]
-                )
+                bg = _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else _STYLE_NORMAL["bg_sgr"]
                 if cq is not None:
                     cursor_col = _render_command_queue(
                         cq,
@@ -1554,10 +1580,7 @@ class ToolbarRenderer:
                     if hint_split != self._last_hint_split:
                         self._last_hint_split = hint_split
                         col = bt.width - hint_w
-                        bg = (
-                            _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg
-                            else _STYLE_NORMAL["bg_sgr"]
-                        )
+                        bg = _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else _STYLE_NORMAL["bg_sgr"]
                         self.out.write(bt.move_yx(input_row, col).encode())
                         _write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
                     if prog is not None:

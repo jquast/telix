@@ -23,6 +23,7 @@ from dataclasses import field, dataclass
 # 3rd party
 from wcwidth import strip_sequences
 
+# local
 from .client_repl_render import scramble_password
 
 if TYPE_CHECKING:
@@ -946,7 +947,10 @@ class AutoreplyEngine:
         :param reply_text: Fully substituted reply string.
         """
         from .client_repl_commands import (
-            StepResult, DispatchHooks, dispatch_one, expand_commands_ex,
+            StepResult,
+            DispatchHooks,
+            dispatch_one,
+            expand_commands_ex,
         )
 
         expanded = expand_commands_ex(reply_text)
@@ -970,8 +974,7 @@ class AutoreplyEngine:
         sent_count = 0
         for idx, cmd in enumerate(expanded.commands):
             result = await dispatch_one(
-                cmd, idx, sent_count, expanded.immediate_set, hooks,
-                mask_send=mask_send,
+                cmd, idx, sent_count, expanded.immediate_set, hooks, mask_send=mask_send
             )
             if result is StepResult.ABORT:
                 return

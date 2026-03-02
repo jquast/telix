@@ -201,10 +201,7 @@ async def _fast_travel(
                 if ctx.discover_active:
                     prefix = f"AUTODISCOVER [{ctx.discover_current}]: "
                 elif ctx.randomwalk_active:
-                    prefix = (
-                        f"RANDOMWALK [{ctx.randomwalk_current}"
-                        f"/{ctx.randomwalk_total}]: "
-                    )
+                    prefix = f"RANDOMWALK [{ctx.randomwalk_current}" f"/{ctx.randomwalk_total}]: "
                 if attempt == 0:
                     log.info("%s [%d/%d] %s", mode, step_idx + 1, len(steps), direction)
                     if echo_fn is not None:
@@ -804,8 +801,7 @@ async def _randomwalk(
     def _count_filled() -> int:
         """Sum visits across reachable rooms, capped at visit_level per room."""
         if not reachable:
-            return sum(min(int(v), visit_level) for v in walk_counts.values()
-                       if v != float("inf"))
+            return sum(min(int(v), visit_level) for v in walk_counts.values() if v != float("inf"))
         return sum(min(int(walk_counts.get(r, 0)), visit_level) for r in reachable)
 
     try:

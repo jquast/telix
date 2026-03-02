@@ -15,7 +15,6 @@ from telnetlib3.stream_reader import TelnetReader, TelnetReaderUnicode
 from telnetlib3.stream_writer import TelnetWriter, TelnetWriterUnicode
 
 # local
-from .client_repl_commands import _DELAY_RE
 from .session_context import SessionContext, _CommandQueue
 
 # Re-export from sub-modules so existing ``from .client_repl import X``
@@ -85,8 +84,8 @@ from .client_repl_render import (  # noqa: F401
     _layout_toolbar,
     _until_progress,
     _center_truncate,
-    scramble_password,
     editor_cursor_col,
+    scramble_password,
 )
 from .client_repl_travel import (  # noqa: F401
     _DEFAULT_WALK_LIMIT,
@@ -111,6 +110,7 @@ from .client_repl_dialogs import (  # noqa: F401
     _launch_unified_editor,
 )
 from .client_repl_commands import (  # noqa: F401
+    _DELAY_RE,
     _REPEAT_RE,
     _TRAVEL_RE,
     _BACKTICK_RE,
@@ -964,9 +964,7 @@ if sys.platform != "win32":
                 return
             self.ar_rules_ref = cur_rules
             prev_enabled = (
-                self.autoreply_engine.enabled
-                if self.autoreply_engine is not None
-                else True
+                self.autoreply_engine.enabled if self.autoreply_engine is not None else True
             )
             if self.autoreply_engine is not None:
                 self.autoreply_engine.cancel()
@@ -1179,16 +1177,13 @@ if sys.platform != "win32":
             self.dispatch.register("KEY_F4", self._discover_mode)
             self.dispatch.register("KEY_F5", self._resume_last_walk)
             self.dispatch.register(
-                "KEY_F7",
-                lambda: _launch_unified_editor("rooms", self.ctx, self.replay_buf),
+                "KEY_F7", lambda: _launch_unified_editor("rooms", self.ctx, self.replay_buf)
             )
             self.dispatch.register(
-                "KEY_F10",
-                lambda: _launch_unified_editor("captures", self.ctx, self.replay_buf),
+                "KEY_F10", lambda: _launch_unified_editor("captures", self.ctx, self.replay_buf)
             )
             self.dispatch.register(
-                "KEY_F11",
-                lambda: _launch_unified_editor("bars", self.ctx, self.replay_buf),
+                "KEY_F11", lambda: _launch_unified_editor("bars", self.ctx, self.replay_buf)
             )
             self.toolbar.schedule_eta_refresh(
                 self.loop, self.autoreply_engine, self.editor, self.blessed_term
@@ -1386,20 +1381,16 @@ if sys.platform != "win32":
             )  # Ctrl+L
 
             self.dispatch.register(
-                "KEY_F1",
-                lambda: _launch_unified_editor("help", self.ctx, self.replay_buf),
+                "KEY_F1", lambda: _launch_unified_editor("help", self.ctx, self.replay_buf)
             )
             self.dispatch.register(
-                "KEY_F6",
-                lambda: _launch_unified_editor("highlights", self.ctx, self.replay_buf),
+                "KEY_F6", lambda: _launch_unified_editor("highlights", self.ctx, self.replay_buf)
             )
             self.dispatch.register(
-                "KEY_F8",
-                lambda: _launch_unified_editor("macros", self.ctx, self.replay_buf),
+                "KEY_F8", lambda: _launch_unified_editor("macros", self.ctx, self.replay_buf)
             )
             self.dispatch.register(
-                "KEY_F9",
-                lambda: _launch_unified_editor("autoreplies", self.ctx, self.replay_buf),
+                "KEY_F9", lambda: _launch_unified_editor("autoreplies", self.ctx, self.replay_buf)
             )
             self.dispatch.register("KEY_F21", self._toggle_autoreplies)  # Shift+F9
             self.dispatch.register("KEY_F18", self._toggle_highlights)  # Shift+F6

@@ -51,10 +51,16 @@ def _parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
         last_used = str(entry.get("last_used", ""))
         toggle = bool(entry.get("toggle", False))
         toggle_text = str(entry.get("toggle_text", ""))
-        macros.append(Macro(
-            key=key, text=text, enabled=enabled, last_used=last_used,
-            toggle=toggle, toggle_text=toggle_text,
-        ))
+        macros.append(
+            Macro(
+                key=key,
+                text=text,
+                enabled=enabled,
+                last_used=last_used,
+                toggle=toggle,
+                toggle_text=toggle_text,
+            )
+        )
     return macros
 
 
@@ -153,9 +159,7 @@ def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> 
             _m.last_used = datetime.now(timezone.utc).isoformat()
             if hasattr(ctx, "mark_macros_dirty"):
                 ctx.mark_macros_dirty()
-            task = asyncio.ensure_future(
-                _repl.execute_macro_commands(_text, ctx, log)
-            )
+            task = asyncio.ensure_future(_repl.execute_macro_commands(_text, ctx, log))
 
             def _on_done(t: "asyncio.Task[None]") -> None:
                 if not t.cancelled() and t.exception() is not None:

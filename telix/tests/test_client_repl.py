@@ -963,11 +963,7 @@ def _dispatch_hooks(**overrides: Any) -> "tuple[Any, list[str], list[str]]":
     echoed: list[str] = []
     status: list[str] = []
     defaults = dict(
-        ctx=types.SimpleNamespace(
-            gmcp_data={},
-            captures={},
-            autoreply_engine=None,
-        ),
+        ctx=types.SimpleNamespace(gmcp_data={}, captures={}, autoreply_engine=None),
         log=__import__("logging").getLogger("test"),
         wait_fn=None,
         send_fn=sent.append,
@@ -984,11 +980,7 @@ def _dispatch_hooks(**overrides: Any) -> "tuple[Any, list[str], list[str]]":
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "cmd, expected_result",
-    [
-        ("`delay 0ms`", "HANDLED"),
-        ("`delay 1s`", "HANDLED"),
-        ("`delay 500ms`", "HANDLED"),
-    ],
+    [("`delay 0ms`", "HANDLED"), ("`delay 1s`", "HANDLED"), ("`delay 500ms`", "HANDLED")],
 )
 async def test_dispatch_one_delay(
     monkeypatch: pytest.MonkeyPatch, cmd: str, expected_result: str
@@ -1041,7 +1033,7 @@ async def test_dispatch_one_when_pass() -> None:
             gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}},
             captures={},
             autoreply_engine=None,
-        ),
+        )
     )
     result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
     assert result is StepResult.HANDLED
@@ -1059,7 +1051,7 @@ async def test_dispatch_one_when_fail() -> None:
             gmcp_data={"Char.Vitals": {"hp": "20", "maxhp": "100"}},
             captures={},
             autoreply_engine=None,
-        ),
+        )
     )
     result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
     assert result is StepResult.ABORT
@@ -1246,12 +1238,12 @@ from telix.client_repl_render import (  # noqa: E402
     DURATION,
     IDLE_RGB,
     PEAK_RED,
+    _ELLIPSIS,
     IDLE_AR_RGB,
     PEAK_YELLOW,
     ActivityDot,
     lerp_rgb,
     _activity_hint,
-    _ELLIPSIS,
 )
 
 

@@ -53,7 +53,7 @@ class TestLaunchTuiEditorError:
         from telix.client_repl_dialogs import _launch_tui_editor
 
         fail_result = subprocess.CompletedProcess(
-            args=[], returncode=1, stderr=b"NameError: something\n",
+            args=[], returncode=1, stderr=b"NameError: something\n"
         )
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
@@ -120,6 +120,7 @@ class TestLaunchUnifiedEditor:
     @pytest.mark.usefixtures("_stub_terminal")
     def test_subprocess_receives_json_params(self, monkeypatch: Any) -> None:
         import json
+
         from telix.client_repl_dialogs import _launch_unified_editor
 
         captured_cmd: list[list[str]] = []
@@ -156,6 +157,7 @@ class TestLaunchUnifiedEditor:
     @pytest.mark.usefixtures("_stub_terminal")
     def test_all_tabs_pass_correct_initial_tab(self, monkeypatch: Any) -> None:
         import json
+
         from telix.client_repl_dialogs import _launch_unified_editor
 
         captured_tabs: list[str] = []
@@ -185,7 +187,13 @@ class TestLaunchUnifiedEditor:
             _launch_unified_editor(tab, ctx)
 
         assert captured_tabs == [
-            "help", "highlights", "rooms", "macros", "autoreplies", "captures", "bars",
+            "help",
+            "highlights",
+            "rooms",
+            "macros",
+            "autoreplies",
+            "captures",
+            "bars",
         ]
 
     @pytest.mark.usefixtures("_stub_terminal")
@@ -258,21 +266,18 @@ class TestLaunchUnifiedEditor:
     @pytest.mark.usefixtures("_stub_terminal")
     def test_handles_fast_travel(self, monkeypatch: Any) -> None:
         import asyncio
+
         from telix.client_repl_dialogs import _launch_unified_editor
 
         ok_result = subprocess.CompletedProcess(args=[], returncode=0)
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: ok_result)
         monkeypatch.setattr("os.path.exists", lambda p: False)
-        monkeypatch.setattr(
-            "telix.rooms.read_fasttravel", lambda p: (["north", "east"], False)
-        )
+        monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: (["north", "east"], False))
 
         async def fake_fast_travel(steps, ctx, log, noreply=False):
             pass
 
-        monkeypatch.setattr(
-            "telix.client_repl_travel._fast_travel", fake_fast_travel
-        )
+        monkeypatch.setattr("telix.client_repl_travel._fast_travel", fake_fast_travel)
 
         written: list[str] = []
         monkeypatch.setattr(
@@ -300,9 +305,7 @@ class TestLaunchChatViewerError:
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
         from telix.client_repl_dialogs import _launch_chat_viewer
 
-        fail_result = subprocess.CompletedProcess(
-            args=[], returncode=1, stderr=b"Error\n",
-        )
+        fail_result = subprocess.CompletedProcess(args=[], returncode=1, stderr=b"Error\n")
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
 
         written: list[str] = []
@@ -326,9 +329,7 @@ class TestLaunchRoomBrowserError:
     def test_error_prompt_on_nonzero(self, monkeypatch: Any) -> None:
         from telix.client_repl_dialogs import _launch_room_browser
 
-        fail_result = subprocess.CompletedProcess(
-            args=[], returncode=1, stderr=b"Error\n",
-        )
+        fail_result = subprocess.CompletedProcess(args=[], returncode=1, stderr=b"Error\n")
         monkeypatch.setattr("subprocess.run", lambda cmd, check=False, **kw: fail_result)
         monkeypatch.setattr("telix.rooms.read_fasttravel", lambda p: ([], False))
 

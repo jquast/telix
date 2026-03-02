@@ -6,21 +6,14 @@ import enum
 import asyncio
 import logging
 from time import monotonic as _monotonic
-from typing import TYPE_CHECKING, Any, Optional, Callable, Awaitable, NamedTuple
+from typing import TYPE_CHECKING, Any, Callable, Optional, Awaitable, NamedTuple
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from .session_context import SessionContext, _CommandQueue
 
 # local
-from .client_repl_render import (
-    _ELLIPSIS,
-    _get_term,
-    _wcswidth,
-    _write_hint,
-    _flash_bg_rgb,
-)
-
+from .client_repl_render import _ELLIPSIS, _get_term, _wcswidth, _write_hint, _flash_bg_rgb
 
 _REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
 _BACKTICK_RE = re.compile(r"`[^`]*`")
@@ -46,7 +39,8 @@ class StepResult(enum.Enum):
 
 @dataclass
 class DispatchHooks:
-    """Caller-specific callbacks for :func:`dispatch_one`.
+    """
+    Caller-specific callbacks for :func:`dispatch_one`.
 
     :param ctx: Session context.
     :param log: Logger instance.
@@ -193,7 +187,8 @@ def expand_commands(line: str) -> list[str]:
 
 
 def _get_search_buffer(ctx: "SessionContext") -> Optional[Any]:
-    """Return the :class:`SearchBuffer` for *ctx*, or ``None``.
+    """
+    Return the :class:`SearchBuffer` for *ctx*, or ``None``.
 
     Works for both macro execution (where ``ctx.autoreply_engine`` is the
     engine) and autoreply execution (where the engine *is* ``self`` and
@@ -216,7 +211,8 @@ async def dispatch_one(
     hooks: DispatchHooks,
     mask_send: bool = False,
 ) -> StepResult:
-    """Dispatch a single backtick command or plain send.
+    """
+    Dispatch a single backtick command or plain send.
 
     Handles ``delay``, ``when``, ``until``, ``untils``, and plain send
     commands.  Caller keeps its own loop structure.
@@ -326,9 +322,7 @@ async def dispatch_one(
 
 
 _TRAVEL_RE = re.compile(
-    r"^`(travel|return"
-    r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$",
-    re.IGNORECASE,
+    r"^`(travel|return" r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$", re.IGNORECASE
 )
 
 _COMMAND_DELAY = 0.25
@@ -336,7 +330,8 @@ _MOVE_MAX_RETRIES = 2
 
 
 def _is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
-    """Return ``True`` if *cmd* matches a known exit from the current room.
+    """
+    Return ``True`` if *cmd* matches a known exit from the current room.
 
     Falls back to ``True`` when room data is unavailable so that
     movement pacing is used conservatively.
@@ -670,19 +665,18 @@ async def _send_chained(
 
             if attempt < _MOVE_MAX_RETRIES:
                 log.info(
-                    "room unchanged after %r, retrying (%d/%d)",
-                    cmd, attempt + 1, _MOVE_MAX_RETRIES,
+                    "room unchanged after %r, retrying (%d/%d)", cmd, attempt + 1, _MOVE_MAX_RETRIES
                 )
             else:
                 log.warning(
-                    "room unchanged after %r, giving up after %d retries",
-                    cmd, _MOVE_MAX_RETRIES,
+                    "room unchanged after %r, giving up after %d retries", cmd, _MOVE_MAX_RETRIES
                 )
                 return
 
 
 def _macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
-    """Send a single command for macro execution.
+    """
+    Send a single command for macro execution.
 
     :param ctx: Session context.
     :param log: Logger.

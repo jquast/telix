@@ -10,7 +10,7 @@ import logging
 import pytest
 
 # local
-from telix.macros import Macro, build_macro_dispatch, load_macros, save_macros
+from telix.macros import Macro, load_macros, save_macros, build_macro_dispatch
 
 _SK = "test.host:23"
 
@@ -128,19 +128,25 @@ def test_toggle_macro_roundtrip(tmp_path):
 
 def test_toggle_default_state_false(tmp_path):
     fp = tmp_path / "macros.json"
-    fp.write_text(json.dumps({
-        _SK: {"macros": [
-            {"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"},
-        ]}
-    }))
+    fp.write_text(
+        json.dumps(
+            {
+                _SK: {
+                    "macros": [
+                        {"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"}
+                    ]
+                }
+            }
+        )
+    )
     loaded = load_macros(str(fp), _SK)
     assert loaded[0].toggle_state is False
 
 
 def test_toggle_dispatch_alternates():
     pytest.importorskip("blessed")
-    import asyncio
     import types
+    import asyncio
     from unittest.mock import patch
 
     sent: list[str] = []

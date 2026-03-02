@@ -210,12 +210,8 @@ def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") 
             save_data["randomwalk_auto_evaluate"] = bool(
                 data.get("auto_evaluate", default_auto_evaluate)
             )
-            save_data["randomwalk_auto_survey"] = bool(
-                data.get("auto_survey", default_auto_survey)
-            )
-            save_data["randomwalk_autoreplies"] = bool(
-                data.get("autoreplies", default_autoreplies)
-            )
+            save_data["randomwalk_auto_survey"] = bool(data.get("auto_survey", default_auto_survey))
+            save_data["randomwalk_autoreplies"] = bool(data.get("autoreplies", default_autoreplies))
             save_prefs(session_key, save_data)
         return str(data.get("command", f"`randomwalk 999 {default_visit_level}`"))
     except (OSError, ValueError):
@@ -435,7 +431,8 @@ def _show_help(
 
 
 def _pause_on_subprocess_error(result: Optional[Any]) -> None:
-    """Pause so the user can read any error output before screen repaint.
+    """
+    Pause so the user can read any error output before screen repaint.
 
     When the TUI subprocess exits with a non-zero return code its traceback
     is already on screen (written by the child's ``_run_editor_app``).
@@ -473,14 +470,12 @@ def _launch_unified_editor(
     import tempfile
     import subprocess
 
+    from .rooms import rooms_path as _rooms_path_fn
+    from .rooms import fasttravel_path as _fasttravel_path_fn
+    from .rooms import read_fasttravel
+    from .rooms import current_room_path as _current_room_path_fn
     from ._paths import CONFIG_DIR as _config_dir
     from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
-    from .rooms import (
-        rooms_path as _rooms_path_fn,
-        read_fasttravel,
-        fasttravel_path as _fasttravel_path_fn,
-        current_room_path as _current_room_path_fn,
-    )
 
     session_key = ctx.session_key
     logfile = _get_logfile_path()
@@ -545,8 +540,7 @@ def _launch_unified_editor(
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import unified_editor_main; "
-        "unified_editor_main()",
+        "import sys; from telix.client_tui import unified_editor_main; " "unified_editor_main()",
         params_json,
     ]
 
@@ -554,8 +548,7 @@ def _launch_unified_editor(
 
     global _editor_active  # noqa: PLW0603
     log.debug(
-        "unified_editor: pre-subprocess initial_tab=%s "
-        "TERM=%s COLORTERM=%s terminal_size=%s",
+        "unified_editor: pre-subprocess initial_tab=%s " "TERM=%s COLORTERM=%s terminal_size=%s",
         initial_tab,
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),

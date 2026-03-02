@@ -73,12 +73,27 @@ def get_theme_colors() -> dict[str, str]:
             cs = app.current_theme
             if cs is not None:
                 return {
-                    k: v for k, v in sorted(cs.generate().items())
-                    if not any(x in k for x in (
-                        "cursor", "button", "footer", "style", "hover",
-                        "disabled", "scrollbar", "input", "link", "text-",
-                        "markdown", "tooltip",
-                    )) and len(v) in (7, 9) and v.startswith("#")
+                    k: v
+                    for k, v in sorted(cs.generate().items())
+                    if not any(
+                        x in k
+                        for x in (
+                            "cursor",
+                            "button",
+                            "footer",
+                            "style",
+                            "hover",
+                            "disabled",
+                            "scrollbar",
+                            "input",
+                            "link",
+                            "text-",
+                            "markdown",
+                            "tooltip",
+                        )
+                    )
+                    and len(v) in (7, 9)
+                    and v.startswith("#")
                 }
     except Exception:
         pass
@@ -88,12 +103,27 @@ def get_theme_colors() -> dict[str, str]:
 
         cs = BUILTIN_THEMES["textual-dark"].to_color_system()
         return {
-            k: v for k, v in sorted(cs.generate().items())
-            if not any(x in k for x in (
-                "cursor", "button", "footer", "style", "hover",
-                "disabled", "scrollbar", "input", "link", "text-",
-                "markdown", "tooltip",
-            )) and len(v) in (7, 9) and v.startswith("#")
+            k: v
+            for k, v in sorted(cs.generate().items())
+            if not any(
+                x in k
+                for x in (
+                    "cursor",
+                    "button",
+                    "footer",
+                    "style",
+                    "hover",
+                    "disabled",
+                    "scrollbar",
+                    "input",
+                    "link",
+                    "text-",
+                    "markdown",
+                    "tooltip",
+                )
+            )
+            and len(v) in (7, 9)
+            and v.startswith("#")
         }
     except Exception:
         return {}
@@ -182,7 +212,7 @@ def detect_progressbars(gmcp_data: dict[str, Any]) -> list[BarConfig]:
             color_path="shortest",
             display_order=0,
             side="right",
-        ),
+        )
     ]
     seen: set[tuple[str, str, str]] = set()
 
