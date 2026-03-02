@@ -17,15 +17,15 @@ TOKEN_MAP: dict[str, str] = {
     "success": "success",
     "error": "error",
     "warning": "warning",
-    "muted": "secondary-darken-2",
+    "muted": "foreground-disabled",
     "input_text": "foreground",
-    "input_bg": "surface-darken-3",
-    "input_suggestion": "surface-lighten-1",
+    "input_bg": "background",
+    "input_suggestion": "foreground-disabled",
     "input_ar_text": "warning",
-    "input_ar_bg": "warning-darken-3",
+    "input_ar_bg": "warning-darken-2",
     "input_ar_suggestion": "warning-darken-2",
     "dmz_active": "warning",
-    "dmz_inactive": "surface-darken-2",
+    "dmz_inactive": "panel",
     "cursor_color": "foreground",
     "cursor_ar_color": "warning-lighten-1",
     "active_cmd": "primary-darken-1",
@@ -46,15 +46,15 @@ FALLBACK: dict[str, str] = {
     "success": "#28c83c",
     "error": "#dc281e",
     "warning": "#e6be1e",
-    "muted": "#666666",
+    "muted": "#555555",
     "input_text": "#ffefD5",
-    "input_bg": "#1a0000",
-    "input_suggestion": "#3c2828",
+    "input_bg": "#000000",
+    "input_suggestion": "#555555",
     "input_ar_text": "#b8860b",
-    "input_ar_bg": "#1a1200",
+    "input_ar_bg": "#1a1400",
     "input_ar_suggestion": "#503c00",
     "dmz_active": "#b8860b",
-    "dmz_inactive": "#320a0a",
+    "dmz_inactive": "#3a3a3a",
     "cursor_color": "#e5ffff",
     "cursor_ar_color": "#e5edff",
     "active_cmd": "#786050",
@@ -123,11 +123,25 @@ def get_repl_palette(session_key: str = "") -> dict[str, str]:
         cache[theme_name] = dict(FALLBACK)
         return cache[theme_name]
 
+    # Resolve background first — needed to blend alpha-bearing hex values.
+    bg_token = TOKEN_MAP["background"]
+    bg_raw = generated.get(bg_token, "")
+    bg_hex = bg_raw[:7] if bg_raw.startswith("#") else FALLBACK["background"]
+
     palette: dict[str, str] = {}
     for semantic, token in TOKEN_MAP.items():
         value = generated.get(token)
         if value and isinstance(value, str) and value.startswith("#"):
-            palette[semantic] = value[:7]
+            if len(value) >= 9:
+                # Alpha channel present (#rrggbbaa) — blend against background.
+                alpha = int(value[7:9], 16) / 255.0
+                fg = hex_to_rgb(value[:7])
+                bg = hex_to_rgb(bg_hex)
+                r, g, b = (int(f * alpha + b * (1 - alpha))
+                           for f, b in zip(fg, bg))
+                palette[semantic] = f"#{r:02x}{g:02x}{b:02x}"
+            else:
+                palette[semantic] = value[:7]
         else:
             palette[semantic] = FALLBACK.get(semantic, "#888888")
 

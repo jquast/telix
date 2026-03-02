@@ -353,3 +353,20 @@ class TestDrain:
         writer.write("hello")
         writer.close()
         await asyncio.wait_for(writer.drain(), timeout=1.0)
+
+
+
+class TestWsClientParser:
+    """ws_client.build_parser() supports --no-repl."""
+
+    def test_no_repl_flag_accepted(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com", "--no-repl"])
+        assert args.no_repl is True
+
+    def test_no_repl_defaults_false(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com"])
+        assert args.no_repl is False

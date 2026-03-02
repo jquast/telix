@@ -30,12 +30,15 @@ log = logging.getLogger(__name__)
 WS_SUBPROTOCOL = "gmcp.mudstandards.org"
 
 
-async def run_ws_client(url: str, shell: str = "telix.client_shell.ws_client_shell") -> None:
+async def run_ws_client(
+    url: str, shell: str = "telix.client_shell.ws_client_shell", no_repl: bool = False
+) -> None:
     """
     Connect to a WebSocket MUD server and run the telix shell.
 
     :param url: WebSocket URL (e.g. ``wss://gel.monster:8443``).
     :param shell: Dotted path to the shell coroutine.
+    :param no_repl: If ``True``, skip the interactive REPL (raw I/O only).
     """
     parsed = urllib.parse.urlparse(url)
     host = parsed.hostname or "localhost"
@@ -56,6 +59,7 @@ async def run_ws_client(url: str, shell: str = "telix.client_shell.ws_client_she
         writer = ws_transport.WebSocketWriter(ws, peername=(host, port))
 
         writer.ctx = telnetlib3._session_context.TelnetSessionContext()
+        writer.ctx.no_repl = no_repl
 
         async def receive_loop() -> None:
             """Read WebSocket frames and dispatch to reader/writer."""
@@ -101,6 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="telix.client_shell.ws_client_shell",
         help="Dotted path to shell coroutine (default: telix WS shell).",
     )
+    parser.add_argument(
+        "--no-repl",
+        action="store_true",
+        default=False,
+        dest="no_repl",
+        help="Disable the interactive REPL (raw I/O only).",
+    )
     return parser
 
 
@@ -110,7 +121,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        asyncio.run(run_ws_client(url=args.url, shell=args.shell))
+        asyncio.run(run_ws_client(url=args.url, shell=args.shell, no_repl=args.no_repl))
     except KeyboardInterrupt:
         pass
     except OSError as err:

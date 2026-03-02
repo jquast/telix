@@ -323,11 +323,12 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
     :param reader: :class:`WebSocketReader` fed by the receive loop.
     :param writer: :class:`WebSocketWriter` wrapping the WebSocket connection.
     """
-    # 1. Build SessionContext and attach to writer.
+    # 1. Build SessionContext and attach to writer, preserving no_repl from initial ctx.
     session_key = build_session_key(writer)
+    old_ctx = writer.ctx
     ctx = session_context.SessionContext(session_key=session_key)
     ctx.writer = writer
-    ctx.repl_enabled = True
+    ctx.repl_enabled = not old_ctx.no_repl
     writer.ctx = ctx
 
     # 2. Load per-session configs.
@@ -361,7 +362,7 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
         stdout.write(f"Escape character is '{escape_name}'.{banner_sep}".encode())
 
         # WebSocket is always line-mode: run REPL once (no raw loop).
-        if tty_shell._istty:
+        if tty_shell._istty and ctx.repl_enabled:
             await client_repl.repl_event_loop(
                 reader,  # type: ignore[arg-type]
                 writer,  # type: ignore[arg-type]

@@ -132,6 +132,8 @@ Run individual linters::
 Style and static analysis
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
+- Do not use ``getattr(obj, "attr", default)`` as defensive noise when the attribute is always
+  present.  If the call site owns the invariant, access it directly as ``obj.attr``.
 - Do not use single-underscore prefixes on names (functions, classes, constants, methods, or
   attributes).  This project has no public Python API -- all names are internal.  Exceptions:
   - Unused variables in unpacking (e.g. ``for _s, _e, name in spans:``)

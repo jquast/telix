@@ -272,7 +272,7 @@ def build_tooltips() -> dict[str, str]:
 @dataclasses.dataclass
 class SessionConfig:
     """
-    Persistent configuration for a single telnet session.
+    Persistent configuration for a single session.
 
     Field defaults mirror the CLI defaults in
     :func:`telnetlib3.client.get_argument_parser`.
@@ -285,6 +285,8 @@ class SessionConfig:
     # Connection
     host: str = ""
     port: int = 23
+    protocol: str = "telnet"  # "telnet" or "websocket"
+    ws_path: str = ""  # path appended to WebSocket URL (e.g. "/ws")
     ssl: bool = False
     ssl_cafile: str = ""
     ssl_no_verify: bool = False
@@ -392,6 +394,17 @@ CMD_NEG_BOOL_FLAGS: list[tuple[str, str, bool]] = [("ice_colors", "--no-ice-colo
 
 def build_command(config: SessionConfig) -> list[str]:
     """
+    Build CLI arguments from *config*.
+
+    Dispatches to the appropriate builder based on ``config.protocol``.
+    """
+    if config.protocol == "websocket":
+        return build_ws_command(config)
+    return build_telnet_command(config)
+
+
+def build_telnet_command(config: SessionConfig) -> list[str]:
+    """
     Build ``telnetlib3-client`` CLI arguments from *config*.
 
     Only emits flags that differ from the CLI defaults.
@@ -432,6 +445,28 @@ def build_command(config: SessionConfig) -> list[str]:
             if opt := opt.strip():
                 cmd.extend([flag, opt])
 
+    return cmd
+
+
+def build_ws_command(config: SessionConfig) -> list[str]:
+    """
+    Build WebSocket client CLI arguments from *config*.
+
+    Constructs a ``ws://`` or ``wss://`` URL from the session config fields.
+    """
+    scheme = "wss" if config.ssl else "ws"
+    standard_port = 443 if config.ssl else 80
+    if config.port == standard_port:
+        host_part = config.host
+    else:
+        host_part = f"{config.host}:{config.port}"
+    ws_path = config.ws_path
+    if ws_path and not ws_path.startswith("/"):
+        ws_path = "/" + ws_path
+    url = f"{scheme}://{host_part}{ws_path}"
+    cmd = [sys.executable, "-c", "from telix.ws_client import main; main()", url]
+    if config.no_repl:
+        cmd.append("--no-repl")
     return cmd
 
 
@@ -536,6 +571,8 @@ class SessionListScreen(textual.screen.Screen[None]):
     def flags(cfg: SessionConfig) -> str:
         """Return short flag codes summarizing non-default session options."""
         parts: list[str] = []
+        if cfg.protocol == "websocket":
+            parts.append("ws")
         if cfg.ssl:
             parts.append("ssl")
         if cfg.mode == "raw":
@@ -823,7 +860,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         width: 100%;
         max-width: 65;
         height: 100%;
-        max-height: 26;
+        max-height: 30;
         border: round $surface-lighten-2;
         background: $surface;
         padding: 1 1;
@@ -870,41 +907,77 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     .switch-row {
         height: 3;
     }
-    #host-port-sep {
-        width: 1;
+    .conn-label {
+        width: 8;
+        text-align: right;
         padding-top: 1;
+    }
+    #name-row, #host-row {
+        margin-bottom: 1;
+    }
+    #host {
+        max-width: 30;
+    }
+    #port-label {
+        width: auto;
+        padding-top: 1;
+        padding-left: 2;
     }
     #port {
         max-width: 14;
+    }
+    #protocol-radio {
+        height: auto;
+    }
+    #protocol-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+    #protocol-col {
+        width: 1fr;
+        height: auto;
+    }
+    #ssl-col {
+        width: 22;
+        height: auto;
+        padding-left: 2;
+    }
+    #ws-path-row {
+        display: none;
+    }
+    #ws-path-row.visible {
+        display: block;
+    }
+    #ssl-compress-row.ws-hidden {
+        display: none;
     }
     #ssl-compress-row {
         height: auto;
     }
     #server-type-col {
-        width: auto;
-        max-width: 17;
-        height: auto;
-    }
-    #compression-col {
-        width: auto;
-        max-width: 19;
-        height: auto;
-    }
-    #ssl-timeout-col {
         width: 1fr;
         height: auto;
-        padding-left: 2;
     }
-    #ssl-label {
-        width: 11;
+    #server-type-label {
+        width: 12;
+        text-align: right;
         padding-top: 1;
     }
-    #timeout-label {
-        width: 11;
+    #compression-col {
+        width: 22;
+        height: auto;
+    }
+    #ssl-label {
+        width: 9;
+        text-align: right;
         padding-top: 1;
     }
     #connect-timeout {
         max-width: 13;
+    }
+    #conn-timeout-label {
+        width: 20;
+        padding-top: 1;
     }
     #mode-repl-row {
         height: auto;
@@ -987,22 +1060,49 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     def compose_connection_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Connection tab pane."""
         if not self.is_defaults:
-            yield self.field_row(
-                "Name",
+            yield textual.containers.Horizontal(
+                textual.widgets.Label("Name", classes="conn-label"),
                 textual.widgets.Input(
                     value=cfg.name, placeholder="optional display name", id="name", classes="field-input"
                 ),
+                classes="field-row", id="name-row",
             )
             yield textual.containers.Horizontal(
-                textual.widgets.Label("Host:Port", classes="field-label"),
+                textual.widgets.Label("Host", classes="conn-label"),
                 textual.widgets.Input(value=cfg.host, placeholder="hostname", id="host", classes="field-input"),
-                textual.widgets.Static(":", id="host-port-sep"),
-                textual.widgets.Input(value=str(cfg.port), placeholder="23", id="port"),
-                classes="field-row",
+                textual.widgets.Label("Port", id="port-label"),
+                textual.widgets.Input(
+                    value=str(cfg.port),
+                    placeholder="443" if cfg.protocol == "websocket" else "23",
+                    id="port",
+                ),
+                classes="field-row", id="host-row",
             )
+            with textual.containers.Horizontal(id="protocol-row"):
+                with textual.containers.Horizontal(id="protocol-col"):
+                    yield textual.widgets.Label("Protocol", classes="conn-label")
+                    with textual.widgets.RadioSet(id="protocol-radio"):
+                        yield textual.widgets.RadioButton(
+                            "Telnet", value=cfg.protocol != "websocket", id="proto-telnet"
+                        )
+                        yield textual.widgets.RadioButton(
+                            "WebSocket", value=cfg.protocol == "websocket", id="proto-websocket"
+                        )
+                with textual.containers.Horizontal(id="ssl-col"):
+                    yield textual.widgets.Label("SSL/TLS", id="ssl-label")
+                    yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
+            with textual.containers.Horizontal(id="ws-path-row"):
+                yield textual.widgets.Label("WS Path", classes="conn-label")
+                yield textual.widgets.Input(
+                    value=cfg.ws_path, placeholder="/ws", id="ws-path", classes="field-input"
+                )
+        else:
+            with textual.containers.Horizontal(classes="switch-row"):
+                yield textual.widgets.Label("SSL/TLS", id="ssl-label", classes="field-label")
+                yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
         with textual.containers.Horizontal(id="ssl-compress-row"):
-            with textual.containers.Vertical(id="server-type-col"):
-                yield textual.widgets.Label("Server Type")
+            with textual.containers.Horizontal(id="server-type-col"):
+                yield textual.widgets.Label("Server Type", id="server-type-label")
                 with textual.widgets.RadioSet(id="server-type-radio"):
                     yield textual.widgets.RadioButton("BBS", id="type-bbs")
                     yield textual.widgets.RadioButton("MUD", id="type-mud")
@@ -1012,13 +1112,6 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                     yield textual.widgets.RadioButton("Passive", value=cfg.compression is None, id="compress-passive")
                     yield textual.widgets.RadioButton("Yes", value=cfg.compression is True, id="compress-yes")
                     yield textual.widgets.RadioButton("No", value=cfg.compression is False, id="compress-no")
-            with textual.containers.Vertical(id="ssl-timeout-col"):
-                with textual.containers.Horizontal(classes="switch-row"):
-                    yield textual.widgets.Label("SSL/TLS", id="ssl-label")
-                    yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
-                with textual.containers.Horizontal(classes="switch-row"):
-                    yield textual.widgets.Label("Timeout", id="timeout-label")
-                    yield textual.widgets.Input(value=str(cfg.connect_timeout), id="connect-timeout")
 
     def compose_terminal_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Terminal tab pane."""
@@ -1076,6 +1169,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
 
     def compose_advanced_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Advanced tab pane."""
+        yield textual.containers.Horizontal(
+            textual.widgets.Label("Connection Timeout", id="conn-timeout-label"),
+            textual.widgets.Input(value=str(cfg.connect_timeout), id="connect-timeout"),
+            classes="field-row",
+        )
         yield self.field_row(
             "Send Environ", textual.widgets.Input(value=cfg.send_environ, id="send-environ", classes="field-input")
         )
@@ -1134,11 +1232,15 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             idx = radio_set.pressed_index
             if idx >= 0:
                 radio_set._selected = idx
+        if not self.is_defaults:
+            self.apply_protocol_visibility(self.config.protocol == "websocket")
 
     def on_radio_set_changed(self, event: textual.widgets.RadioSet.Changed) -> None:
-        """Handle radio-set changes for server type and terminal mode."""
+        """Handle radio-set changes for server type, protocol, and terminal mode."""
         if event.radio_set.id == "server-type-radio":
             self.apply_server_type(event.pressed.id)
+        elif event.radio_set.id == "protocol-radio":
+            self.apply_protocol_visibility(event.pressed.id == "proto-websocket")
         elif event.radio_set.id == "mode-radio":
             is_raw = event.pressed.id == "mode-raw"
             repl_switch = self.query_one("#use-repl", textual.widgets.Switch)
@@ -1174,6 +1276,20 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             self.query_one("#ice-colors", textual.widgets.Switch).value = False
             self.update_palette_preview()
             self.notify("MUD: MCCP Compression yes, Line mode, REPL on, Color Palette none, iCE Colors off")
+
+    def apply_protocol_visibility(self, is_ws: bool) -> None:
+        """Toggle visibility of telnet-only and websocket-only widgets."""
+        self.query_one("#ssl-compress-row").set_class(is_ws, "ws-hidden")
+        self.query_one("#ws-path-row").set_class(is_ws, "visible")
+        port_input = self.query_one("#port", textual.widgets.Input)
+        port_input.placeholder = "443" if is_ws else "23"
+        port_val = int_val(port_input.value, 0)
+        if is_ws and port_val == 23:
+            port_input.value = "443"
+        elif not is_ws and port_val == 443:
+            port_input.value = "23"
+        elif not is_ws and port_val == 80:
+            port_input.value = "23"
 
     def on_select_changed(self, event: textual.widgets.Select.Changed) -> None:
         """React to Select widget changes."""
@@ -1309,6 +1425,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             cfg.name = self.query_one("#name", textual.widgets.Input).value.strip()
             cfg.host = self.query_one("#host", textual.widgets.Input).value.strip()
             cfg.port = int_val(self.query_one("#port", textual.widgets.Input).value, 23)
+            cfg.ws_path = self.query_one("#ws-path", textual.widgets.Input).value.strip()
+            if self.query_one("#proto-websocket", textual.widgets.RadioButton).value:
+                cfg.protocol = "websocket"
+            else:
+                cfg.protocol = "telnet"
         else:
             cfg.name = DEFAULTS_KEY
 
@@ -1396,7 +1517,7 @@ class HelpPane(textual.containers.Vertical):
     #help-scroll {
         height: 1fr;
     }
-    #help-scroll textual.widgets.Markdown {
+    #help-scroll Markdown {
         margin: 0 1;
     }
     """
@@ -1473,8 +1594,8 @@ class EditListPane(textual.containers.Vertical):
     .edit-table { height: 1fr; min-height: 4; overflow-x: hidden; }
     .edit-form { height: 1fr; }
     .edit-form .field-row { height: 3; margin: 0; }
-    .edit-form textual.widgets.Input { width: 1fr; border: tall grey; }
-    .edit-form textual.widgets.Input:focus { border: tall $accent; }
+    .edit-form Input { width: 1fr; border: tall grey; }
+    .edit-form Input:focus { border: tall $accent; }
     .edit-form-buttons { height: 3; align-horizontal: right; }
     .edit-form-buttons Button { width: auto; min-width: 10; margin-left: 1; }
     .insert-btn { width: auto; min-width: 0; margin-left: 1; }

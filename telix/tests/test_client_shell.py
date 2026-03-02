@@ -298,3 +298,38 @@ class TestWsClientShellGMCP:
         room_data = {"num": "42", "name": "Test Room"}
         writer.dispatch_gmcp("Room.Info", room_data)
         assert received == [room_data]
+
+
+class TestWsClientShellNoRepl:
+    """ws_client_shell respects no_repl set on the initial ctx by run_ws_client."""
+
+    def test_repl_enabled_by_default(self) -> None:
+        """ctx.repl_enabled is True when no_repl is not set on the initial ctx."""
+        from telnetlib3._session_context import TelnetSessionContext
+        from telix.ws_transport import WebSocketWriter
+
+        ws = MagicMock()
+        writer = WebSocketWriter(ws, peername=("gel.monster", 8443))
+        initial_ctx = TelnetSessionContext()
+        writer.ctx = initial_ctx
+
+        # no_repl not set → repl_enabled should be True
+        assert not getattr(initial_ctx, "no_repl", False)
+
+    def test_no_repl_flag_on_initial_ctx_disables_repl(self) -> None:
+        """When initial ctx has no_repl=True, ws_client_shell sets repl_enabled=False."""
+        from telnetlib3._session_context import TelnetSessionContext
+        from telix.ws_transport import WebSocketWriter
+        from telix.session_context import SessionContext
+
+        ws = MagicMock()
+        writer = WebSocketWriter(ws, peername=("gel.monster", 8443))
+        initial_ctx = TelnetSessionContext()
+        initial_ctx.no_repl = True
+        writer.ctx = initial_ctx
+
+        old_ctx = writer.ctx
+        ctx = SessionContext(session_key="gel.monster:8443")
+        ctx.repl_enabled = not old_ctx.no_repl
+
+        assert ctx.repl_enabled is False

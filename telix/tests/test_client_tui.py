@@ -241,6 +241,64 @@ def test_build_command_missing_host() -> None:
     assert "" in cmd
 
 
+def test_build_command_websocket_with_ssl() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True)
+    cmd = build_command(cfg)
+    assert "wss://example.com" in cmd
+    assert cmd[0] == sys.executable
+    assert "ws_client" in cmd[2]
+
+
+def test_build_command_websocket_without_ssl() -> None:
+    cfg = SessionConfig(host="example.com", port=4000, protocol="websocket", ssl=False)
+    cmd = build_command(cfg)
+    assert "ws://example.com:4000" in cmd
+
+
+def test_build_command_websocket_standard_port_omitted() -> None:
+    cfg = SessionConfig(host="example.com", port=80, protocol="websocket", ssl=False)
+    cmd = build_command(cfg)
+    assert "ws://example.com" in cmd
+    assert ":80" not in cmd[-1]
+
+
+def test_build_command_websocket_ws_path() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True, ws_path="/ws")
+    cmd = build_command(cfg)
+    assert "wss://example.com/ws" in cmd
+
+
+def test_build_command_websocket_ws_path_no_leading_slash() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True, ws_path="ws")
+    cmd = build_command(cfg)
+    assert "wss://example.com/ws" in cmd
+
+
+def test_build_command_websocket_ws_path_empty() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True, ws_path="")
+    cmd = build_command(cfg)
+    assert "wss://example.com" in cmd
+
+
+def test_build_command_telnet_default_protocol() -> None:
+    cfg = SessionConfig(host="example.com", port=23)
+    cmd = build_command(cfg)
+    assert "telnetlib3" in cmd[2]
+    assert "ws_client" not in cmd[2]
+
+
+def test_build_command_websocket_no_repl_forwarded() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True, no_repl=True)
+    cmd = build_command(cfg)
+    assert "--no-repl" in cmd
+
+
+def test_build_command_websocket_repl_default_omitted() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True, no_repl=False)
+    cmd = build_command(cfg)
+    assert "--no-repl" not in cmd
+
+
 def test_macro_screen_loads_empty(tmp_path) -> None:
     path = str(tmp_path / "macros.json")
     screen = MacroEditScreen(path=path)

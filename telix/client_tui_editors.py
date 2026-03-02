@@ -1153,8 +1153,8 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         + """
     #progressbar-form { padding: 0 0 0 4; }
     #progressbar-form .form-label { width: 12; }
-    #progressbar-form textual.widgets.Input { max-width: 50; }
-    #progressbar-form textual.widgets.Select { max-width: 50; }
+    #progressbar-form Input { max-width: 50; }
+    #progressbar-form Select { max-width: 50; }
     #pb-gmcp-select { max-width: 18; }
     #pb-value-select { max-width: 18; }
     #pb-max-select { max-width: 18; }
