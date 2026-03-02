@@ -72,7 +72,7 @@ one-way trap).
 
 Home rooms are marked with **⌂**.  Only one home room can be set per
 area.  Setting a new home in an area clears the previous one.  Use the
-backtick command `` `home` `` to fast travel to the home room of your
+backtick command `` `home` `` to travel to the home room of your
 current area.
 
 ### Marks
@@ -80,9 +80,8 @@ current area.
 Marked rooms are marked with **➽**.  Marks are purely visual with no
 functional effect -- use them to flag rooms of interest.
 
-### Fast Travel vs Slow Travel
+### Travel
 
-- **Fast travel** moves through rooms without stopping, skipping
-  exclusive autoreplies.  Use this for quick navigation.
-- **Slow travel** waits for autoreplies to finish in each room along
-  the path.  Use this when autoreplies need to fire during movement.
+Travel moves through rooms, waiting for autoreplies (including exclusive
+ones) to finish in each room before proceeding.  Use the `noreply`
+option to disable autoreplies entirely during travel.

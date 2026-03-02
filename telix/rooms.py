@@ -601,15 +601,15 @@ def read_current_room(path: str) -> str:
         return ""
 
 
-def write_fasttravel(path: str, steps: list[tuple[str, str]], slow: bool = False) -> None:
+def write_fasttravel(path: str, steps: list[tuple[str, str]], noreply: bool = False) -> None:
     """
     Write fast travel steps to disk for the REPL to read.
 
     :param path: File path.
     :param steps: List of (direction, expected_room_num) pairs.
-    :param slow: If ``True``, all autoreplies (including exclusive) fire.
+    :param noreply: If ``True``, disable autoreplies during travel.
     """
-    data = {"steps": steps, "slow": slow}
+    data = {"steps": steps, "noreply": noreply}
     _atomic_write(path, json.dumps(data))
 
 
@@ -618,9 +618,9 @@ def read_fasttravel(path: str) -> tuple[list[tuple[str, str]], bool]:
     Read and delete fast travel steps from disk.
 
     :param path: File path written by :func:`write_fasttravel`.
-    :returns: Tuple of (steps, slow) where steps is a list of
-        (direction, expected_room_num) pairs and slow indicates
-        whether exclusive autoreplies should fire.
+    :returns: Tuple of ``(steps, noreply)`` where *steps* is a list of
+        ``(direction, expected_room_num)`` pairs and *noreply* indicates
+        whether autoreplies should be disabled.
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -628,8 +628,9 @@ def read_fasttravel(path: str) -> tuple[list[tuple[str, str]], bool]:
         os.unlink(path)
         if isinstance(data, dict):
             steps = [(str(d), str(r)) for d, r in data.get("steps", [])]
-            slow = bool(data.get("slow", False))
-            return steps, slow
+            # Backward compat: old files with "slow" key → noreply=False
+            noreply = bool(data.get("noreply", False))
+            return steps, noreply
         # Legacy format: bare list
         return [(str(d), str(r)) for d, r in data], False
     except (OSError, ValueError):

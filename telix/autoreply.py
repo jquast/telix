@@ -35,7 +35,6 @@ __all__ = (
     "check_condition",
 )
 
-_DELAY_RE = re.compile(r"^`delay\s+(\d+(?:\.\d+)?)(ms|s)`$")
 _GROUP_RE = re.compile(r"\\(\d+)")
 _COND_RE = re.compile(r"^(>=|<=|>|<|=)(\d+)$")
 _KILL_RE = re.compile(r"^kill\s+(\S+)", re.IGNORECASE)
@@ -525,6 +524,8 @@ class SearchBuffer:
         if len(parts) == 1:
             # No newline in this chunk -- accumulate partial.
             self._partial = parts[0]
+            if self._partial and self._new_text is not None:
+                self._new_text.set()
             return False
 
         # Last element is the new partial (may be empty string).
@@ -707,7 +708,6 @@ class AutoreplyEngine:
         self._cycle_matched: set[int] = set()
         self._condition_blocked: set[int] = set()
         self._condition_retried: bool = False
-        self._suppress_exclusive = False
         self._enabled = True
         self._last_matched_pattern: str = ""
         self._condition_failed: Optional[tuple[int, str]] = None
@@ -740,15 +740,6 @@ class AutoreplyEngine:
     def exclusive_rule_index(self) -> int:
         """1-based index of the active exclusive rule, or 0 if none."""
         return self._excl.rule_index
-
-    @property
-    def suppress_exclusive(self) -> bool:
-        """When ``True``, exclusive rules match but do not enter exclusive mode."""
-        return self._suppress_exclusive
-
-    @suppress_exclusive.setter
-    def suppress_exclusive(self, value: bool) -> None:
-        self._suppress_exclusive = value
 
     @property
     def enabled(self) -> bool:
@@ -858,11 +849,6 @@ class AutoreplyEngine:
                 match = rule.pattern.search(searchable)
                 if match:
                     self._last_matched_pattern = rule.pattern.pattern
-                    if not immediate_only and self._suppress_exclusive:
-                        self._cycle_matched.add(rule_idx)
-                        self._buffer.advance_match(match.start(), len(match.group(0)))
-                        found = True
-                        break
                     if rule.when:
                         ok, desc = check_condition(rule.when, self._ctx)
                         if not ok:
@@ -934,6 +920,19 @@ class AutoreplyEngine:
             self._excl.clear()
             self._status = ""
 
+    def _set_status(self, text: str) -> None:
+        """Set the engine's status string."""
+        self._status = text
+
+    def _set_progress(self, start: float, deadline: float) -> None:
+        """Set the until/delay progress window."""
+        self._until_start = start
+        self._until_deadline = deadline
+
+    def _clear_progress(self) -> None:
+        """Clear the until/delay progress window."""
+        self._until_start = self._until_deadline = 0.0
+
     async def _execute_reply(self, reply_text: str) -> None:
         r"""
         Execute a single reply as a command language sequence.
@@ -944,95 +943,38 @@ class AutoreplyEngine:
 
         :param reply_text: Fully substituted reply string.
         """
-        from .client_repl_commands import _WHEN_RE, _UNTIL_RE, _UNTILS_RE, expand_commands_ex
+        from .client_repl_commands import (
+            StepResult, DispatchHooks, dispatch_one, expand_commands_ex,
+        )
 
         expanded = expand_commands_ex(reply_text)
+        writer = self._ctx.writer
+        mask_send = writer is not None and getattr(writer, "will_echo", False)
+        activity_cb = getattr(self._ctx, "on_autoreply_activity", None)
+
+        hooks = DispatchHooks(
+            ctx=self._ctx,
+            log=self._log,
+            wait_fn=self._wait_fn,
+            send_fn=self._send_command,
+            echo_fn=None,
+            on_status=self._set_status,
+            on_progress=self._set_progress,
+            on_progress_clear=self._clear_progress,
+            on_activity=activity_cb,
+            prompt_ready=None,
+            search_buffer=self._buffer,
+        )
         sent_count = 0
         for idx, cmd in enumerate(expanded.commands):
-            dm = _DELAY_RE.match(cmd)
-            if dm:
-                value = float(dm.group(1))
-                unit = dm.group(2)
-                delay = value / 1000.0 if unit == "ms" else value
-                if delay > 0:
-                    self._status = f"delay {cmd.strip()}"
-                    now = time.monotonic()
-                    self._until_start = now
-                    self._until_deadline = now + delay
-                    cb = getattr(self._ctx, "on_autoreply_activity", None)
-                    if cb is not None:
-                        cb()
-                    await asyncio.sleep(delay)
-                    self._until_start = self._until_deadline = 0.0
-                continue
-
-            wm = _WHEN_RE.match(cmd)
-            if wm:
-                vital, op, val = wm.group(1), wm.group(2), wm.group(3)
-                self._status = f"when {vital}{op}{val}"
-                ok, desc = check_condition({vital: f"{op}{val}"}, self._ctx)
-                if not ok:
-                    self._log.info("autoreply: when condition failed: %s", desc)
-                    self._status = ""
-                    return
-                continue
-
-            um = _UNTIL_RE.match(cmd)
-            if um:
-                timeout = float(um.group(1) or "4")
-                pattern_str = um.group(2)
-                self._status = f"until /{pattern_str}/"
-                now = time.monotonic()
-                self._until_start = now
-                self._until_deadline = now + timeout
-                cb = getattr(self._ctx, "on_autoreply_activity", None)
-                if cb is not None:
-                    cb()
-                compiled = re.compile(pattern_str, re.IGNORECASE | re.MULTILINE | re.DOTALL)
-                match = await self._buffer.wait_for_pattern(compiled, timeout)
-                self._until_start = self._until_deadline = 0.0
-                if match is None:
-                    self._log.info("autoreply: until timed out for %r", pattern_str)
-                    self._status = ""
-                    return
-                continue
-
-            us = _UNTILS_RE.match(cmd)
-            if us:
-                timeout = float(us.group(1) or "4")
-                pattern_str = us.group(2)
-                self._status = f"untils /{pattern_str}/"
-                now = time.monotonic()
-                self._until_start = now
-                self._until_deadline = now + timeout
-                cb = getattr(self._ctx, "on_autoreply_activity", None)
-                if cb is not None:
-                    cb()
-                # untils is case-SENSITIVE -- no IGNORECASE flag
-                compiled_cs = re.compile(pattern_str, re.MULTILINE | re.DOTALL)
-                match = await self._buffer.wait_for_pattern(compiled_cs, timeout)
-                self._until_start = self._until_deadline = 0.0
-                if match is None:
-                    self._log.info("autoreply: untils timed out for %r", pattern_str)
-                    self._status = ""
-                    return
-                continue
-
-            # Skip wait_fn for the first command -- the match was
-            # triggered by output that ended with a GA/EOR prompt
-            # signal, so the server is already ready for input.
-            # Also skip for commands in the immediate set (`|` separator).
-            if sent_count > 0 and idx not in expanded.immediate_set:
-                self._status = "waiting for prompt"
-                if self._wait_fn is not None:
-                    await self._wait_fn()
-            writer = self._ctx.writer
-            if writer is not None and getattr(writer, "will_echo", False):
-                self._status = "send: (masked)"
-            else:
-                self._status = f"send: {cmd}"
-            self._send_command(cmd)
-            sent_count += 1
+            result = await dispatch_one(
+                cmd, idx, sent_count, expanded.immediate_set, hooks,
+                mask_send=mask_send,
+            )
+            if result is StepResult.ABORT:
+                return
+            if result is StepResult.SENT:
+                sent_count += 1
         self._status = ""
 
     def _send_command(self, cmd: str) -> None:

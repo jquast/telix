@@ -1,4 +1,4 @@
-"""Movement and pathfinding: fast/slow travel, autodiscover, randomwalk."""
+"""Movement and pathfinding: travel, autodiscover, randomwalk."""
 
 # std imports
 import random
@@ -46,23 +46,21 @@ async def _fast_travel(
     steps: list[tuple[str, str]],
     ctx: "SessionContext",
     log: logging.Logger,
-    slow: bool = False,
     destination: str = "",
     correct_names: bool = True,
+    noreply: bool = False,
 ) -> None:
     """
-    Execute fast travel by sending movement commands with GA/EOR pacing.
+    Execute travel by sending movement commands with GA/EOR pacing.
 
     Uses the same ``_wait_for_prompt`` / ``_echo_command`` functions that
     the autoreply engine and manual input use, so commands are paced by
     the server's GA/EOR prompt signal and echoed visibly.
 
-    In fast mode (default), exclusive autoreplies are suppressed.
-    Non-exclusive autoreplies still fire; travel pauses until they
-    complete and then waits for a clean EOR with no match before
-    sending the next direction.
-
-    In slow mode, all autoreplies fire including exclusive ones.
+    By default all autoreplies fire.  Travel waits for exclusive rules
+    (e.g. combat triggers) to finish in each room before moving.
+    With ``noreply=True`` the engine is disabled entirely and the settle
+    loop naturally does nothing.
 
     When the player arrives at an unexpected room, instead of aborting
     the function re-pathfinds from the actual position to *destination*
@@ -71,11 +69,11 @@ async def _fast_travel(
     :param steps: List of (direction, expected_room_num) pairs.
     :param ctx: Session context for sending commands.
     :param log: Logger.
-    :param slow: If ``True``, allow exclusive autoreplies.
     :param destination: Final target room ID for re-pathfinding on detour.
     :param correct_names: If ``True`` (default), rewrite graph edges when
         arriving at a same-name room with a different ID.  Set to ``False``
         when distinct room IDs must be preserved.
+    :param noreply: Completely disable the autoreply engine during travel.
     """
     wait_fn = ctx.wait_for_prompt
     echo_fn = ctx.echo_command
@@ -87,10 +85,12 @@ async def _fast_travel(
         return ctx.autoreply_engine
 
     engine = _get_engine()
-    if engine is not None and not slow:
-        engine.suppress_exclusive = True
+    engine_was_enabled = True
+    if noreply and engine is not None:
+        engine_was_enabled = engine.enabled
+        engine.enabled = False
 
-    mode = "slow travel" if slow else "fast travel"
+    mode = "travel"
 
     from .rooms import RoomGraph
 
@@ -248,27 +248,26 @@ async def _fast_travel(
                 if engine is not None:
                     while engine.reply_pending:
                         await asyncio.sleep(0.05)
-                    if slow:
-                        failed = engine.pop_condition_failed()
-                        if failed is not None:
-                            rule_idx, desc = failed
-                            msg = (
-                                f"Travel mode cancelled - failed "
-                                f"conditional in AUTOREPLY "
-                                f"#{rule_idx} [{desc}]"
-                            )
-                            log.warning("%s", msg)
-                            if echo_fn is not None:
-                                echo_fn(msg)
-                            cond_cancelled = True
-                    # In slow mode, exclusive rules enter exclusive mode
-                    # (e.g. "kill" sent, waiting for "died\.").  Wait for
-                    # combat to finish before moving to the next room.
-                    # After exclusive/reply_pending clear, wait for a
-                    # fresh prompt so the server response to the last
-                    # autoreply command is processed -- it may trigger
-                    # new matches (cascading always-rules).
-                    if slow and (engine.exclusive_active or engine.reply_pending):
+                    failed = engine.pop_condition_failed()
+                    if failed is not None:
+                        rule_idx, desc = failed
+                        msg = (
+                            f"Travel mode cancelled - failed "
+                            f"conditional in AUTOREPLY "
+                            f"#{rule_idx} [{desc}]"
+                        )
+                        log.warning("%s", msg)
+                        if echo_fn is not None:
+                            echo_fn(msg)
+                        cond_cancelled = True
+                    # Exclusive rules enter exclusive mode (e.g. "kill"
+                    # sent, waiting for "died\.").  Wait for combat to
+                    # finish before moving to the next room.  After
+                    # exclusive/reply_pending clear, wait for a fresh
+                    # prompt so the server response to the last autoreply
+                    # command is processed -- it may trigger new matches
+                    # (cascading always-rules).
+                    if engine.exclusive_active or engine.reply_pending:
                         settle_passes = 0
                         max_settle = 20  # safety cap
                         while settle_passes < max_settle:
@@ -421,9 +420,8 @@ async def _fast_travel(
                         prev.exits[exit_dir] = target
                     graph._adj.setdefault(room_num, {})[exit_dir] = target
         ctx.active_command = None
-        engine = _get_engine()
-        if engine is not None:
-            engine.suppress_exclusive = False
+        if noreply and engine is not None:
+            engine.enabled = engine_was_enabled
 
 
 async def _autodiscover(
@@ -530,7 +528,7 @@ async def _autodiscover(
                 if echo_fn is not None:
                     echo_fn(f"AUTODISCOVER [{step_count}]: " f"heading to gateway {gw_room[:8]}")
                 pre_travel = ctx.current_room_num
-                await _fast_travel(steps, ctx, log, slow=False, destination=gw_room)
+                await _fast_travel(steps, ctx, log, destination=gw_room)
                 actual = ctx.current_room_num
                 if actual != gw_room:
                     tried.add((gw_room, direction))
@@ -1080,10 +1078,10 @@ async def _handle_travel_commands(
 
     Recognised commands (case-insensitive, enclosed in backticks):
 
-    - ```fast travel <id>``` -- fast travel to room *id*
-    - ```slow travel <id>``` -- slow travel to room *id*
-    - ```return fast``` -- fast travel back to the macro's starting room
-    - ```return slow``` -- slow travel back to the macro's starting room
+    - ```travel <id>``` -- travel to room *id*
+    - ```travel <id> noreply``` -- travel with autoreplies disabled
+    - ```return``` -- travel back to the macro's starting room
+    - ```return noreply``` -- return with autoreplies disabled
     - ```autodiscover``` -- explore unvisited exits from nearby rooms
     - ```randomwalk``` -- random walk preferring unvisited rooms
 
@@ -1134,7 +1132,7 @@ async def _handle_travel_commands(
                 if echo_fn is not None:
                     echo_fn(f"HOME: no path to home room {home_num}")
                 return parts[idx + 1 :]
-            await _fast_travel(path, ctx, log, slow=False, destination=home_num)
+            await _fast_travel(path, ctx, log, destination=home_num)
             return parts[idx + 1 :]
 
         if verb in ("autodiscover", "randomwalk", "resume"):
@@ -1220,8 +1218,17 @@ async def _handle_travel_commands(
                 )
             return parts[idx + 1 :]
 
-        slow = "slow" in verb
-        is_return = verb.startswith("return")
+        is_return = verb == "return"
+        noreply = False
+        if arg:
+            arg_parts = arg.split()
+            remaining: list[str] = []
+            for ap in arg_parts:
+                if ap.lower() == "noreply":
+                    noreply = True
+                else:
+                    remaining.append(ap)
+            arg = " ".join(remaining)
 
         if is_return:
             room_id = ctx.macro_start_room or ctx.current_room_num
@@ -1248,7 +1255,7 @@ async def _handle_travel_commands(
             log.warning("no path from %s to %s", current, room_id)
             break
 
-        await _fast_travel(path, ctx, log, slow=slow, destination=room_id)
+        await _fast_travel(path, ctx, log, destination=room_id, noreply=noreply)
         return parts[idx + 1 :]
 
     return parts

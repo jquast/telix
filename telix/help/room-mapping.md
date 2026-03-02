@@ -6,7 +6,7 @@ incrementally-growing room graph stored in SQLite at
 
 The room graph supports:
 
-- BFS shortest-path navigation (fast travel, slow travel)
+- BFS shortest-path navigation (travel)
 - Autodiscover (BFS-explore unvisited exits)
 - Random walk (prefer rooms with unvisited exits)
 - Room markers: bookmarks, blocks (excluded from pathfinding), home (one per

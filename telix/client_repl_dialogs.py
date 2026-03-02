@@ -818,10 +818,10 @@ def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None
     if room_graph is not None:
         room_graph._load_adjacency()
 
-    steps, slow = read_fasttravel(ftp)
+    steps, noreply = read_fasttravel(ftp)
     if steps:
-        log.debug("fast travel: scheduling %d steps (slow=%s)", len(steps), slow)
-        task = asyncio.ensure_future(_fast_travel(steps, ctx, log, slow=slow))
+        log.debug("travel: scheduling %d steps (noreply=%s)", len(steps), noreply)
+        task = asyncio.ensure_future(_fast_travel(steps, ctx, log, noreply=noreply))
         ctx.travel_task = task
 
         def _on_done(t: "asyncio.Task[None]") -> None:

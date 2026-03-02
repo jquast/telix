@@ -7,6 +7,23 @@ We welcome contributions via GitHub pull requests:
 - `Creating a pull request
   <https://help.github.com/articles/creating-a-pull-request/>`_
 
+Version API
+-----------
+
+This project uses `Semantic Versioning <https://semver.org/>`_ for the Commands and Files storage
+format. This means that all commands and file storages are expected to be backwards-compatible
+unless a major version is released.
+
+This project *does not* follow semantic visioning of any python functions, classes, modules, and any
+of their signatures or names can be changed at any time.
+
+This project is only a TUI -- the "telix" command will always continue to provide an interface to
+connect to MUDs and BBSs using the same session, rooms, macros, autoreplies, and other data files.
+
+Only in the case that these data files cannot be processed or migrated in a backwards-compatible way,
+or their syntax has changed in a way that is not backwards compatible, then the ``MAJOR`` version
+field will be bumped.
+
 Architecture
 ------------
 
@@ -44,7 +61,6 @@ Module map::
     ├── gmcp_snapshot.py        GMCP snapshot persistence
     │
     ├── _paths.py               XDG base directory resolution
-    ├── _clipboard.py           Clipboard access (xclip/xsel/pbcopy)
     ├── _util.py                Small internal helpers
     └── help/                   Markdown help files loaded at runtime
 
@@ -268,7 +284,10 @@ Style and Static Analysis
   only enough to provide the same amount of coverage, joining related tests, and using parametrized
   testing where possible to reduce length.
 - After a first draft of a medium to large change and testing has been successful, re-review if the
-  code can be made simpler, to reduce size and complexity.
+  code can be made simpler, to reduce size and complexity, by reducing code duplication, use of        
+  walrus operators and context manager patterns or functional or object oriented design.
+  Ways to reduce so many branches, temporary or local variables, or otherwise high mccabe
+  complexity.                                                           
 
 Run all linters::
 

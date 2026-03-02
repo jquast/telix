@@ -15,7 +15,7 @@ from telnetlib3.stream_reader import TelnetReader, TelnetReaderUnicode
 from telnetlib3.stream_writer import TelnetWriter, TelnetWriterUnicode
 
 # local
-from .autoreply import _DELAY_RE
+from .client_repl_commands import _DELAY_RE
 from .session_context import SessionContext, _CommandQueue
 
 # Re-export from sub-modules so existing ``from .client_repl import X``
@@ -140,34 +140,6 @@ if TYPE_CHECKING:
 PASSWORD_CHAR = "\u2593"
 
 log = logging.getLogger(__name__)
-
-
-def _clipboard_copy(  # pylint: disable=no-name-in-module
-    editor: "blessed.line_editor.LineEditor",
-) -> "LineEditResult":
-    """Keymap handler: copy current input line to system clipboard via OSC 52."""
-    from blessed.line_editor import LineEditResult  # type: ignore[import-not-found]
-
-    from ._clipboard import copy_to_clipboard
-
-    text = editor.line
-    if text:
-        copy_to_clipboard(text)
-    return LineEditResult()
-
-
-def _clipboard_paste(  # pylint: disable=no-name-in-module
-    editor: "blessed.line_editor.LineEditor",
-) -> "LineEditResult":
-    """Keymap handler: paste system clipboard contents into input line."""
-    from blessed.line_editor import LineEditResult  # type: ignore[import-not-found]
-
-    from ._clipboard import paste_from_clipboard
-
-    text = paste_from_clipboard()
-    if text:
-        return editor.insert_text(text)
-    return LineEditResult()
 
 
 def _load_history(history: "blessed.line_editor.LineHistory", path: str) -> None:
@@ -896,7 +868,7 @@ if sys.platform != "win32":
                 history=self.history,
                 password=bool(self.telnet_writer.will_echo),
                 max_width=term_cols,
-                keymap={"KEY_CTRL_C": _clipboard_copy, "KEY_CTRL_V": _clipboard_paste},
+                keymap={},
                 **editor_style,
             )
 
@@ -976,10 +948,10 @@ if sys.platform != "win32":
             if cur_rules is self.ar_rules_ref:
                 return
             self.ar_rules_ref = cur_rules
-            prev_suppress = (
-                self.autoreply_engine.suppress_exclusive
+            prev_enabled = (
+                self.autoreply_engine.enabled
                 if self.autoreply_engine is not None
-                else False
+                else True
             )
             if self.autoreply_engine is not None:
                 self.autoreply_engine.cancel()
@@ -995,7 +967,7 @@ if sys.platform != "win32":
                     echo_fn=self._echo_autoreply,
                     wait_fn=self._wait_for_prompt,
                 )
-                self.autoreply_engine.suppress_exclusive = prev_suppress
+                self.autoreply_engine.enabled = prev_enabled
             self.ctx.autoreply_engine = self.autoreply_engine
 
         def _refresh_highlight_engine(self) -> None:

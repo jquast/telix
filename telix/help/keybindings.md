@@ -22,7 +22,7 @@
 | **F3** | Random walk (explore random exits) |
 | **F4** | Autodiscover (explore unvisited exits) |
 | **F5** | Resume last walk |
-| **F7** | Browse rooms / fast travel |
+| **F7** | Browse rooms / travel |
 
 ### Line Editing
 

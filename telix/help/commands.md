@@ -85,24 +85,24 @@ Same as `until` but the pattern match is **case-sensitive**.
 |---------|--------|
 | `` `untils 2 DEAD` `` | Wait up to 2s for exactly "DEAD" |
 
-### Fast Travel / Slow Travel
+### Travel
 
-Navigate to a room by its GMCP room ID.  Fast travel suppresses exclusive
-autoreplies (e.g. combat triggers); slow travel allows them to fire.
+Navigate to a room by its GMCP room ID.  Autoreplies fire in each room
+by default; add `noreply` to disable them.
 
 | Example | Effect |
 |---------|--------|
-| `` `fast travel abc123` `` | Fast travel to room abc123 |
-| `` `slow travel abc123` `` | Slow travel (autoreplies fire) |
+| `` `travel abc123` `` | Travel to room abc123 |
+| `` `travel abc123 noreply` `` | Travel with autoreplies disabled |
 
-### Return Fast / Return Slow
+### Return
 
 Travel back to the room where the current macro started executing.
 
 | Example | Effect |
 |---------|--------|
-| `` `return fast` `` | Return to start room (fast) |
-| `` `return slow` `` | Return to start room (slow, autoreplies fire) |
+| `` `return` `` | Return to start room |
+| `` `return noreply` `` | Return with autoreplies disabled |
 
 ### Home
 
@@ -178,11 +178,10 @@ kill bear;`until 10 died\.\|You killed\|Kill what \?`;get all
 Kill a bear, wait for it to die (or detect a miss), then loot.
 
 ```
-`fast travel 8bd9a5e5`;5order splint;5order bandage;`return slow`
+`travel 8bd9a5e5`;5order splint;5order bandage;`return`
 ```
 
-Fast-travel to a shop, order supplies with repeat prefixes, then return
-via slow travel so autoreplies fire on the way back.
+Travel to a shop, order supplies with repeat prefixes, then return.
 
 ```
 Dingo;`until 10 Password`

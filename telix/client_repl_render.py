@@ -378,9 +378,9 @@ def _lerp_hsv(
 _BAR_WIDTH = 20
 
 _FLASH_RAMP_UP = 0.100  # 100ms linear ramp original -> inverse
-_FLASH_HOLD = 0.250  # 250ms freeze at inverse
+_FLASH_HOLD = 0.200  # 200ms freeze at inverse
 _FLASH_RAMP_DOWN = 0.350  # 350ms linear ramp inverse -> original
-_FLASH_DURATION = 0.700  # total: ramp_up + hold + ramp_down = 700ms
+_FLASH_DURATION = 0.650  # total: ramp_up + hold + ramp_down = 650ms
 _FLASH_INTERVAL = 0.033  # ~33ms between frames (~30fps)
 
 
@@ -518,15 +518,8 @@ def _dmz_line(cols: int, active: bool = False) -> str:
 
 
 def _segmented(text: str) -> str:
-    """Replace ASCII digits 0-9 with segmented digit glyphs U+1FBF0..U+1FBF9."""
-    return text.translate(
-        str.maketrans(
-            "0123456789",
-            "\U0001fbf0\U0001fbf1"
-            "\U0001fbf2\U0001fbf3\U0001fbf4\U0001fbf5"
-            "\U0001fbf6\U0001fbf7\U0001fbf8\U0001fbf9",
-        )
-    )
+    """Return *text* unchanged (plain ASCII digits)."""
+    return text
 
 
 def _sgr_fg(hexcolor: str) -> str:

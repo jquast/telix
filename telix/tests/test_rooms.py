@@ -414,19 +414,19 @@ def test_fasttravel_file_write_read_roundtrip(tmp_path: Any) -> None:
     path = str(tmp_path / ".fasttravel")
     steps = [("north", "101"), ("east", "102")]
     write_fasttravel(path, steps)
-    result_steps, result_slow = read_fasttravel(path)
+    result_steps, result_noreply = read_fasttravel(path)
     assert result_steps == steps
-    assert result_slow is False
+    assert result_noreply is False
     assert not os.path.exists(path)
 
 
-def test_write_read_slow_mode(tmp_path: Any) -> None:
+def test_write_read_noreply_mode(tmp_path: Any) -> None:
     path = str(tmp_path / ".fasttravel")
     steps = [("north", "101")]
-    write_fasttravel(path, steps, slow=True)
-    result_steps, result_slow = read_fasttravel(path)
+    write_fasttravel(path, steps, noreply=True)
+    result_steps, result_noreply = read_fasttravel(path)
     assert result_steps == steps
-    assert result_slow is True
+    assert result_noreply is True
 
 
 def test_fasttravel_file_read_missing_file(tmp_path: Any) -> None:

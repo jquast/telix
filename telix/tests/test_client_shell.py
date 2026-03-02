@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # std imports
-import os
 import json
 import asyncio
 from typing import Any

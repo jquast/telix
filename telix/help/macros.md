@@ -43,8 +43,8 @@ exactly as if you had typed it at the input line.
 ### Insert Buttons
 
 The form provides insert buttons for common backtick commands.
-**Fast Travel** and **Slow Travel** open the room picker to select a
-destination.  Others insert a template you can edit.
+**Travel** opens the room picker to select a destination.  Others
+insert a template you can edit.
 
 ### Toggle Macros
 
@@ -62,9 +62,9 @@ The current toggle state is not saved to disk.
 | Key | Text | Notes |
 |-----|------|-------|
 | Alt+E | `get boots;get jacket;take crysknife;wield crysknife;equip boots;equip cloak` | Equip gear after respawn |
-| Alt+H | `` `fast travel 8bd9a5e5`;5order splint;5order bandage;`return slow` `` | Buy supplies and return |
+| Alt+H | `` `travel 8bd9a5e5`;5order splint;5order bandage;`return` `` | Buy supplies and return |
 | F2 | `` kill bear;`until 10 died\.\|You killed\|Kill what \?`;get all `` | Kill, wait for outcome, loot |
 | F4 | `3n;2e;look` | Navigate and look |
-| Ctrl+R | `` `return fast` `` | Return to macro start room |
+| Ctrl+R | `` `return` `` | Return to macro start room |
 | F3 | `` `autodiscover 50` `` | Explore 50 unvisited exits |
 | F5 | `survey on` / `survey off` | Toggle macro -- alternates each press |

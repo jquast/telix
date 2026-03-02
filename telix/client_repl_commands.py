@@ -2,10 +2,12 @@
 
 # std imports
 import re
+import enum
 import asyncio
 import logging
 from time import monotonic as _monotonic
-from typing import TYPE_CHECKING, Any, Optional, NamedTuple
+from typing import TYPE_CHECKING, Any, Optional, Callable, Awaitable, NamedTuple
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from .session_context import SessionContext, _CommandQueue
@@ -21,9 +23,47 @@ _ESCAPE_RE = re.compile(r"\\([;|`\\])")
 _ESC_MAP = {";": "\x00ES\x00", "|": "\x00EP\x00", "`": "\x00EB\x00", "\\": "\x00EBS\x00"}
 _ESC_RESTORE = {v: k for k, v in _ESC_MAP.items()}
 
+_DELAY_RE = re.compile(r"^`delay\s+(\d+(?:\.\d+)?)(ms|s)`$")
 _WHEN_RE = re.compile(r"^`when\s+(\w+%?)\s*(>=|<=|>|<|=)\s*(\d+)`$", re.IGNORECASE)
 _UNTIL_RE = re.compile(r"^`until(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
 _UNTILS_RE = re.compile(r"^`untils(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
+
+
+class StepResult(enum.Enum):
+    """Outcome of a single :func:`dispatch_one` call."""
+
+    SENT = "sent"
+    HANDLED = "handled"
+    ABORT = "abort"
+
+
+@dataclass
+class DispatchHooks:
+    """Caller-specific callbacks for :func:`dispatch_one`.
+
+    :param ctx: Session context.
+    :param log: Logger instance.
+    :param wait_fn: Async callable to wait for GA/EOR prompt.
+    :param send_fn: Callable that sends a command string to the server.
+    :param echo_fn: Callable that echoes a command for display.
+    :param on_status: Callback to set a status string, or ``None``.
+    :param on_progress: Callback ``(start, deadline)`` to set progress bar, or ``None``.
+    :param on_progress_clear: Callback to clear the progress bar, or ``None``.
+    :param on_activity: Callback to signal activity (e.g. toolbar refresh), or ``None``.
+    :param prompt_ready: Event to clear before waiting for the next prompt.
+    """
+
+    ctx: "SessionContext"
+    log: logging.Logger
+    wait_fn: Optional[Callable[[], Awaitable[None]]]
+    send_fn: Callable[[str], None]
+    echo_fn: Optional[Callable[[str], None]]
+    on_status: Optional[Callable[[str], None]] = None
+    on_progress: Optional[Callable[[float, float], None]] = None
+    on_progress_clear: Optional[Callable[[], None]] = None
+    on_activity: Optional[Callable[[], None]] = None
+    prompt_ready: Optional[asyncio.Event] = None
+    search_buffer: Optional[Any] = None
 
 
 class ExpandedCommands(NamedTuple):
@@ -46,7 +86,7 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
     Whitespace around separators is optional, including newlines --
     ``a;b``, ``a ; b``, and ``a;\nb`` are all equivalent.
 
-    Backtick-enclosed tokens (e.g. ```fast travel 123```, ```delay 1s```,
+    Backtick-enclosed tokens (e.g. ```travel 123```, ```delay 1s```,
     ```until 4 died\\.```) are preserved verbatim -- they are not split
     on ``;`` or ``|`` and repeat expansion is not applied.
 
@@ -145,14 +185,168 @@ def expand_commands(line: str) -> list[str]:
     return expand_commands_ex(line).commands
 
 
+def _get_search_buffer(ctx: "SessionContext") -> Optional[Any]:
+    """Return the :class:`SearchBuffer` for *ctx*, or ``None``.
+
+    Works for both macro execution (where ``ctx.autoreply_engine`` is the
+    engine) and autoreply execution (where the engine *is* ``self`` and
+    ``ctx.autoreply_engine`` points to it).
+
+    :param ctx: Session context.
+    :returns: The engine's :class:`SearchBuffer`, or ``None``.
+    """
+    engine = ctx.autoreply_engine
+    if engine is not None:
+        return engine.buffer
+    return None
+
+
+async def dispatch_one(
+    cmd: str,
+    idx: int,
+    sent_count: int,
+    immediate_set: frozenset[int],
+    hooks: DispatchHooks,
+    mask_send: bool = False,
+) -> StepResult:
+    """Dispatch a single backtick command or plain send.
+
+    Handles ``delay``, ``when``, ``until``, ``untils``, and plain send
+    commands.  Caller keeps its own loop structure.
+
+    :param cmd: Command string (may be backtick-enclosed).
+    :param idx: Index of this command in the expanded sequence.
+    :param sent_count: Number of plain sends already issued.
+    :param immediate_set: Indices of commands that skip GA/EOR wait.
+    :param hooks: Caller-specific callbacks.
+    :param mask_send: If ``True``, mask plain command text in status.
+    :returns: :class:`StepResult` indicating what happened.
+    """
+    from .autoreply import check_condition
+
+    dm = _DELAY_RE.match(cmd)
+    if dm:
+        value = float(dm.group(1))
+        unit = dm.group(2)
+        delay = value / 1000.0 if unit == "ms" else value
+        if delay > 0:
+            if hooks.on_status is not None:
+                hooks.on_status(f"delay {cmd.strip()}")
+            now = _monotonic()
+            if hooks.on_progress is not None:
+                hooks.on_progress(now, now + delay)
+            if hooks.on_activity is not None:
+                hooks.on_activity()
+            await asyncio.sleep(delay)
+            if hooks.on_progress_clear is not None:
+                hooks.on_progress_clear()
+        return StepResult.HANDLED
+
+    wm = _WHEN_RE.match(cmd)
+    if wm:
+        vital, op, val = wm.group(1), wm.group(2), wm.group(3)
+        if hooks.on_status is not None:
+            hooks.on_status(f"when {vital}{op}{val}")
+        ok, desc = check_condition({vital: f"{op}{val}"}, hooks.ctx)
+        if not ok:
+            hooks.log.info("%s: when condition failed: %s", hooks.log.name, desc)
+            if hooks.on_status is not None:
+                hooks.on_status("")
+            return StepResult.ABORT
+        return StepResult.HANDLED
+
+    um = _UNTIL_RE.match(cmd)
+    if um:
+        timeout = float(um.group(1) or "4")
+        pattern_str = um.group(2)
+        if hooks.on_status is not None:
+            hooks.on_status(f"until /{pattern_str}/")
+        buf = hooks.search_buffer or _get_search_buffer(hooks.ctx)
+        if buf is not None:
+            now = _monotonic()
+            if hooks.on_progress is not None:
+                hooks.on_progress(now, now + timeout)
+            if hooks.on_activity is not None:
+                hooks.on_activity()
+            compiled = re.compile(pattern_str, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+            match = await buf.wait_for_pattern(compiled, timeout)
+            if hooks.on_progress_clear is not None:
+                hooks.on_progress_clear()
+            if match is None:
+                hooks.log.info("%s: until timed out for %r", hooks.log.name, pattern_str)
+                if hooks.on_status is not None:
+                    hooks.on_status("")
+                return StepResult.ABORT
+        return StepResult.HANDLED
+
+    us = _UNTILS_RE.match(cmd)
+    if us:
+        timeout = float(us.group(1) or "4")
+        pattern_str = us.group(2)
+        if hooks.on_status is not None:
+            hooks.on_status(f"untils /{pattern_str}/")
+        buf = hooks.search_buffer or _get_search_buffer(hooks.ctx)
+        if buf is not None:
+            now = _monotonic()
+            if hooks.on_progress is not None:
+                hooks.on_progress(now, now + timeout)
+            if hooks.on_activity is not None:
+                hooks.on_activity()
+            compiled = re.compile(pattern_str, re.MULTILINE | re.DOTALL)
+            match = await buf.wait_for_pattern(compiled, timeout)
+            if hooks.on_progress_clear is not None:
+                hooks.on_progress_clear()
+            if match is None:
+                hooks.log.info("%s: untils timed out for %r", hooks.log.name, pattern_str)
+                if hooks.on_status is not None:
+                    hooks.on_status("")
+                return StepResult.ABORT
+        return StepResult.HANDLED
+
+    if sent_count > 0 and idx not in immediate_set:
+        if hooks.on_status is not None:
+            hooks.on_status("waiting for prompt")
+        if hooks.prompt_ready is not None:
+            hooks.prompt_ready.clear()
+        if hooks.wait_fn is not None:
+            await hooks.wait_fn()
+    if hooks.on_status is not None:
+        hooks.on_status("send: (masked)" if mask_send else f"send: {cmd}")
+    hooks.send_fn(cmd)
+    if hooks.echo_fn is not None:
+        hooks.echo_fn(cmd)
+    return StepResult.SENT
+
+
 _TRAVEL_RE = re.compile(
-    r"^`(fast travel|slow travel|return fast|return slow"
+    r"^`(travel|return"
     r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$",
     re.IGNORECASE,
 )
 
 _COMMAND_DELAY = 0.25
 _MOVE_MAX_RETRIES = 2
+
+
+def _is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
+    """Return ``True`` if *cmd* matches a known exit from the current room.
+
+    Falls back to ``True`` when room data is unavailable so that
+    movement pacing is used conservatively.
+    """
+    room_num = ctx.current_room_num
+    if not room_num:
+        return True
+    graph = ctx.room_graph
+    if graph is None:
+        return True
+    adj = getattr(graph, "_adj", None)
+    if adj is None:
+        return True
+    exits = adj.get(room_num)
+    if exits is None:
+        return True
+    return cmd in exits
 
 
 def _collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, int]]:
@@ -230,6 +424,7 @@ def _clear_command_queue(ctx: "SessionContext") -> None:
     cq = ctx.command_queue
     if cq is not None:
         ctx.command_queue = None
+        ctx.active_command = None
 
 
 def _render_command_queue(
@@ -347,7 +542,9 @@ async def _send_chained(
         except asyncio.TimeoutError:
             return False
 
-    from .autoreply import _DELAY_RE
+    # Learned during this batch: True if cmd caused a room change,
+    # False if it did not.  Unset commands fall back to _is_known_exit.
+    _moves_room: dict[str, bool] = {}
 
     for _idx, cmd in enumerate(commands[1:], 1):
         if queue is not None:
@@ -370,12 +567,18 @@ async def _send_chained(
         # e,e,...,n,n,...) -- these need movement pacing even in mixed
         # lists.  A command is "repeated" if it matches the previous one.
         prev_cmd = commands[_idx - 1] if _idx > 0 else ""
-        use_move_pacing = is_repeated or cmd == prev_cmd
+        is_run = is_repeated or cmd == prev_cmd
+        use_move_pacing = is_run and _moves_room.get(cmd, _is_known_exit(cmd, ctx))
         prev_room = ctx.current_room_num if use_move_pacing else ""
 
         if not use_move_pacing:
-            # Mixed commands: GA/EOR pacing (unless immediate).
-            if _idx not in immediate_set:
+            if is_run:
+                # Repeated non-movement command (e.g. "10buy coffee"):
+                # pace with a fixed delay, no GA/EOR wait needed.
+                if await _cancellable_sleep(_COMMAND_DELAY):
+                    return
+            elif _idx not in immediate_set:
+                # Mixed commands: GA/EOR pacing.
                 if prompt_ready is not None:
                     prompt_ready.clear()
                 if wait_fn is not None:
@@ -434,6 +637,7 @@ async def _send_chained(
             # while still detecting rate-limit rejections.
             actual = ctx.current_room_num
             if actual != prev_room:
+                _moves_room[cmd] = True
                 break
             if room_changed is not None:
                 try:
@@ -442,16 +646,43 @@ async def _send_chained(
                     pass
                 actual = ctx.current_room_num
             if actual != prev_room:
+                _moves_room[cmd] = True
                 break
+
+            # First attempt didn't change rooms -- this command is
+            # not movement (e.g. "buy coffee").  Record the result
+            # and fall back to GA/EOR pacing for subsequent repeats.
+            if attempt == 0 and cmd not in _moves_room:
+                _moves_room[cmd] = False
+                log.debug("room unchanged after %r, switching to prompt pacing", cmd)
+                break
+
             if attempt < _MOVE_MAX_RETRIES:
                 log.info(
-                    "room unchanged after %r, retrying (%d/%d)", cmd, attempt + 1, _MOVE_MAX_RETRIES
+                    "room unchanged after %r, retrying (%d/%d)",
+                    cmd, attempt + 1, _MOVE_MAX_RETRIES,
                 )
             else:
                 log.warning(
-                    "room unchanged after %r, giving up after %d retries", cmd, _MOVE_MAX_RETRIES
+                    "room unchanged after %r, giving up after %d retries",
+                    cmd, _MOVE_MAX_RETRIES,
                 )
                 return
+
+
+def _macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
+    """Send a single command for macro execution.
+
+    :param ctx: Session context.
+    :param log: Logger.
+    :param cmd: Command text.
+    """
+    log.info("macro: sending %r", cmd)
+    if ctx.cx_dot is not None:
+        ctx.cx_dot.trigger()
+    if ctx.tx_dot is not None:
+        ctx.tx_dot.trigger()
+    ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
 
 
 async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.Logger) -> None:
@@ -460,122 +691,52 @@ async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.
 
     Expands the text with :func:`expand_commands_ex`, then processes each
     part -- backtick-enclosed travel commands are routed through
-    :func:`_handle_travel_commands`, delay commands pause execution,
-    ``when`` commands gate on GMCP conditions, ``until``/``untils``
-    commands wait for server output patterns, and plain commands are
-    sent to the server with GA/EOR pacing (or immediately if ``|```
-    separated).
+    :func:`_handle_travel_commands`, delay/when/until/untils commands are
+    dispatched via :func:`dispatch_one`, and plain commands are sent to
+    the server with GA/EOR pacing (or immediately if ``|`` separated).
 
     :param text: Raw macro text with ``;``/``|`` separators.
     :param ctx: Session context.
     :param log: Logger.
     """
-    from .autoreply import _DELAY_RE, check_condition
     from .client_repl_travel import _handle_travel_commands
 
     expanded = expand_commands_ex(text)
     parts = list(expanded.commands)
-    immediate_set = set(expanded.immediate_set)
+    immediate_set = expanded.immediate_set
     if not parts:
         return
 
-    # snapshot starting room so ``return fast`` can navigate back
     ctx.macro_start_room = ctx.current_room_num
 
-    wait_fn = ctx.wait_for_prompt
-    echo_fn = ctx.echo_command
-    prompt_ready = ctx.prompt_ready
+    hooks = DispatchHooks(
+        ctx=ctx,
+        log=log,
+        wait_fn=ctx.wait_for_prompt,
+        send_fn=lambda cmd: _macro_send(ctx, log, cmd),
+        echo_fn=ctx.echo_command,
+        prompt_ready=ctx.prompt_ready,
+        search_buffer=_get_search_buffer(ctx),
+    )
     sent_count = 0
 
     idx = 0
     while idx < len(parts):
         cmd = parts[idx]
 
-        # Travel command -- hand off the rest to _handle_travel_commands.
         if _TRAVEL_RE.match(cmd):
             remainder = await _handle_travel_commands(parts[idx:], ctx, log)
             parts = remainder
-            immediate_set = set()
+            immediate_set = frozenset()
             idx = 0
             sent_count = 0
             continue
 
-        # Delay command.
-        dm = _DELAY_RE.match(cmd)
-        if dm:
-            value = float(dm.group(1))
-            unit = dm.group(2)
-            delay = value / 1000.0 if unit == "ms" else value
-            if delay > 0:
-                await asyncio.sleep(delay)
-            idx += 1
-            continue
-
-        # When condition gate.
-        wm = _WHEN_RE.match(cmd)
-        if wm:
-            vital, op, val = wm.group(1), wm.group(2), wm.group(3)
-            ok, desc = check_condition({vital: f"{op}{val}"}, ctx)
-            if not ok:
-                log.info("macro: when condition failed: %s", desc)
-                break
-            idx += 1
-            continue
-
-        # Until (case-insensitive wait for pattern).
-        um = _UNTIL_RE.match(cmd)
-        if um:
-            timeout = float(um.group(1) or "4")
-            pattern_str = um.group(2)
-            engine = ctx.autoreply_engine
-            if engine is not None:
-                now = _monotonic()
-                engine._until_start = now
-                engine._until_deadline = now + timeout
-                compiled = re.compile(pattern_str, re.IGNORECASE | re.MULTILINE | re.DOTALL)
-                match = await engine.buffer.wait_for_pattern(compiled, timeout)
-                engine._until_start = engine._until_deadline = 0.0
-                if match is None:
-                    log.info("macro: until timed out for %r", pattern_str)
-                    break
-            idx += 1
-            continue
-
-        # Untils (case-sensitive wait for pattern).
-        us = _UNTILS_RE.match(cmd)
-        if us:
-            timeout = float(us.group(1) or "4")
-            pattern_str = us.group(2)
-            engine = ctx.autoreply_engine
-            if engine is not None:
-                now = _monotonic()
-                engine._until_start = now
-                engine._until_deadline = now + timeout
-                # untils is case-SENSITIVE -- no IGNORECASE flag
-                compiled = re.compile(pattern_str, re.MULTILINE | re.DOTALL)
-                match = await engine.buffer.wait_for_pattern(compiled, timeout)
-                engine._until_start = engine._until_deadline = 0.0
-                if match is None:
-                    log.info("macro: untils timed out for %r", pattern_str)
-                    break
-            idx += 1
-            continue
-
-        # Plain command -- send with pacing (or immediate if | separated).
-        if sent_count > 0 and idx not in immediate_set:
-            if prompt_ready is not None:
-                prompt_ready.clear()
-            if wait_fn is not None:
-                await wait_fn()
-        log.info("macro: sending %r", cmd)
-        if echo_fn is not None:
-            echo_fn(cmd)
-        if ctx.cx_dot is not None:
-            ctx.cx_dot.trigger()
-        if ctx.tx_dot is not None:
-            ctx.tx_dot.trigger()
-        ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
-        sent_count += 1
+        result = await dispatch_one(cmd, idx, sent_count, immediate_set, hooks)
+        if result is StepResult.ABORT:
+            break
+        if result is StepResult.SENT:
+            sent_count += 1
         idx += 1
 
     ctx.macro_start_room = ""

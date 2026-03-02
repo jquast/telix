@@ -1001,35 +1001,6 @@ async def test_on_prompt_clears_buffer_dotall_no_cross_record():
 
 
 @pytest.mark.asyncio
-async def test_suppress_exclusive_skips_all_rules():
-    writer, written = _mock_writer()
-    rules = [
-        AutoreplyRule(pattern=re.compile(r"monster"), reply="kill;"),
-        AutoreplyRule(pattern=re.compile(r"coin"), reply="get coin;"),
-    ]
-    engine = AutoreplyEngine(rules, writer, writer.log)
-    engine.suppress_exclusive = True
-
-    engine.feed("A monster appears\n")
-    await asyncio.sleep(0.05)
-    assert not any("kill" in w for w in written)
-    assert engine.exclusive_active is False
-
-    engine.feed("A coin glitters\n")
-    await asyncio.sleep(0.05)
-    assert not any("get coin" in w for w in written)
-    assert engine.exclusive_active is False
-
-
-@pytest.mark.asyncio
-async def test_suppress_exclusive_default_false():
-    writer, _ = _mock_writer()
-    rules = [AutoreplyRule(pattern=re.compile(r"x"), reply="y;")]
-    engine = AutoreplyEngine(rules, writer, writer.log)
-    assert engine.suppress_exclusive is False
-
-
-@pytest.mark.asyncio
 async def test_cancel_clears_exclusive():
     writer, written = _mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"A (\w+) is here"), reply=r"`delay 20ms`;kill \1;")]
@@ -1541,6 +1512,23 @@ async def test_inline_until_waits_for_match():
     engine.buffer.add_text("The bear died.\n")
     await asyncio.sleep(0.02)
     assert any("glance" in w for w in written)
+
+
+@pytest.mark.asyncio
+async def test_inline_until_matches_partial_line():
+    ctx, written = _mock_writer()
+    rules = [
+        AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 Password:`;secret;")
+    ]
+    engine = AutoreplyEngine(rules, ctx, ctx.log)
+    engine.feed("A bear appears.\n")
+    await asyncio.sleep(0.05)
+    assert any("kill bear" in w for w in written)
+    assert not any("secret" in w for w in written)
+
+    engine.buffer.add_text("Password: ")
+    await asyncio.sleep(0.02)
+    assert any("secret" in w for w in written)
 
 
 @pytest.mark.asyncio

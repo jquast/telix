@@ -57,6 +57,27 @@ _TERMINAL_CLEANUP = (
     "\x1b[m\x1b[?25h\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l"
 )
 
+_PRIMARY_PASTE_COMMANDS = (
+    ("xclip", "-selection", "primary", "-o"),
+    ("xsel", "--primary", "--output"),
+    ("wl-paste", "--primary", "--no-newline"),
+)
+
+
+def _read_primary_selection() -> str:
+    """Read text from the X11/Wayland primary selection via external helper."""
+    for cmd in _PRIMARY_PASTE_COMMANDS:
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=2, check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout.decode("utf-8", errors="replace")
+        except FileNotFoundError:
+            continue
+    return ""
+
+
 _ENCODINGS = (
     "utf8",
     "cp437",
@@ -369,14 +390,10 @@ def build_command(config: SessionConfig) -> list[str]:
     if config.connect_timeout > 0 and config.connect_timeout != 10.0:
         cmd.extend(["--connect-timeout", str(config.connect_timeout)])
 
-    for opt in config.always_will.split(","):
-        opt = opt.strip()
-        if opt:
-            cmd.extend(["--always-will", opt])
-    for opt in config.always_do.split(","):
-        opt = opt.strip()
-        if opt:
-            cmd.extend(["--always-do", opt])
+    for attr, flag in (("always_will", "--always-will"), ("always_do", "--always-do")):
+        for opt in getattr(config, attr).split(","):
+            if (opt := opt.strip()):
+                cmd.extend([flag, opt])
 
     return cmd
 
@@ -1143,18 +1160,14 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
 
         if focused in tab_buttons:
             idx = tab_buttons.index(focused)
+            target = None
             if event.key == "left" and idx > 0:
                 target = tab_buttons[idx - 1]
-                target.focus()
-                tab_id = (target.id or "").replace("tabbtn-", "")
-                if tab_id:
-                    self._switch_to_tab(tab_id)
-                event.prevent_default()
             elif event.key == "right" and idx < len(tab_buttons) - 1:
                 target = tab_buttons[idx + 1]
+            if target is not None:
                 target.focus()
-                tab_id = (target.id or "").replace("tabbtn-", "")
-                if tab_id:
+                if (tab_id := (target.id or "").replace("tabbtn-", "")):
                     self._switch_to_tab(tab_id)
                 event.prevent_default()
             elif event.key == "down":
@@ -1292,17 +1305,13 @@ def _get_help_topic(topic: str) -> str:
     return get_help(topic)
 
 
-class _CommandHelpScreen(Screen[None]):
-    """Scrollable help screen with context-specific documentation."""
-
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("escape", "close", "Exit"),
-        Binding("q", "close", "Exit", show=False),
-    ]
+class _HelpPane(Vertical):
+    """Widget containing help content -- embeddable in a tab or standalone screen."""
 
     DEFAULT_CSS = """
-    _CommandHelpScreen {
-        layout: vertical;
+    _HelpPane {
+        width: 100%;
+        height: 100%;
     }
     #help-dialog {
         width: 100%;
@@ -1327,6 +1336,22 @@ class _CommandHelpScreen(Screen[None]):
         with Vertical(id="help-dialog"):
             with VerticalScroll(id="help-scroll"):
                 yield Markdown(content, id="help-content")
+
+
+class _CommandHelpScreen(Screen[None]):
+    """Scrollable help screen with context-specific documentation."""
+
+    BINDINGS: ClassVar[list[Binding]] = [
+        Binding("escape", "close", "Exit"),
+        Binding("q", "close", "Exit", show=False),
+    ]
+
+    def __init__(self, topic: str = "macro") -> None:
+        super().__init__()
+        self._pane = _HelpPane(topic=topic)
+
+    def compose(self) -> ComposeResult:
+        yield self._pane
         yield Footer()
 
     def action_close(self) -> None:
@@ -1334,11 +1359,13 @@ class _CommandHelpScreen(Screen[None]):
         self.dismiss(None)
 
 
-class _EditListScreen(Screen["bool | None"]):
-    """Base class for list-editor screens (macros, autoreplies)."""
+class _EditListPane(Vertical):
+    """Base pane for list-editor UIs (macros, autoreplies, etc.)."""
 
     DEFAULT_CSS = """
-    _EditListScreen { align: center middle; }
+    _EditListPane {
+        width: 100%; height: 100%;
+    }
     .edit-panel {
         width: 100%; height: 100%;
         border: round $surface-lighten-2; background: $surface; padding: 1 1;
@@ -1390,6 +1417,11 @@ class _EditListScreen(Screen["bool | None"]):
         """Display noun for this editor, e.g. 'Macro' or 'Autoreply'."""
 
     @property
+    def _noun_plural(self) -> str:
+        """Plural form of :attr:`_noun`; override for irregular plurals."""
+        return self._noun + "s"
+
+    @property
     @abstractmethod
     def _items(self) -> list[Any]: ...
 
@@ -1405,6 +1437,13 @@ class _EditListScreen(Screen["bool | None"]):
         self._editing_idx: int | None = None
         self._filtered_indices: list[int] = []
         self._search_query: str = ""
+
+    def _request_close(self, result: "bool | None" = None) -> None:
+        """Dismiss the parent screen or exit the app."""
+        try:
+            self.screen.dismiss(result)
+        except ScreenStackError:
+            self.app.exit()
 
     @property
     def _form_visible(self) -> bool:
@@ -1519,10 +1558,7 @@ class _EditListScreen(Screen["bool | None"]):
         if self._form_visible:
             self._hide_form()
         else:
-            try:
-                self.dismiss(None)
-            except ScreenStackError:
-                self.app.exit()
+            self._request_close(None)
 
     def action_reorder_hint(self) -> None:
         """Placeholder for reorder key binding hint."""
@@ -1555,24 +1591,25 @@ class _EditListScreen(Screen["bool | None"]):
 
         if search_input is not None and event.key in ("up", "down"):
             table = self.query_one(f"#{pfx}-table", DataTable)
-            if self.focused is search_input and event.key == "down":
+            if self.screen.focused is search_input and event.key == "down":
                 table.focus()
                 event.prevent_default()
                 return
-            if self.focused is table and event.key == "up" and table.cursor_row == 0:
+            if (self.screen.focused is table
+                    and event.key == "up" and table.cursor_row == 0):
                 search_input.focus()
                 event.prevent_default()
                 return
 
         if event.key in ("home", "end"):
             table = self.query_one(f"#{self._prefix}-table", DataTable)
-            if self.focused is table and table.row_count > 0:
+            if self.screen.focused is table and table.row_count > 0:
                 row = 0 if event.key == "home" else table.row_count - 1
                 table.move_cursor(row=row)
                 event.prevent_default()
         elif event.key in ("up", "down", "left", "right"):
             _handle_arrow_navigation(
-                self,
+                self.screen,
                 event,
                 f"#{self._prefix}-button-col",
                 f"#{self._prefix}-table",
@@ -1595,61 +1632,64 @@ class _EditListScreen(Screen["bool | None"]):
             self._editing_idx = idx
             self._show_form(*self._items[idx])
 
+    def _action_add(self) -> None:
+        self._editing_idx = None
+        self._show_form()
+
+    def _action_delete(self) -> None:
+        if self._form_visible:
+            self._hide_form()
+        idx = self._selected_idx()
+        if idx is not None and idx < len(self._items):
+            label = self._item_label(idx)
+            safe_idx: int = idx
+
+            def _on_confirm(confirmed: bool, _idx: int = safe_idx) -> None:
+                if confirmed and _idx < len(self._items):
+                    self._items.pop(_idx)
+                    self._refresh_table()
+
+            self.app.push_screen(
+                _ConfirmDialogScreen(
+                    title=f"Delete {self._noun}",
+                    body=f"Delete {self._noun.lower()} '{label}'?",
+                    show_dont_ask=False,
+                ),
+                callback=_on_confirm,
+            )
+
+    def _action_ok(self) -> None:
+        if self._form_visible:
+            self._submit_form()
+
+    def _action_save(self) -> None:
+        if self._form_visible:
+            self._submit_form()
+        self._save_to_file()
+        self._request_close(True)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle common list-editor button presses."""
         btn = event.button.id or ""
         pfx = self._prefix
         suffix = btn.removeprefix(pfx + "-") if btn.startswith(pfx + "-") else ""
-        if suffix == "add":
-            self._editing_idx = None
-            self._show_form()
-        elif suffix == "edit":
-            self._edit_selected()
-        elif suffix == "copy":
-            self._copy_selected()
-        elif suffix == "delete":
-            if self._form_visible:
-                self._hide_form()
-            idx = self._selected_idx()
-            if idx is not None and idx < len(self._items):
-                label = self._item_label(idx)
-
-                safe_idx: int = idx
-
-                def _on_confirm(confirmed: bool, _idx: int = safe_idx) -> None:
-                    if confirmed and _idx < len(self._items):
-                        self._items.pop(_idx)
-                        self._refresh_table()
-
-                self.app.push_screen(
-                    _ConfirmDialogScreen(
-                        title=f"Delete {self._noun}",
-                        body=f"Delete {self._noun.lower()} '{label}'?",
-                        show_dont_ask=False,
-                    ),
-                    callback=_on_confirm,
-                )
-        elif suffix == "ok":
-            if self._form_visible:
-                self._submit_form()
-        elif suffix == "cancel-form":
-            self._hide_form()
-        elif suffix == "save":
-            if self._form_visible:
-                self._submit_form()
-            self._save_to_file()
-            try:
-                self.dismiss(True)
-            except ScreenStackError:
-                self.app.exit()
-        elif suffix == "close":
-            try:
-                self.dismiss(None)
-            except ScreenStackError:
-                self.app.exit()
-        elif suffix == "help":
-            self.app.push_screen(_CommandHelpScreen(topic=self._prefix))
-        else:
+        handlers: dict[str, Any] = {
+            "add": self._action_add,
+            "edit": self._edit_selected,
+            "copy": self._copy_selected,
+            "delete": self._action_delete,
+            "ok": self._action_ok,
+            "cancel-form": self._hide_form,
+            "save": self._action_save,
+            "close": lambda: self._request_close(None),
+            "help": lambda: self.app.push_screen(
+                _CommandHelpScreen(topic=self._prefix)
+            ),
+        }
+        handler = handlers.get(suffix)
+        if handler:
+            handler()
+        elif suffix:
             self._on_extra_button(suffix, btn)
 
     @property
@@ -1675,16 +1715,44 @@ class _EditListScreen(Screen["bool | None"]):
             self._editing_idx = None
             self._show_form()
 
+    _rooms_path: str = ""
+    _current_room_path: str = ""
+
+    def _pick_room_for_travel(self) -> None:
+        """Open room picker and insert a travel command."""
+        rooms_file = self._rooms_path
+        if not rooms_file or not os.path.exists(rooms_file):
+            return
+
+        def _on_pick(room_id: "str | None") -> None:
+            if room_id is None:
+                return
+            cmd = f"`travel {room_id}`"
+            self._insert_command(cmd)
+
+        kwargs: dict[str, str] = {
+            "rooms_path": rooms_file,
+            "session_key": self._session_key,
+        }
+        if self._current_room_path:
+            kwargs["current_room_file"] = self._current_room_path
+        self.app.push_screen(RoomPickerScreen(**kwargs), callback=_on_pick)
+
+    _COMMAND_BUTTONS: ClassVar[dict[str, str]] = {
+        "btn-when": "`when HP%>=99`",
+        "btn-until": "`until 10 pattern`",
+        "btn-delay": "`delay 1s`",
+        "delay": "`delay 1s`",
+        "btn-randomwalk": "`randomwalk`",
+        "return": "`return`",
+        "autodiscover": "`autodiscover`",
+    }
+
     def _on_extra_button(self, suffix: str, btn: str) -> None:
         """Handle shared command-builder buttons; override for extras."""
-        if suffix == "btn-when":
-            self._insert_command("`when HP%>=99`")
-        elif suffix == "btn-until":
-            self._insert_command("`until 10 pattern`")
-        elif suffix == "btn-delay":
-            self._insert_command("`delay 1s`")
-        elif suffix == "btn-randomwalk":
-            self._insert_command("`randomwalk`")
+        cmd = self._COMMAND_BUTTONS.get(suffix)
+        if cmd is not None:
+            self._insert_command(cmd)
 
     @abstractmethod
     def _show_form(self, *args: Any) -> None: ...
@@ -1695,12 +1763,41 @@ class _EditListScreen(Screen["bool | None"]):
     @abstractmethod
     def _refresh_table(self) -> None: ...
 
+    def _update_count_label(self) -> None:
+        """Update the count label and refit growable columns after refresh."""
+        n_total = len(self._items)
+        n_shown = len(self._filtered_indices)
+        noun = self._noun_plural
+        label = self.query_one(f"#{self._prefix}-count", Static)
+        if self._search_query:
+            label.update(f"{n_shown:,}/{n_total:,} {noun}")
+        else:
+            label.update(f"{n_total:,} {noun}")
+        self.call_after_refresh(self._fit_growable_columns)
+
     @abstractmethod
     def _save_to_file(self) -> None: ...
 
 
-class MacroEditScreen(_EditListScreen):
-    """Editor screen for macro key bindings."""
+class _EditListScreen(Screen["bool | None"]):
+    """Thin screen wrapper around an ``_EditListPane``."""
+
+    @property
+    def _pane(self) -> _EditListPane:
+        """Return the pane widget -- subclasses set ``self.__pane`` in __init__."""
+        return self.__pane
+
+    @_pane.setter
+    def _pane(self, value: _EditListPane) -> None:
+        self.__pane = value
+
+    def compose(self) -> ComposeResult:
+        yield self._pane
+        yield Footer()
+
+
+class MacroEditPane(_EditListPane):
+    """Pane widget for macro key binding editing."""
 
     _growable_keys: list[str] = ["text", "toggle-text"]
 
@@ -1712,7 +1809,7 @@ class MacroEditScreen(_EditListScreen):
         Binding("l", "sort_last", "Recent", show=True),
     ]
 
-    CSS = """
+    DEFAULT_CSS = _EditListPane.DEFAULT_CSS + """
     #macro-form { padding: 0; }
     #macro-text-row { margin: 1 0; }
     #macro-toggle-text-row { margin: 0 0 1 0; }
@@ -1729,14 +1826,15 @@ class MacroEditScreen(_EditListScreen):
     """
 
     def __init__(
-        self, path: str, session_key: str = "", rooms_file: str = "", current_room_file: str = ""
+        self, path: str, session_key: str = "", rooms_file: str = "",
+        current_room_file: str = "",
     ) -> None:
         """Initialize macro editor with file path and session key."""
         super().__init__()
         self._path = path
         self._session_key = session_key
-        self._rooms_file = rooms_file
-        self._current_room_file = current_room_file
+        self._rooms_path = rooms_file
+        self._current_room_path = current_room_file
         self._macros: list[tuple[str, str, bool, str, bool, str]] = []
         self._capturing: bool = False
         self._sort_mode: str = ""
@@ -1797,16 +1895,10 @@ class MacroEditScreen(_EditListScreen):
                             )
                         with Horizontal(classes="field-row"):
                             yield Button(
-                                "Fast Travel", id="macro-fast-travel", classes="insert-btn"
+                                "Travel", id="macro-fast-travel", classes="insert-btn"
                             )
                             yield Button(
-                                "Slow Travel", id="macro-slow-travel", classes="insert-btn"
-                            )
-                            yield Button(
-                                "Return Fast", id="macro-return-fast", classes="insert-btn"
-                            )
-                            yield Button(
-                                "Return Slow", id="macro-return-slow", classes="insert-btn"
+                                "Return", id="macro-return", classes="insert-btn"
                             )
                         with Horizontal(classes="field-row"):
                             yield Button(
@@ -1823,7 +1915,6 @@ class MacroEditScreen(_EditListScreen):
                             yield Button("Cancel", variant="default", id="macro-cancel-form")
                             yield Button("OK", variant="success", id="macro-ok")
                     yield Static("", id="macro-count")
-        yield Footer()
 
     def on_mount(self) -> None:
         """Load macros from file and populate table."""
@@ -1874,14 +1965,7 @@ class MacroEditScreen(_EditListScreen):
             lu = _relative_time(last_used) if last_used else ""
             self._filtered_indices.append(i)
             table.add_row(key, text + status, lu, key=str(len(self._filtered_indices) - 1))
-        n_total = len(self._macros)
-        n_shown = len(self._filtered_indices)
-        label = self.query_one("#macro-count", Static)
-        if q:
-            label.update(f"{n_shown:,}/{n_total:,} Macros")
-        else:
-            label.update(f"{n_total:,} Macros")
-        self.call_after_refresh(self._fit_growable_columns)
+        self._update_count_label()
 
     def action_sort_last(self) -> None:
         """Toggle sorting macros by last used time."""
@@ -2036,19 +2120,7 @@ class MacroEditScreen(_EditListScreen):
     def _on_extra_button(self, suffix: str, btn: str) -> None:
         """Handle macro-specific buttons (travel, capture, etc.)."""
         if suffix == "fast-travel":
-            self._pick_room_for_travel(slow=False)
-        elif suffix == "slow-travel":
-            self._pick_room_for_travel(slow=True)
-        elif suffix == "return-fast":
-            self._insert_command("`return fast`")
-        elif suffix == "return-slow":
-            self._insert_command("`return slow`")
-        elif suffix == "autodiscover":
-            self._insert_command("`autodiscover`")
-        elif suffix == "delay":
-            self._insert_command("`delay 1s`")
-        elif suffix in ("btn-when", "btn-until", "btn-delay", "btn-randomwalk"):
-            super()._on_extra_button(suffix, btn)
+            self._pick_room_for_travel()
         elif suffix == "capture":
             self._capturing = True
             self._capture_escape_pending = False
@@ -2056,26 +2128,8 @@ class MacroEditScreen(_EditListScreen):
             label.update("press keystroke to capture ...")
             label.add_class("capturing")
             self.query_one("#macro-capture-status", Static).update("")
-
-    def _pick_room_for_travel(self, slow: bool = False) -> None:
-        """Open room picker and insert a travel command into the text field."""
-        if not self._rooms_file or not os.path.exists(self._rooms_file):
-            return
-
-        def _on_pick(room_id: "str | None") -> None:
-            if room_id is None:
-                return
-            cmd = f"`slow travel {room_id}`" if slow else f"`fast travel {room_id}`"
-            self._insert_command(cmd)
-
-        self.app.push_screen(
-            RoomPickerScreen(
-                rooms_path=self._rooms_file,
-                session_key=self._session_key,
-                current_room_file=self._current_room_file,
-            ),
-            callback=_on_pick,
-        )
+        else:
+            super()._on_extra_button(suffix, btn)
 
     def _save_to_file(self) -> None:
         from .macros import Macro, save_macros
@@ -2086,6 +2140,20 @@ class MacroEditScreen(_EditListScreen):
             for k, t, ena, lu, tog, tt in self._macros
         ]
         save_macros(self._path, macros, self._session_key)
+
+
+class MacroEditScreen(_EditListScreen):
+    """Thin screen wrapper for the macro editor."""
+
+    def __init__(
+        self, path: str, session_key: str = "", rooms_file: str = "",
+        current_room_file: str = "",
+    ) -> None:
+        super().__init__()
+        self._pane = MacroEditPane(
+            path=path, session_key=session_key,
+            rooms_file=rooms_file, current_room_file=current_room_file,
+        )
 
 
 class _AutoreplyTuple(NamedTuple):
@@ -2101,8 +2169,8 @@ class _AutoreplyTuple(NamedTuple):
     case_sensitive: bool = False
 
 
-class AutoreplyEditScreen(_EditListScreen):
-    """Editor screen for autoreply rules."""
+class AutoreplyEditPane(_EditListPane):
+    """Pane widget for autoreply rule editing."""
 
     _growable_keys: list[str] = ["pattern", "reply"]
 
@@ -2114,7 +2182,7 @@ class AutoreplyEditScreen(_EditListScreen):
         Binding("l", "sort_last", "Recent", show=True),
     ]
 
-    CSS = """
+    DEFAULT_CSS = _EditListPane.DEFAULT_CSS + """
     #autoreply-form { padding: 0 0 0 4; }
     #autoreply-form .form-label { width: 12; }
     #autoreply-form .form-label-mid { width: 9; }
@@ -2133,6 +2201,7 @@ class AutoreplyEditScreen(_EditListScreen):
         self._select_pattern = select_pattern
         self._rules: list[_AutoreplyTuple] = []
         self._sort_mode: str = ""
+        self._rooms_path = os.path.join(os.path.dirname(path), "rooms.json")
 
     @property
     def _prefix(self) -> str:
@@ -2141,6 +2210,10 @@ class AutoreplyEditScreen(_EditListScreen):
     @property
     def _noun(self) -> str:
         return "Autoreply"
+
+    @property
+    def _noun_plural(self) -> str:
+        return "Autoreplies"
 
     @property
     def _items(self) -> list[Any]:
@@ -2223,18 +2296,12 @@ class AutoreplyEditScreen(_EditListScreen):
                             yield Button("Until", id="autoreply-btn-until", classes="insert-btn")
                             yield Button("Delay", id="autoreply-btn-delay", classes="insert-btn")
                             yield Button(
-                                "Fast Travel", id="autoreply-fast-travel", classes="insert-btn"
+                                "Travel", id="autoreply-fast-travel", classes="insert-btn"
                             )
                             yield Button(
-                                "Slow Travel", id="autoreply-slow-travel", classes="insert-btn"
+                                "Return", id="autoreply-return", classes="insert-btn"
                             )
                         with Horizontal(classes="field-row"):
-                            yield Button(
-                                "Return Fast", id="autoreply-return-fast", classes="insert-btn"
-                            )
-                            yield Button(
-                                "Return Slow", id="autoreply-return-slow", classes="insert-btn"
-                            )
                             yield Button(
                                 "Autodiscover", id="autoreply-autodiscover", classes="insert-btn"
                             )
@@ -2246,7 +2313,6 @@ class AutoreplyEditScreen(_EditListScreen):
                             yield Button("Cancel", variant="default", id="autoreply-cancel-form")
                             yield Button("OK", variant="success", id="autoreply-ok")
                     yield Static("", id="autoreply-count")
-        yield Footer()
 
     def on_mount(self) -> None:
         """Load autoreplies from file and populate table."""
@@ -2310,28 +2376,17 @@ class AutoreplyEditScreen(_EditListScreen):
             if q and not self._matches_search(i, q):
                 continue
             self._filtered_indices.append(i)
-            flags = ""
-            if not rule.enabled:
-                flags = "X"
-            if rule.always:
-                flags = (flags + " A") if flags else "A"
-            if rule.immediate:
-                flags = (flags + " I") if flags else "I"
-            if rule.case_sensitive:
-                flags = (flags + " C") if flags else "C"
-            if rule.when:
-                flags = (flags + " W") if flags else "W"
+            flags = " ".join(filter(None, [
+                "X" if not rule.enabled else "",
+                "A" if rule.always else "",
+                "I" if rule.immediate else "",
+                "C" if rule.case_sensitive else "",
+                "W" if rule.when else "",
+            ]))
             lf = _relative_time(rule.last_fired) if rule.last_fired else ""
             row_pos = len(self._filtered_indices) - 1
             table.add_row(str(i + 1), rule.pattern, rule.reply, flags.strip(), lf, key=str(row_pos))
-        n_total = len(self._rules)
-        n_shown = len(self._filtered_indices)
-        label = self.query_one("#autoreply-count", Static)
-        if q:
-            label.update(f"{n_shown:,}/{n_total:,} Autoreplies")
-        else:
-            label.update(f"{n_total:,} Autoreplies")
-        self.call_after_refresh(self._fit_growable_columns)
+        self._update_count_label()
 
     def action_sort_last(self) -> None:
         """Toggle sorting autoreplies by last fired time."""
@@ -2355,24 +2410,17 @@ class AutoreplyEditScreen(_EditListScreen):
         self.query_one("#autoreply-enabled", Switch).value = enabled
         self.query_one("#autoreply-immediate", Switch).value = immediate
         self.query_one("#autoreply-case-sensitive", Switch).value = case_sensitive
+        cond_vital, cond_op, cond_val = "", ">", "99"
         if when:
             vital = next(iter(when), "")
             expr = when.get(vital, ">99")
             import re as _re
 
-            m = _re.match(r"^(>=|<=|>|<|=)(\d+)$", expr)
-            if m:
-                self.query_one("#autoreply-cond-vital", Select).value = vital
-                self.query_one("#autoreply-cond-op", Select).value = m.group(1)
-                self.query_one("#autoreply-cond-val", Input).value = m.group(2)
-            else:
-                self.query_one("#autoreply-cond-vital", Select).value = ""
-                self.query_one("#autoreply-cond-op", Select).value = ">"
-                self.query_one("#autoreply-cond-val", Input).value = "99"
-        else:
-            self.query_one("#autoreply-cond-vital", Select).value = ""
-            self.query_one("#autoreply-cond-op", Select).value = ">"
-            self.query_one("#autoreply-cond-val", Input).value = "99"
+            if (m := _re.match(r"^(>=|<=|>|<|=)(\d+)$", expr)):
+                cond_vital, cond_op, cond_val = vital, m.group(1), m.group(2)
+        self.query_one("#autoreply-cond-vital", Select).value = cond_vital
+        self.query_one("#autoreply-cond-op", Select).value = cond_op
+        self.query_one("#autoreply-cond-val", Input).value = cond_val
         cond_none = not when
         self.query_one("#autoreply-cond-op", Select).disabled = cond_none
         self.query_one("#autoreply-cond-val", Input).disabled = cond_none
@@ -2424,34 +2472,9 @@ class AutoreplyEditScreen(_EditListScreen):
     def _on_extra_button(self, suffix: str, btn: str) -> None:
         """Handle autoreply-specific buttons (travel, etc.)."""
         if suffix == "fast-travel":
-            self._pick_room_for_travel(slow=False)
-        elif suffix == "slow-travel":
-            self._pick_room_for_travel(slow=True)
-        elif suffix == "return-fast":
-            self._insert_command("`return fast`")
-        elif suffix == "return-slow":
-            self._insert_command("`return slow`")
-        elif suffix == "autodiscover":
-            self._insert_command("`autodiscover`")
+            self._pick_room_for_travel()
         else:
             super()._on_extra_button(suffix, btn)
-
-    def _pick_room_for_travel(self, slow: bool = False) -> None:
-        """Open room picker and insert a travel command into the reply field."""
-        rooms_file = os.path.join(os.path.dirname(self._path), "rooms.json")
-        if not os.path.exists(rooms_file):
-            return
-
-        def _on_pick(room_id: "str | None") -> None:
-            if room_id is None:
-                return
-            cmd = f"`slow travel {room_id}`" if slow else f"`fast travel {room_id}`"
-            self._insert_command(cmd)
-
-        self.app.push_screen(
-            RoomPickerScreen(rooms_path=rooms_file, session_key=self._session_key),
-            callback=_on_pick,
-        )
 
     def _save_to_file(self) -> None:
         import re
@@ -2479,6 +2502,16 @@ class AutoreplyEditScreen(_EditListScreen):
         save_autoreplies(self._path, rules, self._session_key)
 
 
+class AutoreplyEditScreen(_EditListScreen):
+    """Thin screen wrapper for the autoreply editor."""
+
+    def __init__(self, path: str, session_key: str = "", select_pattern: str = "") -> None:
+        super().__init__()
+        self._pane = AutoreplyEditPane(
+            path=path, session_key=session_key, select_pattern=select_pattern,
+        )
+
+
 class _HighlightTuple(NamedTuple):
     """Lightweight tuple for highlight rules in the TUI editor."""
 
@@ -2494,12 +2527,12 @@ class _HighlightTuple(NamedTuple):
     captures: tuple[dict[str, str], ...] = ()
 
 
-class HighlightEditScreen(_EditListScreen):
-    """Editor screen for highlight rules."""
+class HighlightEditPane(_EditListPane):
+    """Pane widget for highlight rule editing."""
 
     _growable_keys: list[str] = ["pattern"]
 
-    CSS = """
+    DEFAULT_CSS = _EditListPane.DEFAULT_CSS + """
     #highlight-form { padding: 0 0 0 4; }
     #highlight-form .form-label { width: 12; }
     """
@@ -2597,7 +2630,6 @@ class HighlightEditScreen(_EditListScreen):
                             yield Button("Cancel", variant="default", id="highlight-cancel-form")
                             yield Button("OK", variant="success", id="highlight-ok")
                     yield Static("", id="highlight-count")
-        yield Footer()
 
     def on_mount(self) -> None:
         """Configure highlight table columns and load rules from file."""
@@ -2673,27 +2705,16 @@ class HighlightEditScreen(_EditListScreen):
             if q and not self._matches_search(i, q):
                 continue
             self._filtered_indices.append(i)
-            flags = ""
-            if not rule.enabled:
-                flags = "X"
-            if rule.stop_movement:
-                flags = (flags + " S") if flags else "S"
-            if rule.case_sensitive:
-                flags = (flags + " CS") if flags else "CS"
-            if rule.multiline:
-                flags = (flags + " M") if flags else "M"
-            if rule.captured:
-                flags = (flags + " C") if flags else "C"
+            flags = " ".join(filter(None, [
+                "X" if not rule.enabled else "",
+                "S" if rule.stop_movement else "",
+                "CS" if rule.case_sensitive else "",
+                "M" if rule.multiline else "",
+                "C" if rule.captured else "",
+            ]))
             row_pos = len(self._filtered_indices) - 1
             table.add_row(str(i + 1), rule.pattern, rule.highlight, flags.strip(), key=str(row_pos))
-        n_total = len(self._rules)
-        n_shown = len(self._filtered_indices)
-        label = self.query_one("#highlight-count", Static)
-        if q:
-            label.update(f"{n_shown:,}/{n_total:,} Highlights")
-        else:
-            label.update(f"{n_total:,} Highlights")
-        self.call_after_refresh(self._fit_growable_columns)
+        self._update_count_label()
 
     def _show_form(
         self,
@@ -2879,6 +2900,14 @@ class HighlightEditScreen(_EditListScreen):
         save_highlights(self._path, rules, self._session_key)
 
 
+class HighlightEditScreen(_EditListScreen):
+    """Thin screen wrapper for the highlight editor."""
+
+    def __init__(self, path: str, session_key: str = "") -> None:
+        super().__init__()
+        self._pane = HighlightEditPane(path=path, session_key=session_key)
+
+
 class _ProgressBarTuple(NamedTuple):
     """Lightweight tuple for progress bar configs in the TUI editor."""
 
@@ -2897,12 +2926,12 @@ class _ProgressBarTuple(NamedTuple):
     side: str = "left"
 
 
-class ProgressBarEditScreen(_EditListScreen):
-    """Editor screen for GMCP progress bar configuration."""
+class ProgressBarEditPane(_EditListPane):
+    """Pane widget for GMCP progress bar configuration."""
 
     _growable_keys: list[str] = ["name"]
 
-    CSS = """
+    DEFAULT_CSS = _EditListPane.DEFAULT_CSS + """
     #progressbar-form { padding: 0 0 0 4; }
     #progressbar-form .form-label { width: 12; }
     #progressbar-form Input { max-width: 50; }
@@ -2948,6 +2977,10 @@ class ProgressBarEditScreen(_EditListScreen):
     @property
     def _noun(self) -> str:
         return "Progress Bar"
+
+    @property
+    def _noun_plural(self) -> str:
+        return "Progress Bars"
 
     @property
     def _items(self) -> list[Any]:
@@ -3070,10 +3103,9 @@ class ProgressBarEditScreen(_EditListScreen):
                             yield Button("Cancel", variant="default", id=f"{pfx}-cancel-form")
                             yield Button("OK", variant="success", id=f"{pfx}-ok")
                     yield Static("", id=f"{pfx}-count")
-        yield Footer()
 
     @staticmethod
-    def _color_options() -> "list[tuple[Text, str]]":
+    def _color_options() -> "list[tuple[RichText, str]]":
         """Build Select options from all Rich named colors with swatches."""
         from rich.text import Text
 
@@ -3088,7 +3120,7 @@ class ProgressBarEditScreen(_EditListScreen):
         return options
 
     @staticmethod
-    def _theme_color_options() -> "list[tuple[Text, str]]":
+    def _theme_color_options() -> "list[tuple[RichText, str]]":
         """Build Select options from Textual theme colors with swatches."""
         from rich.text import Text
 
@@ -3103,7 +3135,7 @@ class ProgressBarEditScreen(_EditListScreen):
         return options
 
     @staticmethod
-    def _text_color_options(is_custom: bool) -> "list[tuple[Text, str]]":
+    def _text_color_options(is_custom: bool) -> "list[tuple[RichText, str]]":
         """Build Select options for text color: ``auto`` plus bar color options."""
         from rich.text import Text
 
@@ -3111,9 +3143,9 @@ class ProgressBarEditScreen(_EditListScreen):
         auto_label.append("auto")
         options: list[tuple[Text, str]] = [(auto_label, "auto")]
         if is_custom:
-            options.extend(ProgressBarEditScreen._color_options())
+            options.extend(ProgressBarEditPane._color_options())
         else:
-            options.extend(ProgressBarEditScreen._theme_color_options())
+            options.extend(ProgressBarEditPane._theme_color_options())
         return options
 
     def on_mount(self) -> None:
@@ -3149,7 +3181,7 @@ class ProgressBarEditScreen(_EditListScreen):
         return q in bar.name.lower() or q in bar.gmcp_package.lower()
 
     @staticmethod
-    def _color_swatch(bar: _ProgressBarTuple) -> "Text":
+    def _color_swatch(bar: _ProgressBarTuple) -> "RichText":
         """Build a gradient-colored label for the Color column."""
         from rich.text import Text
 
@@ -3179,7 +3211,8 @@ class ProgressBarEditScreen(_EditListScreen):
             self._filtered_indices.append(i)
             enabled = "Yes" if bar.enabled else "No"
             display_name = bar.name if len(bar.name) <= 19 else bar.name[:18] + "\u2026"
-            val_f = bar.value_field if len(bar.value_field) <= 13 else bar.value_field[:12] + "\u2026"
+            val_f = (bar.value_field if len(bar.value_field) <= 13
+                     else bar.value_field[:12] + "\u2026")
             max_f = bar.max_field if len(bar.max_field) <= 13 else bar.max_field[:12] + "\u2026"
             swatch = self._color_swatch(bar)
             row_pos = len(self._filtered_indices) - 1
@@ -3188,14 +3221,7 @@ class ProgressBarEditScreen(_EditListScreen):
                 val_f, max_f,
                 enabled, swatch, key=str(row_pos),
             )
-        n_total = len(self._bars)
-        n_shown = len(self._filtered_indices)
-        label = self.query_one("#progressbar-count", Static)
-        if q:
-            label.update(f"{n_shown:,}/{n_total:,} Progress Bars")
-        else:
-            label.update(f"{n_total:,} Progress Bars")
-        self.call_after_refresh(self._fit_growable_columns)
+        self._update_count_label()
 
     def _show_form(
         self,
@@ -3581,6 +3607,21 @@ _ID_COL_BASE = 10
 
 # Colors for room tree decorations.
 _BOOKMARK_STYLE = "#ffffff"
+
+
+class ProgressBarEditScreen(_EditListScreen):
+    """Thin screen wrapper for the progress bar editor."""
+
+    def __init__(
+        self, path: str, session_key: str = "", gmcp_snapshot_path: str = "",
+    ) -> None:
+        super().__init__()
+        self._pane = ProgressBarEditPane(
+            path=path, session_key=session_key,
+            gmcp_snapshot_path=gmcp_snapshot_path,
+        )
+
+
 _ARROW_STYLE = "#5b8def"  # blue, matching slow-travel button
 _HOME_STYLE = "#ffffff"
 _BLOCKED_STYLE = "#e04040"  # red
@@ -3647,8 +3688,8 @@ def _invert_ts(iso_str: str) -> str:
     return "".join(chr(ord("9") - ord(c) + ord("0")) for c in digits)
 
 
-class RoomBrowserScreen(Screen["bool | None"]):
-    """Browser screen for GMCP room graph with search, bookmarks, fast travel."""
+class RoomBrowserPane(Vertical):
+    """Pane widget for GMCP room graph browsing."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "close", "Close", priority=True),
@@ -3666,8 +3707,10 @@ class RoomBrowserScreen(Screen["bool | None"]):
         Binding("l", "sort_last", "Recent", show=True),
     ]
 
-    CSS = """
-    RoomBrowserScreen { align: center middle; }
+    DEFAULT_CSS = """
+    RoomBrowserPane {
+        width: 100%; height: 100%;
+    }
     #room-panel {
         width: 100%; height: 100%;
         border: round $surface-lighten-2; background: $surface; padding: 1 1;
@@ -3724,6 +3767,7 @@ class RoomBrowserScreen(Screen["bool | None"]):
         self._last_visited: dict[str, str] = {}
         self._name_col: int = _NAME_COL_BASE
         self._id_width: int = _ID_COL_BASE + 20
+        self._muted_style: str = "dim"
 
     def _heading_text(self) -> str:
         """Return the column heading string for the tree."""
@@ -3737,13 +3781,8 @@ class RoomBrowserScreen(Screen["bool | None"]):
             with Horizontal(id="room-body"):
                 with Vertical(id="room-button-col"):
                     travel_btn = Button("Travel", variant="success", id="room-travel")
-                    travel_btn.tooltip = (
-                        "Fast travel: move without stopping, skip exclusive autoreplies"
-                    )
+                    travel_btn.tooltip = "Travel to the selected room"
                     yield travel_btn
-                    slow_btn = Button("Slow", variant="primary", id="room-slow-travel")
-                    slow_btn.tooltip = "Slow travel: wait for autoreplies to finish in each room"
-                    yield slow_btn
                     yield Button("Help", variant="success", id="room-help")
                     yield Button("Close", id="room-close")
                     with Vertical(id="room-area-frame"):
@@ -3765,10 +3804,20 @@ class RoomBrowserScreen(Screen["bool | None"]):
                         yield Button("Block \u2300", variant="error", id="room-block")
                         yield Button("Home \u2302", variant="primary", id="room-home")
                         yield Button("Mark \u27bd", variant="default", id="room-mark")
-        yield Footer()
+
+    def _request_close(self, result: "bool | None" = None) -> None:
+        """Dismiss the parent screen or exit the app."""
+        try:
+            self.screen.dismiss(result)
+        except ScreenStackError:
+            self.app.exit()
 
     def on_mount(self) -> None:
         """Load rooms from file and populate tree."""
+        css_vars = self.app.get_css_variables()
+        fg_muted = css_vars.get("foreground-muted", "")
+        if fg_muted:
+            self._muted_style = fg_muted[:7] if len(fg_muted) >= 7 else fg_muted
         term_w = self.app.size.width
         extra = max(0, term_w - 80)
         self._name_col = _NAME_COL_BASE + extra
@@ -3788,20 +3837,31 @@ class RoomBrowserScreen(Screen["bool | None"]):
         """
         Select the tree node matching *room_num*.
 
+        Expands parent groups as needed and forces a tree rebuild
+        so that line numbers are valid before scrolling.
+
         Return True on success.
         """
         tree = self.query_one("#room-tree", Tree)
+        target = None
         for node in tree.root.children:
             if node.data == room_num:
-                tree.select_node(node)
-                node.expand()
-                return True
+                target = node
+                break
             for child in node.children:
                 if child.data == room_num:
                     node.expand()
-                    tree.select_node(child)
-                    return True
-        return False
+                    target = child
+                    break
+            if target is not None:
+                break
+        if target is None:
+            return False
+        # Force tree line rebuild so node._line values are current.
+        _ = tree._tree_lines  # noqa: SLF001
+        tree.select_node(target)
+        tree.focus()
+        return True
 
     def _select_current_room(self) -> None:
         """Move cursor to the current room node, if known."""
@@ -3884,8 +3944,8 @@ class RoomBrowserScreen(Screen["bool | None"]):
             return num
         return num[: width - 1] + "\u2026"
 
-    def _room_label(self, num: str) -> "RichText":
-        """Format a child leaf label (blank name, aligned dist/time + id)."""
+    def _room_label(self, num: str, name: str = "") -> "RichText":
+        """Format a child leaf label with muted name, aligned dist/time + id."""
         from rich.text import Text as RichText
 
         if self._sort_mode == "last_visited":
@@ -3895,7 +3955,11 @@ class RoomBrowserScreen(Screen["bool | None"]):
             dist = self._distances.get(num)
             info_part = f"[{dist}]".rjust(5) if dist is not None else "     "
         id_part = f" #{self._short_id(num)}"
-        return RichText(f"{''.ljust(self._name_col)} {''.rjust(4)} {info_part}{id_part}")
+        name_part = name.ljust(self._name_col)[: self._name_col]
+        label = RichText(f"{name_part} {''.rjust(4)} {info_part}{id_part}")
+        if name:
+            label.stylize(self._muted_style, 0, len(name_part))
+        return label
 
     def _refresh_tree(self, query: str = "") -> None:
         """Rebuild tree nodes, grouping rooms with the same name."""
@@ -3969,7 +4033,7 @@ class RoomBrowserScreen(Screen["bool | None"]):
                     else:
                         members.sort(key=lambda m: self._distances.get(m[0], float("inf")))
                     for num, _area, _exits, bookmarked, _lv in members:
-                        parent.add_leaf(self._room_label(num), data=num)
+                        parent.add_leaf(self._room_label(num, name), data=num)
 
         count_label = self.query_one("#room-count", Static)
         n_total = len(self._all_rooms)
@@ -4017,10 +4081,9 @@ class RoomBrowserScreen(Screen["bool | None"]):
         return "Exits: " + ", ".join(parts)
 
     def _set_travel_buttons_disabled(self, disabled: bool) -> None:
-        """Enable or disable the Travel and Slow travel buttons."""
+        """Enable or disable the Travel button."""
         try:
             self.query_one("#room-travel", Button).disabled = disabled
-            self.query_one("#room-slow-travel", Button).disabled = disabled
         except NoMatches:
             pass
 
@@ -4066,22 +4129,20 @@ class RoomBrowserScreen(Screen["bool | None"]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
-        if event.button.id == "room-close":
-            self.dismiss(None)
-        elif event.button.id == "room-travel":
-            self._do_fast_travel(slow=False)
-        elif event.button.id == "room-slow-travel":
-            self._do_fast_travel(slow=True)
-        elif event.button.id == "room-bookmark":
-            self._do_toggle_bookmark()
-        elif event.button.id == "room-block":
-            self._do_toggle_block()
-        elif event.button.id == "room-home":
-            self._do_toggle_home()
-        elif event.button.id == "room-mark":
-            self._do_toggle_mark()
-        elif event.button.id == "room-help":
-            self.app.push_screen(_CommandHelpScreen(topic="room"))
+        handlers: dict[str, Any] = {
+            "room-close": lambda: self._request_close(None),
+            "room-travel": self._do_travel,
+            "room-bookmark": self._do_toggle_bookmark,
+            "room-block": self._do_toggle_block,
+            "room-home": self._do_toggle_home,
+            "room-mark": self._do_toggle_mark,
+            "room-help": lambda: self.app.push_screen(
+                _CommandHelpScreen(topic="room")
+            ),
+        }
+        handler = handlers.get(event.button.id or "")
+        if handler:
+            handler()
 
     def action_show_help(self) -> None:
         """Open the room browser help screen."""
@@ -4091,7 +4152,7 @@ class RoomBrowserScreen(Screen["bool | None"]):
         """Arrow keys navigate between search, buttons, and the room tree."""
         if event.key not in ("up", "down", "left", "right"):
             return
-        focused = self.focused
+        focused = self.screen.focused
         search = self.query_one("#room-search", Input)
         tree = self.query_one("#room-tree", Tree)
         buttons = list(self.query("#room-button-col Button"))
@@ -4108,16 +4169,14 @@ class RoomBrowserScreen(Screen["bool | None"]):
             idx = buttons.index(focused)
             if event.key == "up" and idx > 0:
                 buttons[idx - 1].focus()
-                event.prevent_default()
-            elif event.key == "down" and idx < len(buttons) - 1:
-                buttons[idx + 1].focus()
-                event.prevent_default()
-            elif event.key == "down" and idx == len(buttons) - 1:
-                area_select.focus()
-                event.prevent_default()
+            elif event.key == "down":
+                (buttons[idx + 1] if idx < len(buttons) - 1
+                 else area_select).focus()
             elif event.key == "right":
                 search.focus()
-                event.prevent_default()
+            else:
+                return
+            event.prevent_default()
             return
         if focused is area_select:
             if event.key == "up" and buttons:
@@ -4146,11 +4205,11 @@ class RoomBrowserScreen(Screen["bool | None"]):
 
     def action_close(self) -> None:
         """Close the room browser."""
-        self.dismiss(None)
+        self._request_close(None)
 
     def action_fast_travel(self) -> None:
-        """Initiate fast travel to the selected room."""
-        self._do_fast_travel(slow=False)
+        """Initiate travel to the selected room."""
+        self._do_travel()
 
     def action_sort_name(self) -> None:
         """Sort rooms by name."""
@@ -4234,7 +4293,7 @@ class RoomBrowserScreen(Screen["bool | None"]):
         """Toggle mark on the currently selected room."""
         self._do_toggle_marker("marked")
 
-    def _do_fast_travel(self, slow: bool = False) -> None:
+    def _do_travel(self) -> None:
         """Calculate path and write fast travel file."""
         dst_num = self._get_selected_room_num()
         if dst_num is None:
@@ -4268,12 +4327,34 @@ class RoomBrowserScreen(Screen["bool | None"]):
             count.update(f"No path found to {dst_name or dst_num}")
             return
 
-        write_fasttravel(self._fasttravel_file, path, slow=slow)
-        self.dismiss(True)
+        write_fasttravel(self._fasttravel_file, path)
+        self._request_close(True)
 
 
-class RoomPickerScreen(RoomBrowserScreen):
-    """Room picker variant with Select/Cancel buttons for embedding in other editors."""
+class RoomBrowserScreen(Screen["bool | None"]):
+    """Thin screen wrapper for the room browser."""
+
+    def __init__(
+        self,
+        rooms_path: str,
+        session_key: str = "",
+        current_room_file: str = "",
+        fasttravel_file: str = "",
+    ) -> None:
+        super().__init__()
+        self._pane = RoomBrowserPane(
+            rooms_path=rooms_path, session_key=session_key,
+            current_room_file=current_room_file,
+            fasttravel_file=fasttravel_file,
+        )
+
+    def compose(self) -> ComposeResult:
+        yield self._pane
+        yield Footer()
+
+
+class _RoomPickerPane(RoomBrowserPane):
+    """Pane variant for room picking with Select/Cancel buttons."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "close", "Close", priority=True),
@@ -4303,12 +4384,11 @@ class RoomPickerScreen(RoomBrowserScreen):
                         yield Static("", id="room-count")
                         yield Static("", id="room-exits")
                         yield Static("", id="room-distance")
-        yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle Select/Cancel button presses."""
         if event.button.id == "room-close":
-            self.dismiss(None)
+            self._request_close(None)
         elif event.button.id == "room-select":
             self._do_select()
 
@@ -4321,7 +4401,27 @@ class RoomPickerScreen(RoomBrowserScreen):
         num = self._get_selected_room_num()
         if num is None:
             return
-        self.dismiss(num)
+        self._request_close(num)
+
+
+class RoomPickerScreen(Screen["str | None"]):
+    """Thin screen wrapper for the room picker."""
+
+    def __init__(
+        self,
+        rooms_path: str,
+        session_key: str = "",
+        current_room_file: str = "",
+    ) -> None:
+        super().__init__()
+        self._pane = _RoomPickerPane(
+            rooms_path=rooms_path, session_key=session_key,
+            current_room_file=current_room_file,
+        )
+
+    def compose(self) -> ComposeResult:
+        yield self._pane
+        yield Footer()
 
 
 class _EditorApp(App[None]):
@@ -4349,6 +4449,18 @@ class _EditorApp(App[None]):
         for renderable in self._exit_renderables:
             console.print(renderable)
         self._exit_renderables.clear()
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Paste X11 primary selection on middle-click."""
+        if event.button != 2:
+            return
+        event.stop()
+        text = _read_primary_selection()
+        if not text:
+            return
+        focused = self.focused
+        if focused is not None and hasattr(focused, "insert_text_at_cursor"):
+            focused.insert_text_at_cursor(text)
 
     def _set_pointer_shape(self, shape: str) -> None:
         """
@@ -4512,6 +4624,8 @@ def _run_editor_app(app: _EditorApp) -> None:
         _pause_before_exit()
         raise
     if app.return_code and app.return_code != 0:
+        sys.stdout.write(_TERMINAL_CLEANUP)
+        sys.stdout.flush()
         app._print_error_renderables()
         _pause_before_exit()
         sys.exit(app.return_code)
@@ -4519,22 +4633,35 @@ def _run_editor_app(app: _EditorApp) -> None:
 
 def _pause_before_exit() -> None:
     """Prompt user to press RETURN so they can read error output."""
-    import tty
     import termios
 
-    sys.stdout.write("Press RETURN to continue...\r\n")
+    sys.stdout.write("\r\nPress RETURN to continue...\r\n")
     sys.stdout.flush()
     fd = sys.stdin.fileno()
     try:
         os.set_blocking(fd, True)
         old = termios.tcgetattr(fd)
+        # Restore cooked mode so RETURN works and Ctrl+C raises SIGINT.
+        new = termios.tcgetattr(fd)
+        new[3] |= termios.ICANON | termios.ECHO | termios.ISIG
         try:
-            tty.setcbreak(fd)
+            termios.tcsetattr(fd, termios.TCSANOW, new)
             os.read(fd, 1)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    except (OSError, termios.error, EOFError):
+    except (OSError, termios.error, EOFError, KeyboardInterrupt):
         pass
+
+
+def _launch_editor(
+    screen: Screen[Any], session_key: str = "", logfile: str = ""
+) -> None:
+    """Common bootstrap for standalone editor entry points."""
+    _restore_blocking_fds(logfile)
+    _log_child_diagnostics()
+    _patch_writer_thread_queue()
+    app = _EditorApp(screen, session_key=session_key)
+    _run_editor_app(app)
 
 
 def edit_macros_main(
@@ -4545,60 +4672,43 @@ def edit_macros_main(
     logfile: str = "",
 ) -> None:
     """Launch standalone macro editor TUI."""
-    _restore_blocking_fds(logfile)
-    _log_child_diagnostics()
-    _patch_writer_thread_queue()
-    app = _EditorApp(
+    _launch_editor(
         MacroEditScreen(
-            path=path,
-            session_key=session_key,
-            rooms_file=rooms_file,
-            current_room_file=current_room_file,
+            path=path, session_key=session_key,
+            rooms_file=rooms_file, current_room_file=current_room_file,
         ),
-        session_key=session_key,
+        session_key=session_key, logfile=logfile,
     )
-    _run_editor_app(app)
 
 
 def edit_autoreplies_main(
     path: str, session_key: str = "", select_pattern: str = "", logfile: str = ""
 ) -> None:
     """Launch standalone autoreply editor TUI."""
-    _restore_blocking_fds(logfile)
-    _log_child_diagnostics()
-    _patch_writer_thread_queue()
-    app = _EditorApp(
+    _launch_editor(
         AutoreplyEditScreen(path=path, session_key=session_key, select_pattern=select_pattern),
-        session_key=session_key,
+        session_key=session_key, logfile=logfile,
     )
-    _run_editor_app(app)
 
 
 def edit_highlights_main(path: str, session_key: str = "", logfile: str = "") -> None:
     """Launch standalone highlight editor TUI."""
-    _restore_blocking_fds(logfile)
-    _log_child_diagnostics()
-    _patch_writer_thread_queue()
-    app = _EditorApp(
-        HighlightEditScreen(path=path, session_key=session_key), session_key=session_key
+    _launch_editor(
+        HighlightEditScreen(path=path, session_key=session_key),
+        session_key=session_key, logfile=logfile,
     )
-    _run_editor_app(app)
 
 
 def edit_progressbars_main(
     path: str, session_key: str = "", gmcp_snapshot_path: str = "", logfile: str = ""
 ) -> None:
     """Launch standalone progress bar editor TUI."""
-    _restore_blocking_fds(logfile)
-    _log_child_diagnostics()
-    _patch_writer_thread_queue()
-    app = _EditorApp(
+    _launch_editor(
         ProgressBarEditScreen(
-            path=path, session_key=session_key, gmcp_snapshot_path=gmcp_snapshot_path
+            path=path, session_key=session_key, gmcp_snapshot_path=gmcp_snapshot_path,
         ),
-        session_key=session_key,
+        session_key=session_key, logfile=logfile,
     )
-    _run_editor_app(app)
 
 
 def edit_rooms_main(
@@ -4609,32 +4719,22 @@ def edit_rooms_main(
     logfile: str = "",
 ) -> None:
     """Launch standalone room browser TUI."""
-    _restore_blocking_fds(logfile)
-    _log_child_diagnostics()
-    _patch_writer_thread_queue()
-    app = _EditorApp(
+    _launch_editor(
         RoomBrowserScreen(
-            rooms_path=rooms_path,
-            session_key=session_key,
-            current_room_file=current_room_file,
-            fasttravel_file=fasttravel_file,
+            rooms_path=rooms_path, session_key=session_key,
+            current_room_file=current_room_file, fasttravel_file=fasttravel_file,
         ),
-        session_key=session_key,
+        session_key=session_key, logfile=logfile,
     )
-    _run_editor_app(app)
 
 
 def show_help_main(topic: str = "keybindings", logfile: str = "") -> None:
     """Launch standalone help viewer TUI."""
-    _restore_blocking_fds(logfile)
-    _log_child_diagnostics()
-    _patch_writer_thread_queue()
-    app = _EditorApp(_CommandHelpScreen(topic=topic))
-    _run_editor_app(app)
+    _launch_editor(_CommandHelpScreen(topic=topic), logfile=logfile)
 
 
-class _ChatViewerScreen(Screen[None]):
-    """Capture Window -- unified viewer for GMCP chat and highlight captures."""
+class _CapsPane(Vertical):
+    """Pane widget for captures and chats viewing."""
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "close", "Close", show=True),
@@ -4646,8 +4746,8 @@ class _ChatViewerScreen(Screen[None]):
     ]
 
     DEFAULT_CSS = """
-    _ChatViewerScreen {
-        layout: vertical;
+    _CapsPane {
+        width: 100%; height: 100%;
     }
     #chat-header {
         height: 1;
@@ -4662,7 +4762,6 @@ class _ChatViewerScreen(Screen[None]):
         background: $surface;
         padding: 0 1;
     }
-    Footer FooterLabel { margin: 0; }
     """
 
     def __init__(
@@ -4698,7 +4797,6 @@ class _ChatViewerScreen(Screen[None]):
         with Vertical(id="chat-header"):
             yield Static("", id="chat-channel-bar")
         yield RichLog(highlight=False, markup=False, wrap=True, id="chat-log")
-        yield Footer()
 
     def on_mount(self) -> None:
         """Load chat file, select initial channel, and populate the log."""
@@ -4852,6 +4950,31 @@ class _ChatViewerScreen(Screen[None]):
         self._populate_log()
 
 
+class _CapsScreen(Screen[None]):
+    """Thin screen wrapper for the captures and chats viewer."""
+
+    def __init__(
+        self,
+        chat_file: str,
+        session_key: str = "",
+        initial_channel: str = "",
+        capture_file: str = "",
+    ) -> None:
+        super().__init__()
+        self._pane = _CapsPane(
+            chat_file=chat_file, session_key=session_key,
+            initial_channel=initial_channel, capture_file=capture_file,
+        )
+
+    def compose(self) -> ComposeResult:
+        yield self._pane
+        yield Footer()
+
+
+# Keep backwards-compatible alias.
+_ChatViewerScreen = _CapsScreen
+
+
 def chat_viewer_main(
     chat_file: str,
     session_key: str = "",
@@ -4873,6 +4996,205 @@ def chat_viewer_main(
         session_key=session_key,
     )
     app.run(mouse=False)
+
+
+# ---------------------------------------------------------------------------
+# Tabbed editor: combines all 7 editor panes into a single TUI subprocess.
+# ---------------------------------------------------------------------------
+
+# Tab definitions: (label, tab_id, pane_factory_name)
+_EDITOR_TABS: list[tuple[str, str]] = [
+    ("F1 Help", "help"),
+    ("F6 Highlights", "highlights"),
+    ("F7 Rooms", "rooms"),
+    ("F8 Macros", "macros"),
+    ("F9 Autoreplies", "autoreplies"),
+    ("F10 Caps & Chats", "captures"),
+    ("F11 Bars", "bars"),
+]
+
+
+class _TabbedEditorScreen(Screen[None]):
+    """Full-screen tabbed editor combining all 7 editor panes."""
+
+    BINDINGS: ClassVar[list[Binding]] = [
+        Binding("escape", "close_or_back", "Close", priority=True),
+        Binding("f1", "switch_tab('help')", "Help", show=False),
+        Binding("f6", "switch_tab('highlights')", "Highlights", show=False),
+        Binding("f7", "switch_tab('rooms')", "Rooms", show=False),
+        Binding("f8", "switch_tab('macros')", "Macros", show=False),
+        Binding("f9", "switch_tab('autoreplies')", "Autoreplies", show=False),
+        Binding("f10", "switch_tab('captures')", "Caps", show=False),
+        Binding("f11", "switch_tab('bars')", "Bars", show=False),
+    ]
+
+    CSS = """
+    _TabbedEditorScreen {
+        height: 100%;
+        width: 100%;
+    }
+    #te-tab-bar {
+        height: 1;
+        background: $surface;
+    }
+    #te-tab-bar Button {
+        min-width: 0;
+        height: 1;
+        margin: 0 0 0 0;
+        padding: 0 1;
+        border: none;
+        background: $surface-lighten-1;
+    }
+    #te-tab-bar Button.active-tab {
+        background: $accent;
+        color: $text;
+        text-style: bold;
+    }
+    #te-content {
+        height: 1fr;
+    }
+    """
+
+    def __init__(self, params: dict[str, Any]) -> None:
+        """Initialize tabbed editor from a parameters dict.
+
+        :param params: Dict with keys for each pane's constructor args, plus
+            ``initial_tab`` and ``initial_channel``.
+        """
+        super().__init__()
+        self._params = params
+        self._initial_tab = params.get("initial_tab", "help")
+        self._panes: dict[str, Any] = {}
+        self._loaded: set[str] = set()
+        self._dirty: set[str] = set()
+
+    def compose(self) -> ComposeResult:
+        """Build tab bar and content switcher with lazy-loaded panes."""
+        with Horizontal(id="te-tab-bar"):
+            for label, tab_id in _EDITOR_TABS:
+                btn = Button(label, id=f"te-btn-{tab_id}")
+                if tab_id == self._initial_tab:
+                    btn.add_class("active-tab")
+                yield btn
+
+        with ContentSwitcher(id="te-content", initial=self._initial_tab):
+            for _label, tab_id in _EDITOR_TABS:
+                pane = self._create_pane(tab_id)
+                self._panes[tab_id] = pane
+                yield pane
+
+        yield Footer()
+
+    _PANE_FACTORIES: ClassVar[dict[str, tuple[type, dict[str, str]]]] = {
+        "help": (_HelpPane, {"topic": ""}),
+        "highlights": (HighlightEditPane, {
+            "path": "highlights_file", "session_key": "session_key",
+        }),
+        "rooms": (RoomBrowserPane, {
+            "rooms_path": "rooms_file", "session_key": "session_key",
+            "current_room_file": "current_room_file",
+            "fasttravel_file": "fasttravel_file",
+        }),
+        "macros": (MacroEditPane, {
+            "path": "macros_file", "session_key": "session_key",
+            "rooms_file": "rooms_file",
+            "current_room_file": "current_room_file",
+        }),
+        "autoreplies": (AutoreplyEditPane, {
+            "path": "autoreplies_file", "session_key": "session_key",
+            "select_pattern": "select_pattern",
+        }),
+        "captures": (_CapsPane, {
+            "chat_file": "chat_file", "session_key": "session_key",
+            "initial_channel": "initial_channel",
+            "capture_file": "capture_file",
+        }),
+        "bars": (ProgressBarEditPane, {
+            "path": "progressbars_file", "session_key": "session_key",
+            "gmcp_snapshot_path": "gmcp_snapshot_file",
+        }),
+    }
+
+    def _create_pane(self, tab_id: str) -> Vertical:
+        """Instantiate the pane widget for *tab_id*."""
+        cls, param_map = self._PANE_FACTORIES[tab_id]
+        if tab_id == "help":
+            pane = cls(topic="keybindings")
+        else:
+            kwargs = {k: self._params.get(v, "") for k, v in param_map.items()}
+            pane = cls(**kwargs)
+        pane.id = tab_id
+        return pane
+
+    def on_mount(self) -> None:
+        """Mark the initial tab as loaded."""
+        self._loaded.add(self._initial_tab)
+
+    def action_switch_tab(self, tab_id: str) -> None:
+        """Switch to *tab_id*, loading it lazily if needed."""
+        switcher = self.query_one("#te-content", ContentSwitcher)
+        if switcher.current == tab_id:
+            return
+        switcher.current = tab_id
+        for btn in self.query("#te-tab-bar Button"):
+            btn.remove_class("active-tab")
+            if btn.id == f"te-btn-{tab_id}":
+                btn.add_class("active-tab")
+        if tab_id not in self._loaded:
+            self._loaded.add(tab_id)
+            pane = self._panes.get(tab_id)
+            if pane and hasattr(pane, "_load_from_file"):
+                pane._load_from_file()
+                if hasattr(pane, "_refresh_table"):
+                    pane._refresh_table()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle tab bar button clicks."""
+        btn_id = event.button.id or ""
+        if btn_id.startswith("te-btn-"):
+            tab_id = btn_id[len("te-btn-"):]
+            self.action_switch_tab(tab_id)
+
+    def action_close_or_back(self) -> None:
+        """Close form if visible in an editor pane, otherwise exit app."""
+        current = self.query_one("#te-content", ContentSwitcher).current
+        pane = self._panes.get(current or "")
+        if pane and hasattr(pane, "_form_visible") and pane._form_visible:
+            if hasattr(pane, "action_cancel_or_close"):
+                pane.action_cancel_or_close()
+            return
+        self._save_all_dirty()
+        self.app.exit()
+
+    def _save_all_dirty(self) -> None:
+        """Auto-save any panes that have been loaded and have a save method."""
+        for tab_id in self._loaded:
+            pane = self._panes.get(tab_id)
+            if pane and hasattr(pane, "_save_to_file"):
+                pane._save_to_file()
+
+    def _handle_travel(self) -> None:
+        """Save all editors and exit when room travel is requested."""
+        self._save_all_dirty()
+        self.app.exit()
+
+
+def unified_editor_main() -> None:
+    """Launch the tabbed editor TUI subprocess.
+
+    Reads a single JSON blob from ``sys.argv[1]`` containing all parameters
+    for every pane. Called from the REPL via ``_launch_unified_editor()``.
+    """
+    params = json.loads(sys.argv[1])
+    logfile = params.get("logfile", "")
+    _restore_blocking_fds(logfile)
+    _log_child_diagnostics()
+    _patch_writer_thread_queue()
+
+    screen = _TabbedEditorScreen(params)
+    session_key = params.get("session_key", "")
+    app = _EditorApp(screen, session_key=session_key)
+    _run_editor_app(app)
 
 
 class _ConfirmDialogScreen(Screen[bool]):
@@ -5026,6 +5348,27 @@ class _RandomwalkDialogScreen(Screen[bool]):
     .rw-option Switch {
         width: auto;
     }
+    #rw-switches {
+        height: auto;
+        margin-bottom: 1;
+        border: round $surface-lighten-2;
+        padding: 0 1;
+    }
+    .rw-switch-row {
+        height: 3;
+    }
+    .rw-switch-cell {
+        width: 1fr;
+        height: 3;
+    }
+    .rw-switch-cell Label {
+        padding-top: 1;
+        width: auto;
+        margin-right: 1;
+    }
+    .rw-switch-cell Switch {
+        width: auto;
+    }
     #rw-error {
         color: $error;
         height: 1;
@@ -5078,28 +5421,38 @@ class _RandomwalkDialogScreen(Screen[bool]):
                     )
                     yield lbl
                     yield Input(
-                        value=str(self._default_visit_level), id="rw-visit-level", type="integer"
+                        value=str(self._default_visit_level),
+                        id="rw-visit-level", type="integer",
                     )
-                with Horizontal(classes="rw-option"):
-                    yield Label("Auto search:")
-                    yield Switch(value=self._default_auto_search, id="rw-auto-search")
-                with Horizontal(classes="rw-option"):
-                    yield Label("Auto consider:")
-                    yield Switch(
-                        value=self._default_auto_evaluate,
-                        id="rw-auto-consider",
-                        disabled=not self._default_autoreplies,
-                    )
-                with Horizontal(classes="rw-option"):
-                    yield Label("Auto survey:")
-                    yield Switch(
-                        value=self._default_auto_survey,
-                        id="rw-auto-survey",
-                        disabled=not self._default_autoreplies,
-                    )
-                with Horizontal(classes="rw-option"):
-                    yield Label("Autoreplies:")
-                    yield Switch(value=self._default_autoreplies, id="rw-autoreplies")
+            with Vertical(id="rw-switches"):
+                with Horizontal(classes="rw-switch-row"):
+                    with Horizontal(classes="rw-switch-cell"):
+                        yield Label("Auto search:")
+                        yield Switch(
+                            value=self._default_auto_search,
+                            id="rw-auto-search",
+                        )
+                    with Horizontal(classes="rw-switch-cell"):
+                        yield Label("Auto consider:")
+                        yield Switch(
+                            value=self._default_auto_evaluate,
+                            id="rw-auto-consider",
+                            disabled=not self._default_autoreplies,
+                        )
+                with Horizontal(classes="rw-switch-row"):
+                    with Horizontal(classes="rw-switch-cell"):
+                        yield Label("Auto survey:")
+                        yield Switch(
+                            value=self._default_auto_survey,
+                            id="rw-auto-survey",
+                            disabled=not self._default_autoreplies,
+                        )
+                    with Horizontal(classes="rw-switch-cell"):
+                        yield Label("Autoreplies:")
+                        yield Switch(
+                            value=self._default_autoreplies,
+                            id="rw-autoreplies",
+                        )
             yield Static("", id="rw-error")
             with Horizontal(id="rw-buttons"):
                 yield Button("Help", variant="primary", id="rw-help")
@@ -5268,20 +5621,25 @@ class _AutodiscoverDialogScreen(Screen[bool]):
         width: 1fr;
         height: auto;
     }
-    #ad-options-col {
+    #ad-switches {
         height: auto;
         margin-bottom: 1;
+        border: round $surface-lighten-2;
+        padding: 0 1;
     }
-    .ad-option {
+    .ad-switch-row {
         height: 3;
-        margin-bottom: 1;
     }
-    .ad-option Label {
+    .ad-switch-cell {
+        width: 1fr;
+        height: 3;
+    }
+    .ad-switch-cell Label {
         padding-top: 1;
         width: auto;
         margin-right: 1;
     }
-    .ad-option Switch {
+    .ad-switch-cell Switch {
         width: auto;
     }
     #ad-buttons {
@@ -5340,31 +5698,35 @@ class _AutodiscoverDialogScreen(Screen[bool]):
                         id="ad-dfs",
                         value=(self._default_strategy == "dfs"),
                     )
-            with Vertical(id="ad-options-col"):
-                with Horizontal(classes="ad-option"):
-                    yield Label("Auto search:")
-                    yield Switch(
-                        value=self._default_auto_search, id="ad-auto-search",
-                    )
-                with Horizontal(classes="ad-option"):
-                    yield Label("Auto consider:")
-                    yield Switch(
-                        value=self._default_auto_evaluate,
-                        id="ad-auto-consider",
-                        disabled=not self._default_autoreplies,
-                    )
-                with Horizontal(classes="ad-option"):
-                    yield Label("Auto survey:")
-                    yield Switch(
-                        value=self._default_auto_survey,
-                        id="ad-auto-survey",
-                        disabled=not self._default_autoreplies,
-                    )
-                with Horizontal(classes="ad-option"):
-                    yield Label("Autoreplies:")
-                    yield Switch(
-                        value=self._default_autoreplies, id="ad-autoreplies",
-                    )
+            with Vertical(id="ad-switches"):
+                with Horizontal(classes="ad-switch-row"):
+                    with Horizontal(classes="ad-switch-cell"):
+                        yield Label("Auto search:")
+                        yield Switch(
+                            value=self._default_auto_search,
+                            id="ad-auto-search",
+                        )
+                    with Horizontal(classes="ad-switch-cell"):
+                        yield Label("Auto consider:")
+                        yield Switch(
+                            value=self._default_auto_evaluate,
+                            id="ad-auto-consider",
+                            disabled=not self._default_autoreplies,
+                        )
+                with Horizontal(classes="ad-switch-row"):
+                    with Horizontal(classes="ad-switch-cell"):
+                        yield Label("Auto survey:")
+                        yield Switch(
+                            value=self._default_auto_survey,
+                            id="ad-auto-survey",
+                            disabled=not self._default_autoreplies,
+                        )
+                    with Horizontal(classes="ad-switch-cell"):
+                        yield Label("Autoreplies:")
+                        yield Switch(
+                            value=self._default_autoreplies,
+                            id="ad-autoreplies",
+                        )
             with Horizontal(id="ad-buttons"):
                 yield Button("Help", variant="primary", id="ad-help")
                 yield Button("Cancel", variant="error", id="ad-cancel")
@@ -5485,6 +5847,18 @@ class TelnetSessionApp(App[None]):
     """Textual TUI for managing telix client sessions."""
 
     TITLE = "telix Session Manager"
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Paste X11 primary selection on middle-click."""
+        if event.button != 2:
+            return
+        event.stop()
+        text = _read_primary_selection()
+        if not text:
+            return
+        focused = self.focused
+        if focused is not None and hasattr(focused, "insert_text_at_cursor"):
+            focused.insert_text_at_cursor(text)
 
     def _set_pointer_shape(self, shape: str) -> None:
         """Disable pointer shape changes to prevent WriterThread deadlock."""

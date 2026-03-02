@@ -57,6 +57,7 @@ def _all_rich_colors() -> list[str]:
 
 CURATED_COLORS: list[str] = _all_rich_colors()
 
+
 def get_theme_colors() -> dict[str, str]:
     """
     Return all theme color names mapped to ``#rrggbb`` hex values.
@@ -96,6 +97,7 @@ def get_theme_colors() -> dict[str, str]:
         }
     except Exception:
         return {}
+
 
 # Standard HP/MP/XP field aliases from Char.Vitals and Char.Status.
 _HP_ALIASES = {"hp": ("maxhp", "maxHP", "max_hp"), "HP": ("maxHP", "maxhp", "max_hp")}

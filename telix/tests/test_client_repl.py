@@ -247,10 +247,10 @@ async def test_naws_restored_on_normal_exit() -> None:
         ("100", ["100"]),
         ("2 apples", ["2 apples"]),
         ("", []),
-        ("`fast travel 42`", ["`fast travel 42`"]),
+        ("`travel 42`", ["`travel 42`"]),
         ("look;`delay 1s`;north", ["look", "`delay 1s`", "north"]),
         ("`randomwalk`", ["`randomwalk`"]),
-        ("3e;`slow travel 99`", ["e", "e", "e", "`slow travel 99`"]),
+        ("3e;`travel 99`", ["e", "e", "e", "`travel 99`"]),
         ("a ; b", ["a", "b"]),
         ("a;\nb", ["a", "b"]),
         ("a\n;\nb", ["a", "b"]),
@@ -357,19 +357,19 @@ def test_split_incomplete_esc(data: bytes, flush: bytes, hold: bytes) -> None:
 @pytest.mark.parametrize(
     "cmd, match",
     [
-        ("`fast travel 123`", True),
-        ("`slow travel 456`", True),
-        ("`return fast`", True),
-        ("`return slow`", True),
-        ("`Fast Travel 123`", True),
-        ("`SLOW TRAVEL 789`", True),
-        ("`fast travel`", True),
+        ("`travel 123`", True),
+        ("`travel 456 noreply`", True),
+        ("`return`", True),
+        ("`return noreply`", True),
+        ("`Travel 123`", True),
+        ("`TRAVEL 789`", True),
+        ("`travel`", True),
         ("`randomwalk`", True),
         ("`RANDOMWALK`", True),
         ("`home`", True),
         ("`HOME`", True),
-        ("fast travel 123", False),
-        ("`fastravel 123`", False),
+        ("travel 123", False),
+        ("`fast travel 123`", False),
         ("north", False),
         ("look", False),
     ],
@@ -794,6 +794,36 @@ async def test_send_chained_mixed_uses_move_pacing(monkeypatch: pytest.MonkeyPat
     assert len(move_delays) >= 3
 
 
+@pytest.mark.asyncio
+async def test_send_chained_repeated_non_move(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repeated non-movement commands all execute with delay pacing."""
+    import logging
+
+    from telix.client_repl import _COMMAND_DELAY, _send_chained
+
+    sleep_args: list[float] = []
+    _real_sleep = asyncio.sleep
+
+    async def _tracking_sleep(duration: float) -> None:
+        sleep_args.append(duration)
+        await _real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", _tracking_sleep)
+
+    writer = _WalkWriter(room_num="room1")
+    writer.ctx.wait_for_prompt = None
+    writer.ctx.prompt_ready = None
+    writer.ctx.room_changed = None
+
+    commands = ["buy coffee"] * 5
+    await _send_chained(commands, writer.ctx, logging.getLogger("test"))
+
+    sent = [s.strip() for s in writer._sent]
+    assert sent.count("buy coffee") == 4
+    delays = [d for d in sleep_args if d == _COMMAND_DELAY]
+    assert len(delays) >= 3
+
+
 def test_collapse_runs_basic() -> None:
     """Consecutive identical commands are collapsed into count×cmd groups."""
     from telix.client_repl import _collapse_runs
@@ -906,6 +936,238 @@ async def test_send_chained_delay_pauses(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(writer._sent) == 1
     assert writer._sent[0] == "north\r\n"
     assert 2.0 in sleep_args
+
+
+def _dispatch_hooks(**overrides: Any) -> "tuple[Any, list[str], list[str]]":
+    """Build a DispatchHooks with recording send/echo and return (hooks, sent, echoed)."""
+    from telix.client_repl_commands import DispatchHooks
+
+    sent: list[str] = []
+    echoed: list[str] = []
+    status: list[str] = []
+    defaults = dict(
+        ctx=types.SimpleNamespace(
+            gmcp_data={},
+            captures={},
+            autoreply_engine=None,
+        ),
+        log=__import__("logging").getLogger("test"),
+        wait_fn=None,
+        send_fn=sent.append,
+        echo_fn=echoed.append,
+        on_status=status.append,
+        prompt_ready=None,
+    )
+    defaults.update(overrides)
+    hooks = DispatchHooks(**defaults)
+    return hooks, sent, echoed
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cmd, expected_result",
+    [
+        ("`delay 0ms`", "HANDLED"),
+        ("`delay 1s`", "HANDLED"),
+        ("`delay 500ms`", "HANDLED"),
+    ],
+)
+async def test_dispatch_one_delay(
+    monkeypatch: pytest.MonkeyPatch, cmd: str, expected_result: str
+) -> None:
+    """Delay commands return HANDLED."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    sleep_args: list[float] = []
+    _real_sleep = asyncio.sleep
+
+    async def _tracking_sleep(duration: float) -> None:
+        sleep_args.append(duration)
+        await _real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", _tracking_sleep)
+    hooks, sent, _ = _dispatch_hooks()
+    result = await dispatch_one(cmd, 0, 0, frozenset(), hooks)
+    assert result is StepResult[expected_result]
+    assert not sent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_delay_calls_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Delay command calls on_progress and on_progress_clear."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    _real_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda d: _real_sleep(0))
+    progress_calls: list[tuple[float, float]] = []
+    clear_calls: list[int] = []
+    hooks, _, _ = _dispatch_hooks(
+        on_progress=lambda s, d: progress_calls.append((s, d)),
+        on_progress_clear=lambda: clear_calls.append(1),
+    )
+    result = await dispatch_one("`delay 2s`", 0, 0, frozenset(), hooks)
+    assert result is StepResult.HANDLED
+    assert len(progress_calls) == 1
+    assert len(clear_calls) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_when_pass() -> None:
+    """When condition that passes returns HANDLED."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    hooks, sent, _ = _dispatch_hooks(
+        ctx=types.SimpleNamespace(
+            gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}},
+            captures={},
+            autoreply_engine=None,
+        ),
+    )
+    result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
+    assert result is StepResult.HANDLED
+    assert not sent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_when_fail() -> None:
+    """When condition that fails returns ABORT."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    hooks, sent, _ = _dispatch_hooks(
+        ctx=types.SimpleNamespace(
+            gmcp_data={"Char.Vitals": {"hp": "20", "maxhp": "100"}},
+            captures={},
+            autoreply_engine=None,
+        ),
+    )
+    result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
+    assert result is StepResult.ABORT
+    assert not sent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_plain_send_first_skips_wait() -> None:
+    """First plain send (sent_count=0) does not call wait_fn."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    wait_calls: list[int] = []
+
+    async def _wait() -> None:
+        wait_calls.append(1)
+
+    hooks, sent, echoed = _dispatch_hooks(wait_fn=_wait)
+    result = await dispatch_one("look", 0, 0, frozenset(), hooks)
+    assert result is StepResult.SENT
+    assert sent == ["look"]
+    assert echoed == ["look"]
+    assert not wait_calls
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_plain_send_subsequent_waits() -> None:
+    """Subsequent plain sends (sent_count>0) call wait_fn."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    wait_calls: list[int] = []
+
+    async def _wait() -> None:
+        wait_calls.append(1)
+
+    hooks, sent, _ = _dispatch_hooks(wait_fn=_wait)
+    result = await dispatch_one("north", 1, 1, frozenset(), hooks)
+    assert result is StepResult.SENT
+    assert sent == ["north"]
+    assert len(wait_calls) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_immediate_skips_wait() -> None:
+    """Commands in the immediate set skip wait_fn even when sent_count>0."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    wait_calls: list[int] = []
+
+    async def _wait() -> None:
+        wait_calls.append(1)
+
+    hooks, sent, _ = _dispatch_hooks(wait_fn=_wait)
+    result = await dispatch_one("south", 2, 1, frozenset({2}), hooks)
+    assert result is StepResult.SENT
+    assert sent == ["south"]
+    assert not wait_calls
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_until_timeout_aborts() -> None:
+    """Until command that times out returns ABORT."""
+    from telix.autoreply import SearchBuffer
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    buf = SearchBuffer(max_lines=100)
+    hooks, sent, _ = _dispatch_hooks(search_buffer=buf)
+    result = await dispatch_one("`until 0.01 nope`", 0, 0, frozenset(), hooks)
+    assert result is StepResult.ABORT
+    assert not sent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_until_matches() -> None:
+    """Until command returns HANDLED when pattern appears."""
+    from telix.autoreply import SearchBuffer
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    buf = SearchBuffer(max_lines=100)
+    hooks, sent, _ = _dispatch_hooks(search_buffer=buf)
+
+    async def _feed_later() -> None:
+        await asyncio.sleep(0.01)
+        buf.add_text("the mob died.\n")
+
+    asyncio.ensure_future(_feed_later())
+    result = await dispatch_one("`until 2 died`", 0, 0, frozenset(), hooks)
+    assert result is StepResult.HANDLED
+    assert not sent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_untils_case_sensitive_no_match() -> None:
+    """Untils (case-sensitive) times out when casing doesn't match."""
+    from telix.autoreply import SearchBuffer
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    buf = SearchBuffer(max_lines=100)
+    hooks, sent, _ = _dispatch_hooks(search_buffer=buf)
+
+    async def _feed_later() -> None:
+        await asyncio.sleep(0.005)
+        buf.add_text("dead\n")
+
+    asyncio.ensure_future(_feed_later())
+    result = await dispatch_one("`untils 0.02 DEAD`", 0, 0, frozenset(), hooks)
+    assert result is StepResult.ABORT
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_dispatch_one_mask_send() -> None:
+    """When mask_send=True, status shows (masked) instead of command."""
+    from telix.client_repl_commands import StepResult, dispatch_one
+
+    status_log: list[str] = []
+    hooks, sent, _ = _dispatch_hooks(on_status=status_log.append)
+    result = await dispatch_one("secret", 0, 0, frozenset(), hooks, mask_send=True)
+    assert result is StepResult.SENT
+    assert any("(masked)" in s for s in status_log)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")

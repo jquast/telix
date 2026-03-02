@@ -34,6 +34,10 @@ from telix.client_tui import (  # noqa: E402
     _CommandHelpScreen,
     _RandomwalkDialogScreen,
     _AutodiscoverDialogScreen,
+    _TabbedEditorScreen,
+    _EDITOR_TABS,
+    _read_primary_selection,
+    _PRIMARY_PASTE_COMMANDS,
 )
 
 
@@ -236,8 +240,8 @@ def test_build_command_missing_host() -> None:
 def test_macro_screen_loads_empty(tmp_path) -> None:
     path = str(tmp_path / "macros.json")
     screen = MacroEditScreen(path=path)
-    assert screen._path == path
-    assert screen._macros == []
+    assert screen._pane._path == path
+    assert screen._pane._macros == []
 
 
 def test_macro_screen_loads_file(tmp_path) -> None:
@@ -247,20 +251,20 @@ def test_macro_screen_loads_file(tmp_path) -> None:
     fp = tmp_path / "macros.json"
     fp.write_text(json.dumps({sk: {"macros": [{"key": "KEY_F5", "text": "look;"}]}}))
     screen = MacroEditScreen(path=str(fp), session_key=sk)
-    screen._load_from_file()
-    assert len(screen._macros) == 1
-    assert screen._macros[0] == ("KEY_F5", "look;", True, "", False, "")
+    screen._pane._load_from_file()
+    assert len(screen._pane._macros) == 1
+    assert screen._pane._macros[0] == ("KEY_F5", "look;", True, "", False, "")
 
 
 def test_macro_screen_save(tmp_path) -> None:
     sk = "test.host:23"
     fp = tmp_path / "macros.json"
     screen = MacroEditScreen(path=str(fp), session_key=sk)
-    screen._macros = [
+    screen._pane._macros = [
         ("KEY_F5", "look;", True, "", False, ""),
         ("KEY_ALT_N", "north;", True, "", False, ""),
     ]
-    screen._save_to_file()
+    screen._pane._save_to_file()
 
     from telix.macros import load_macros
 
@@ -274,8 +278,8 @@ def test_macro_screen_save(tmp_path) -> None:
 def test_autoreply_screen_loads_empty(tmp_path) -> None:
     path = str(tmp_path / "autoreplies.json")
     screen = AutoreplyEditScreen(path=path)
-    assert screen._path == path
-    assert screen._rules == []
+    assert screen._pane._path == path
+    assert screen._pane._rules == []
 
 
 def test_autoreply_screen_loads_file(tmp_path) -> None:
@@ -287,17 +291,17 @@ def test_autoreply_screen_loads_file(tmp_path) -> None:
         json.dumps({sk: {"autoreplies": [{"pattern": r"\d+ gold", "reply": "get gold;"}]}})
     )
     screen = AutoreplyEditScreen(path=str(fp), session_key=sk)
-    screen._load_from_file()
-    assert len(screen._rules) == 1
-    assert screen._rules[0] == _AutoreplyTuple(r"\d+ gold", "get gold;")
+    screen._pane._load_from_file()
+    assert len(screen._pane._rules) == 1
+    assert screen._pane._rules[0] == _AutoreplyTuple(r"\d+ gold", "get gold;")
 
 
 def test_autoreply_screen_save(tmp_path) -> None:
     sk = "test.host:23"
     fp = tmp_path / "autoreplies.json"
     screen = AutoreplyEditScreen(path=str(fp), session_key=sk)
-    screen._rules = [_AutoreplyTuple(r"\d+ gold", "get gold;")]
-    screen._save_to_file()
+    screen._pane._rules = [_AutoreplyTuple(r"\d+ gold", "get gold;")]
+    screen._pane._save_to_file()
 
     from telix.autoreply import load_autoreplies
 
@@ -319,8 +323,8 @@ def test_autoreply_screen_loads_field(tmp_path, entry_extra, field_idx, expected
     entry = {"pattern": "x", "reply": "y;", **entry_extra}
     fp.write_text(json.dumps({sk: {"autoreplies": [entry]}}))
     screen = AutoreplyEditScreen(path=str(fp), session_key=sk)
-    screen._load_from_file()
-    assert screen._rules[0][field_idx] == expected
+    screen._pane._load_from_file()
+    assert screen._pane._rules[0][field_idx] == expected
 
 
 @pytest.mark.parametrize(
@@ -337,8 +341,8 @@ def test_autoreply_screen_saves_field(tmp_path, rule_kwargs, json_key, expected,
     sk = "test.host:23"
     fp = tmp_path / "autoreplies.json"
     screen = AutoreplyEditScreen(path=str(fp), session_key=sk)
-    screen._rules = [_AutoreplyTuple("x", "y;", **rule_kwargs)]
-    screen._save_to_file()
+    screen._pane._rules = [_AutoreplyTuple("x", "y;", **rule_kwargs)]
+    screen._pane._save_to_file()
     raw = json.loads(fp.read_text())
     entry = raw[sk]["autoreplies"][0]
     if absent:
@@ -352,9 +356,9 @@ def test_autoreply_screen_rejects_bad_regex(tmp_path) -> None:
 
     fp = tmp_path / "autoreplies.json"
     screen = AutoreplyEditScreen(path=str(fp))
-    screen._rules = [_AutoreplyTuple("[invalid", "x")]
+    screen._pane._rules = [_AutoreplyTuple("[invalid", "x")]
     with pytest.raises(re.error):
-        screen._save_to_file()
+        screen._pane._save_to_file()
 
 
 def test_helper_relative_time_empty() -> None:
@@ -416,7 +420,7 @@ def test_help_topics_exist(topic: str) -> None:
 @pytest.mark.parametrize("topic", ["macro", "autoreply", "highlight"])
 def test_help_screen_creates(topic: str) -> None:
     screen = _CommandHelpScreen(topic=topic)
-    assert screen._topic == topic
+    assert screen._pane._topic == topic
 
 
 def test_help_topic_macro_contains_key_sections() -> None:
@@ -684,3 +688,163 @@ def test_stale_generation_skips_batch(tui_tmp_paths: Any) -> None:
     screen._refresh_gen = 5
     screen._load_next_batch(gen=4)
     assert len(screen._pending_rows) == 3
+
+
+class TestTabbedEditorScreen:
+    def _make_params(self, tmp_path: Any, initial_tab: str = "help") -> dict:
+        return {
+            "session_key": "test:4000",
+            "macros_file": str(tmp_path / "macros.json"),
+            "autoreplies_file": str(tmp_path / "autoreplies.json"),
+            "highlights_file": str(tmp_path / "highlights.json"),
+            "progressbars_file": str(tmp_path / "progressbars.json"),
+            "gmcp_snapshot_file": "",
+            "rooms_file": str(tmp_path / "rooms.db"),
+            "current_room_file": str(tmp_path / "current_room.json"),
+            "fasttravel_file": str(tmp_path / "fasttravel.json"),
+            "chat_file": str(tmp_path / "chat.json"),
+            "capture_file": "",
+            "initial_tab": initial_tab,
+            "initial_channel": "",
+            "select_pattern": "",
+            "logfile": "",
+        }
+
+    def test_creates_all_panes(self, tmp_path: Any) -> None:
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        assert screen._initial_tab == "help"
+
+    def test_initial_tab_macros(self, tmp_path: Any) -> None:
+        params = self._make_params(tmp_path, initial_tab="macros")
+        screen = _TabbedEditorScreen(params)
+        assert screen._initial_tab == "macros"
+
+    def test_editor_tabs_has_seven_entries(self) -> None:
+        assert len(_EDITOR_TABS) == 7
+
+    def test_editor_tabs_ids(self) -> None:
+        ids = [tab_id for _, tab_id in _EDITOR_TABS]
+        assert ids == [
+            "help", "highlights", "rooms", "macros",
+            "autoreplies", "captures", "bars",
+        ]
+
+    def test_create_pane_help(self, tmp_path: Any) -> None:
+        from telix.client_tui import _HelpPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("help")
+        assert isinstance(pane, _HelpPane)
+        assert pane.id == "help"
+
+    def test_create_pane_macros(self, tmp_path: Any) -> None:
+        from telix.client_tui import MacroEditPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("macros")
+        assert isinstance(pane, MacroEditPane)
+        assert pane.id == "macros"
+
+    def test_create_pane_autoreplies(self, tmp_path: Any) -> None:
+        from telix.client_tui import AutoreplyEditPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("autoreplies")
+        assert isinstance(pane, AutoreplyEditPane)
+        assert pane.id == "autoreplies"
+
+    def test_create_pane_highlights(self, tmp_path: Any) -> None:
+        from telix.client_tui import HighlightEditPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("highlights")
+        assert isinstance(pane, HighlightEditPane)
+        assert pane.id == "highlights"
+
+    def test_create_pane_bars(self, tmp_path: Any) -> None:
+        from telix.client_tui import ProgressBarEditPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("bars")
+        assert isinstance(pane, ProgressBarEditPane)
+        assert pane.id == "bars"
+
+    def test_create_pane_rooms(self, tmp_path: Any) -> None:
+        from telix.client_tui import RoomBrowserPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("rooms")
+        assert isinstance(pane, RoomBrowserPane)
+        assert pane.id == "rooms"
+
+    def test_create_pane_captures(self, tmp_path: Any) -> None:
+        from telix.client_tui import _CapsPane
+
+        params = self._make_params(tmp_path)
+        screen = _TabbedEditorScreen(params)
+        pane = screen._create_pane("captures")
+        assert isinstance(pane, _CapsPane)
+        assert pane.id == "captures"
+
+
+class TestReadPrimarySelection:
+    def test_returns_text_from_first_available_helper(self, monkeypatch: Any) -> None:
+        from unittest.mock import patch, MagicMock
+
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = b"hello world"
+        with patch("telix.client_tui.subprocess.run", return_value=fake_result) as m:
+            result = _read_primary_selection()
+        assert result == "hello world"
+        m.assert_called_once_with(
+            _PRIMARY_PASTE_COMMANDS[0],
+            capture_output=True, timeout=2, check=False,
+        )
+
+    def test_tries_next_command_on_file_not_found(self, monkeypatch: Any) -> None:
+        from unittest.mock import patch, MagicMock
+
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+        fake_result.stdout = b"from xsel"
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[0] == "xclip":
+                raise FileNotFoundError
+            return fake_result
+
+        with patch("telix.client_tui.subprocess.run", side_effect=fake_run):
+            result = _read_primary_selection()
+        assert result == "from xsel"
+        assert calls[0][0] == "xclip"
+        assert calls[1][0] == "xsel"
+
+    def test_returns_empty_when_no_helpers_available(self) -> None:
+        from unittest.mock import patch
+
+        with patch(
+            "telix.client_tui.subprocess.run", side_effect=FileNotFoundError,
+        ):
+            assert _read_primary_selection() == ""
+
+    def test_skips_helper_with_nonzero_exit(self) -> None:
+        from unittest.mock import patch, MagicMock
+
+        fail = MagicMock(returncode=1, stdout=b"")
+        ok = MagicMock(returncode=0, stdout=b"ok")
+
+        def fake_run(cmd, **kwargs):
+            return fail if cmd[0] == "xclip" else ok
+
+        with patch("telix.client_tui.subprocess.run", side_effect=fake_run):
+            assert _read_primary_selection() == "ok"

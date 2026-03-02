@@ -296,7 +296,7 @@ if sys.platform != "win32":
 
     def test_vital_bar_returns_sgr():
         pytest.importorskip("blessed")
-        from telix.client_repl import _segmented, _vital_bar
+        from telix.client_repl import _vital_bar
 
         bars = _vital_bar(50, 100, 16, "mp")
         for sgr, _text in bars:
