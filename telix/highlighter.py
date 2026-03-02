@@ -371,7 +371,7 @@ class HighlightEngine:
                 value_tmpl = cap.get("value", "")
                 if not key or not value_tmpl:
                     continue
-                resolved = group_ref.sub(lambda m2: (rematch.group(int(m2.group(1))) or ""), value_tmpl)
+                resolved = group_ref.sub(lambda m2: rematch.group(int(m2.group(1))) or "", value_tmpl)
                 try:
                     ctx.captures[key] = int(resolved)
                 except (ValueError, TypeError):
@@ -480,8 +480,8 @@ class HighlightEngine:
         r"""
         Strip ``\r``, return ``(normalized, position_map)``.
 
-        The position map translates indices in the normalized string
-        back to their positions in the original *plain* text.
+        The position map translates indices in the normalized string back to their positions in the original *plain*
+        text.
         """
         pos_map = [i for i, ch in enumerate(plain) if ch != "\r"]
         return plain.replace("\r", ""), pos_map

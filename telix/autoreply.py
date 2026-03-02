@@ -437,8 +437,8 @@ def substitute_groups(template: str, match: re.Match[str]) -> str:
     r"""
     Replace ``\1``, ``\2``, etc. with match group values.
 
-    When the pattern is case-insensitive and a group is a pure alternation of literals, the
-    pattern's literal is used instead of the input text.
+    When the pattern is case-insensitive and a group is a pure alternation of literals, the pattern's literal is used
+    instead of the input text.
 
     :param template: Reply template string.
     :param match: Regex match object.
@@ -463,8 +463,8 @@ class SearchBuffer:
     """
     Accumulates stripped server output lines for regex matching.
 
-    Maintains a rolling window of recent lines with ANSI sequences stripped.  Tracks the last match
-    position so each new line is only searched from the position after the previous match.
+    Maintains a rolling window of recent lines with ANSI sequences stripped.  Tracks the last match position so each new
+    line is only searched from the position after the previous match.
 
     :param max_lines: Maximum number of lines to retain (default 100).
     """
@@ -776,8 +776,8 @@ class AutoreplyEngine:
         """
         Feed server output text and check for matches.
 
-        Called from the server output handler in both REPL and raw modes. Searches after every
-        chunk, including partial lines, so that MUD prompts without trailing newlines are matched.
+        Called from the server output handler in both REPL and raw modes. Searches after every chunk, including partial
+        lines, so that MUD prompts without trailing newlines are matched.
 
         :param text: Server output text.
         """

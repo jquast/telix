@@ -76,8 +76,7 @@ class ExpandedCommands(typing.NamedTuple):
     Result of :func:`expand_commands_ex`.
 
     :param commands: Flat list of individual commands.
-    :param immediate_set: Indices of commands whose preceding separator was ``|`` (send immediately,
-        no GA/EOR wait).
+    :param immediate_set: Indices of commands whose preceding separator was ``|`` (send immediately, no GA/EOR wait).
     """
 
     commands: list[str]

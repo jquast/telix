@@ -1,8 +1,8 @@
 """
 Progress bar configuration model for the GMCP vitals toolbar.
 
-Provides auto-detection of progress bar candidates from GMCP data, persistent configuration via
-JSON, and color interpolation for custom bar rendering.
+Provides auto-detection of progress bar candidates from GMCP data, persistent configuration via JSON, and color
+interpolation for custom bar rendering.
 """
 
 # std imports

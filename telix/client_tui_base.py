@@ -42,9 +42,8 @@ def restore_opost() -> None:
     r"""
     Ensure the terminal OPOST flag is set so ``\\n`` maps to ``\\r\\n``.
 
-    Textual puts the terminal in raw mode which disables output post-processing.  If the driver
-    fails to fully restore termios (or we catch an exception before it gets the chance), newlines
-    render as bare LF producing staircase output.
+    Textual puts the terminal in raw mode which disables output post-processing.  If the driver fails to fully restore
+    termios (or we catch an exception before it gets the chance), newlines render as bare LF producing staircase output.
     """
     import termios  # noqa: PLC0415
 
@@ -56,6 +55,55 @@ def restore_opost() -> None:
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
     except (OSError, termios.error, ValueError, AttributeError):
         pass
+
+
+def write_crash_file(crash_path: str, traceback_text: str, source: str) -> None:
+    """
+    Write crash data to a JSON temp file for the parent process to read.
+
+    :param crash_path: Path to the crash file.
+    :param traceback_text: Formatted traceback text.
+    :param source: Origin of the crash (``"exception"`` or ``"textual_exit"``).
+    """
+    try:
+        with open(crash_path, "w", encoding="utf-8") as fh:
+            json.dump({"traceback": traceback_text, "pid": os.getpid(), "source": source}, fh)
+    except OSError:
+        pass
+
+
+def install_crash_hook(crash_path: str) -> None:
+    """
+    Install ``sys.excepthook`` that writes crash data before delegating.
+
+    :param crash_path: Path to the crash file.
+    """
+    import traceback as tb_mod  # noqa: PLC0415
+
+    def hook(exc_type, exc_value, exc_tb):
+        text = "".join(tb_mod.format_exception(exc_type, exc_value, exc_tb))
+        write_crash_file(crash_path, text, "exception")
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = hook
+
+
+def render_exit_renderables(app: "EditorApp") -> str:
+    """
+    Render ``app._exit_renderables`` to a plain string via Rich console.
+
+    :param app: The Textual editor app that has exited.
+    :returns: Rendered text of exit renderables.
+    """
+    import io  # noqa: PLC0415
+
+    import rich.console  # noqa: PLC0415
+
+    buf = io.StringIO()
+    console = rich.console.Console(file=buf, width=120, force_terminal=False)
+    for renderable in app._exit_renderables:
+        console.print(renderable)
+    return buf.getvalue()
 
 
 PRIMARY_PASTE_COMMANDS = (
@@ -1853,14 +1901,14 @@ class EditorApp(textual.app.App[None]):
         correctly, producing staircase output.  Writing to a fresh
         stdout-based Rich console avoids the issue.
         """
-        if not self.exit_renderables:
+        if not self._exit_renderables:
             return
         from rich.console import Console  # noqa: PLC0415
 
         console = Console(file=sys.stdout, markup=False, highlight=False)
-        for renderable in self.exit_renderables:
+        for renderable in self._exit_renderables:
             console.print(renderable)
-        self.exit_renderables.clear()
+        self._exit_renderables.clear()
 
     def on_mouse_down(self, event: textual.events.MouseDown) -> None:
         """Paste X11 primary selection on middle-click."""
@@ -1886,19 +1934,6 @@ class EditorApp(textual.app.App[None]):
 
     def on_mount(self) -> None:
         """Push the editor screen."""
-        log = logging.getLogger(__name__)
-        driver = self.driver
-        log.debug(
-            "EditorApp mounted: driver.mouse=%s input_tty=%s "
-            "driver._file=%r driver.fileno=%s "
-            "driver._mouse_pixels=%s driver._in_band_window_resize=%s",
-            getattr(driver, "mouse", "?"),
-            getattr(driver, "input_tty", "?"),
-            getattr(driver, "file", "?"),
-            getattr(driver, "fileno", "?"),
-            getattr(driver, "mouse_pixels", "?"),
-            getattr(driver, "in_band_window_resize", "?"),
-        )
         saved_theme = ""
         if self.session_key:
             prefs = rooms.load_prefs(self.session_key)
@@ -1954,7 +1989,6 @@ def restore_blocking_fds(logfile: str = "") -> None:
 
     :param logfile: Optional path to the parent's logfile for child logging.
     """
-
     if logfile:
         logging.basicConfig(
             filename=logfile, level=logging.DEBUG, format="%(asctime)s %(levelname)-5s %(name)s: %(message)s"
@@ -2005,20 +2039,21 @@ def log_child_diagnostics() -> None:
 
 def run_editor_app(app: EditorApp) -> None:
     """
-    Run a Textual editor app, displaying errors in the terminal on crash.
+    Run a Textual editor app, writing crash data to a file when available.
 
-    Textual handles some exceptions internally (e.g. compose errors) -- it renders a traceback in
-    the alt screen, then exits with return code 1.  Once the alt screen is torn down the traceback
-    is lost.
-
-    This wrapper catches both raised exceptions and Textual-handled errors, resets the terminal to
-    normal mode, displays the traceback, and prompts the user before exiting.
+    When ``TELIX_CRASH_FILE`` is set the child writes crash data to that path and lets the parent
+    handle display.  When unset (standalone execution) it falls back to terminal cleanup and an
+    interactive pause.
     """
+    crash_path = os.environ.get("TELIX_CRASH_FILE", "")
     try:
         app.run()
     except BaseException:
         import traceback as tb_mod  # noqa: PLC0415
 
+        if crash_path:
+            write_crash_file(crash_path, tb_mod.format_exc(), "exception")
+            raise
         sys.stdout.write(TERMINAL_CLEANUP)
         sys.stdout.flush()
         restore_opost()
@@ -2026,6 +2061,10 @@ def run_editor_app(app: EditorApp) -> None:
         pause_before_exit()
         raise
     if app.return_code and app.return_code != 0:
+        if crash_path:
+            text = render_exit_renderables(app)
+            write_crash_file(crash_path, text, "textual_exit")
+            sys.exit(app.return_code)
         sys.stdout.write(TERMINAL_CLEANUP)
         sys.stdout.flush()
         restore_opost()
@@ -2061,5 +2100,8 @@ def launch_editor(screen: textual.screen.Screen[typing.Any], session_key: str = 
     restore_blocking_fds(logfile)
     log_child_diagnostics()
     patch_writer_thread_queue()
+    crash_path = os.environ.get("TELIX_CRASH_FILE", "")
+    if crash_path:
+        install_crash_hook(crash_path)
     app = EditorApp(screen, session_key=session_key)
     run_editor_app(app)

@@ -42,11 +42,11 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "telnetlib3>=3.0.1,<4",
+    "telnetlib3>=3.0.2,<4",
     "blessed>=1.32,<2",
     "textual>=0.44,<1",
     "wcwidth>=0.6.0,<1",
-    "websockets>=14.0",
+    "websockets>=14.0,<15",
 ]
 
 [project.optional-dependencies]

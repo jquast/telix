@@ -1659,7 +1659,7 @@ async def test_status_text_masks_send_when_will_echo():
     """status_text shows '(masked)' instead of the command when will_echo is True."""
     sent: list[str] = []
     ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: sent.append(s), will_echo=True),
+        writer=types.SimpleNamespace(write=sent.append, will_echo=True),
         gmcp_data={},
         cx_dot=None,
         tx_dot=None,

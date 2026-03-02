@@ -17,26 +17,25 @@ pseudo-prompt signal, giving the REPL the same prompt boundary that
 telnet provides via IAC GA / IAC EOR.
 """
 
-from __future__ import annotations
-
-# std imports
 import json
+import typing
 import asyncio
 import logging
-from typing import Any, Dict, Tuple, Union, Optional
+
+import websockets.exceptions
 
 log = logging.getLogger(__name__)
 
 # IAC command bytes used as callback keys (matching telnetlib3 conventions).
-_GA = b"\xf9"
-_CMD_EOR = b"\xef"
+GA = b"\xf9"
+CMD_EOR = b"\xef"
 # GMCP telopt byte used as ext callback key.
-_GMCP = b"\xc9"
+GMCP = b"\xc9"
 
 __all__ = ("WebSocketReader", "WebSocketWriter", "parse_gmcp_frame")
 
 
-def parse_gmcp_frame(text: str) -> Tuple[str, Any]:
+def parse_gmcp_frame(text: str) -> tuple[str, typing.Any]:
     """
     Parse a GMCP TEXT frame into ``(package_name, payload)``.
 
@@ -72,7 +71,7 @@ class WebSocketReader:
 
     def __init__(self) -> None:
         """Initialise the reader with an empty queue."""
-        self._buffer: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        self._buffer: asyncio.Queue[str | None] = asyncio.Queue()
         self._eof = False
 
     def feed_data(self, data: bytes) -> None:
@@ -114,11 +113,11 @@ class WebSocketReader:
         self._buffer.put_nowait("")
 
 
-class _NullOptionSet:
+class NullOptionSet:
     """Stub for ``telnet_writer.local_option`` / ``remote_option``."""
 
     @staticmethod
-    def enabled(key: Any) -> bool:
+    def enabled(key: typing.Any) -> bool:
         """Return ``False`` for all telnet options."""
         return False
 
@@ -137,7 +136,7 @@ class WebSocketWriter:
     so that code shared with the telnet path does not need conditionals.
     """
 
-    def __init__(self, ws: Any, peername: Optional[Tuple[str, int]] = None) -> None:
+    def __init__(self, ws: typing.Any, peername: tuple[str, int] | None = None) -> None:
         """
         Initialise the writer.
 
@@ -147,21 +146,21 @@ class WebSocketWriter:
         self._ws = ws
         self._closing = False
         self._peername = peername
-        self._ext_callback: Dict[bytes, Any] = {}
-        self._iac_callback: Dict[bytes, Any] = {}
-        self._send_queue: asyncio.Queue[Any] = asyncio.Queue()
-        self.ctx: Any = None
+        self._ext_callback: dict[bytes, typing.Any] = {}
+        self._iac_callback: dict[bytes, typing.Any] = {}
+        self._send_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
+        self.ctx: typing.Any = None
         self.log = logging.getLogger("telix.ws_transport")
         self.will_echo: bool = False
         self.mode: str = "local"
 
         # Telnetlib3 compatibility stubs.
-        self.local_option = _NullOptionSet()
-        self.remote_option = _NullOptionSet()
+        self.local_option = NullOptionSet()
+        self.remote_option = NullOptionSet()
         self.client: bool = True
-        self.handle_send_naws: Any = None
+        self.handle_send_naws: typing.Any = None
 
-    def write(self, text: Union[str, bytes]) -> None:
+    def write(self, text: str | bytes) -> None:
         """
         Enqueue *text* for sending as a BINARY WebSocket frame.
 
@@ -183,7 +182,7 @@ class WebSocketWriter:
         """Return ``True`` if :meth:`close` has been called."""
         return self._closing
 
-    def get_extra_info(self, name: str, default: Any = None) -> Any:
+    def get_extra_info(self, name: str, default: typing.Any = None) -> typing.Any:
         """
         Return transport metadata.
 
@@ -196,7 +195,7 @@ class WebSocketWriter:
             return None
         return default
 
-    def set_ext_callback(self, key: bytes, callback: Any) -> None:
+    def set_ext_callback(self, key: bytes, callback: typing.Any) -> None:
         r"""
         Register an extension callback (e.g. GMCP).
 
@@ -205,7 +204,7 @@ class WebSocketWriter:
         """
         self._ext_callback[key] = callback
 
-    def set_iac_callback(self, key: bytes, callback: Any) -> None:
+    def set_iac_callback(self, key: bytes, callback: typing.Any) -> None:
         r"""
         Register an IAC callback (e.g. GA, EOR).
 
@@ -214,18 +213,18 @@ class WebSocketWriter:
         """
         self._iac_callback[key] = callback
 
-    def dispatch_gmcp(self, package: str, data: Any) -> None:
+    def dispatch_gmcp(self, package: str, data: typing.Any) -> None:
         """
         Dispatch a parsed GMCP message to the registered ext callback.
 
         :param package: GMCP package name (e.g. ``"Room.Info"``).
         :param data: Parsed JSON payload (or ``None``).
         """
-        cb = self._ext_callback.get(_GMCP)
+        cb = self._ext_callback.get(GMCP)
         if cb is not None:
             cb(package, data)
 
-    def send_gmcp(self, package: str, data: Any = None) -> None:
+    def send_gmcp(self, package: str, data: typing.Any = None) -> None:
         """
         Enqueue a GMCP message for sending as a TEXT WebSocket frame.
 
@@ -244,24 +243,33 @@ class WebSocketWriter:
         Send queued messages over the WebSocket until closed.
 
         Must be run as a background task.  Items are sent in FIFO order.
-        Stops when a ``None`` sentinel is received (placed by :meth:`close`).
+        Stops when a ``None`` sentinel is received (placed by :meth:`close`)
+        or when the connection closes unexpectedly.
         """
         while True:
             item = await self._send_queue.get()
             if item is None:
                 break
-            await self._ws.send(item)
+            try:
+                await self._ws.send(item)
+            except websockets.exceptions.ConnectionClosed:
+                log.debug("WebSocket closed during drain, discarding remaining queue")
+                break
 
     def fire_prompt_signal(self) -> None:
         """
-        Fire GA and EOR IAC callbacks as a pseudo-prompt signal.
+        Fire a GA or EOR IAC callback as a pseudo-prompt signal.
 
-        Called after delivering each BINARY frame's content.  WebSocket message boundaries are a
-        reliable prompt signal since each server output cycle produces one message.
+        Called after delivering each BINARY frame's content.  WebSocket message boundaries are a reliable prompt signal
+        since each server output cycle produces one message.
+
+        Fires EOR if registered, otherwise GA, to ensure a single prompt boundary per frame even if both callbacks point
+        to the same handler.
         """
-        ga_cb = self._iac_callback.get(_GA)
-        if ga_cb is not None:
-            ga_cb(_GA)
-        eor_cb = self._iac_callback.get(_CMD_EOR)
+        eor_cb = self._iac_callback.get(CMD_EOR)
         if eor_cb is not None:
-            eor_cb(_CMD_EOR)
+            eor_cb(CMD_EOR)
+        else:
+            ga_cb = self._iac_callback.get(GA)
+            if ga_cb is not None:
+                ga_cb(GA)

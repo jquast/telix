@@ -1,8 +1,8 @@
 """
 Rolling GMCP data snapshot persistence.
 
-Persists all received GMCP packages to a JSON file with per-package timestamps, enabling offline
-analysis and progress bar auto-detection.
+Persists all received GMCP packages to a JSON file with per-package timestamps, enabling offline analysis and progress
+bar auto-detection.
 """
 
 # std imports

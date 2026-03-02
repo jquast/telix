@@ -393,8 +393,8 @@ def repaint_screen(
     """
     Clear screen and replay recent output from the ring buffer.
 
-    Re-establishes the DECSTBM scroll region and replays buffered output so recent MUD text
-    reappears with colors intact.
+    Re-establishes the DECSTBM scroll region and replays buffered output so recent MUD text reappears with colors
+    intact.
 
     :param active: Use gold DMZ color when autoreply/walk/discover is active.
     """
@@ -499,9 +499,9 @@ if sys.platform != "win32":
             """
             Increase the reserved bottom area and reapply scroll region.
 
-            Emits newlines inside the current scroll region first so that any server text on the
-            rows about to be claimed is scrolled up rather than silently overwritten (e.g. a
-            password prompt arriving just as the GMCP status bar appears).
+            Emits newlines inside the current scroll region first so that any server text on the rows about to be
+            claimed is scrolled up rather than silently overwritten (e.g. a password prompt arriving just as the GMCP
+            status bar appears).
             """
             if new_reserve <= self.reserve:
                 return
@@ -710,10 +710,9 @@ if sys.platform != "win32":
             r"""
             Accept new server text, return ``(emit_now, held_back)``.
 
-            Complete lines (everything up to and including the last ``\n``) are run through the
-            highlight engine and returned as *emit_now*. The trailing incomplete fragment is stored
-            internally and returned as *held_back* (for the caller to decide whether to schedule a
-            timer).
+            Complete lines (everything up to and including the last ``\n``) are run through the highlight engine and
+            returned as *emit_now*. The trailing incomplete fragment is stored internally and returned as *held_back*
+            (for the caller to decide whether to schedule a timer).
             """
             combined = self._pending + text
             nl_pos = combined.rfind("\n")
@@ -1214,7 +1213,7 @@ if sys.platform != "win32":
             bg = STYLE_AUTOREPLY["bg_sgr"] if ar else STYLE_NORMAL["bg_sgr"]
             prog = until_progress(self.autoreply_engine)
             self.stdout.write(bt.move_yx(row, col).encode())
-            write_hint(hint, self.stdout, bt, progress=prog, bg_sgr=bg)
+            write_hint(hint, self.stdout, bt, progress=prog, bg_sgr=bg, autoreply=ar)
             if prog is not None:
                 self.toolbar.schedule_until_progress(self.loop, self.autoreply_engine, self.editor, bt)
 

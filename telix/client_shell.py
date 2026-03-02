@@ -84,8 +84,7 @@ def load_configs(ctx: session_context.SessionContext) -> None:
     """
     Load per-session config files into *ctx*.
 
-    Missing config files are silently skipped so first-time connections
-    start with empty defaults.
+    Missing config files are silently skipped so first-time connections start with empty defaults.
     """
     session_key = ctx.session_key
     config_dir = str(paths.xdg_config_dir())

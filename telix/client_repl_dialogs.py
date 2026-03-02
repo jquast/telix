@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import json
+import shlex
 import asyncio
 import logging
 import tempfile
@@ -406,6 +407,10 @@ def show_help(macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp:
         logfile,
     ]
 
+    fd, crash_path = tempfile.mkstemp(suffix=".json", prefix="crash-")
+    os.close(fd)
+    env = dict(os.environ, TELIX_CRASH_FILE=crash_path)
+
     log = logging.getLogger(__name__)
     global editor_active
     blessed_term = get_term()
@@ -415,37 +420,80 @@ def show_help(macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp:
     sys.stderr.flush()
     sys.__stderr__.flush()
     editor_active = True
+    result = None
     try:
         with blocking_fds():
-            subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False, env=env)
     except FileNotFoundError:
         log.warning("could not launch help viewer subprocess")
     finally:
         editor_active = False
+        handle_crash_file(crash_path, cmd, replay_buf, result)
         restore_after_subprocess(replay_buf)
 
 
-def pause_on_subprocess_error(result: Any | None) -> None:
+def read_crash_file(crash_path: str) -> dict[str, Any] | None:
     """
-    Pause so the user can read any error output before screen repaint.
+    Read crash data JSON from *crash_path* and delete the file.
 
-    When the TUI subprocess exits with a non-zero return code its traceback
-    is already on screen (written by the child's ``run_editor_app``).
-    This moves the cursor below the output and waits for the user to press
-    RETURN before ``restore_after_subprocess`` clears and repaints.
+    :param crash_path: Path to the crash JSON file.
+    :returns: Parsed crash data dict, or ``None`` on missing/invalid file.
+    """
+    try:
+        with open(crash_path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            os.unlink(crash_path)
+        except OSError:
+            pass
+
+
+def format_crash_banner(crash_data: dict[str, Any], cmd: list[str]) -> str:
+    r"""
+    Format crash data as a display banner with ``\r\n`` line endings.
+
+    :param crash_data: Dict with ``traceback``, ``pid``, ``source`` keys.
+    :param cmd: The subprocess command list for the "Reproduce:" line.
+    :returns: Formatted banner string.
+    """
+    pid = crash_data.get("pid", "?")
+    tb_text = crash_data.get("traceback", "")
+    quoted_cmd = " ".join(shlex.quote(c) for c in cmd)
+    lines = ["", f"--- TUI subprocess (pid {pid}) crashed ---", f"Reproduce: {quoted_cmd}", ""]
+    for line in tb_text.splitlines():
+        lines.append(line)
+    lines.append("")
+    return "\r\n".join(lines)
+
+
+def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, result: Any | None) -> None:
+    """
+    Read crash file and inject a formatted banner into *replay_buf*.
+
+    On success (``returncode == 0``) or missing result, just clean up.
+
+    :param crash_path: Path to the crash JSON file.
+    :param cmd: The subprocess command list.
+    :param replay_buf: Replay buffer list to append banner bytes to.
+    :param result: ``subprocess.CompletedProcess`` or ``None``.
     """
     if result is None or result.returncode == 0:
+        try:
+            os.unlink(crash_path)
+        except OSError:
+            pass
         return
-    from .client_repl import get_term  # noqa: PLC0415 - circular
-
-    term = get_term()
-    sys.stdout.write(term.move_yx(term.height - 1, 0))
-    sys.stdout.write("\r\nPress RETURN to continue...\r\n")
-    sys.stdout.flush()
-    try:
-        input()
-    except EOFError:
-        pass
+    data = read_crash_file(crash_path)
+    if data:
+        log.error("TUI subprocess (pid %s) crashed", data.get("pid", "?"))
+        for line in data.get("traceback", "").splitlines():
+            log.error("%s", line)
+        if replay_buf is not None:
+            banner = format_crash_banner(data, cmd)
+            replay_buf.append(banner.encode("utf-8"))
 
 
 def launch_unified_editor(initial_tab: str, ctx: "SessionContext", replay_buf: Any | None = None) -> None:
@@ -531,6 +579,10 @@ def launch_unified_editor(initial_tab: str, ctx: "SessionContext", replay_buf: A
         params_json,
     ]
 
+    fd, crash_path = tempfile.mkstemp(suffix=".json", prefix="crash-")
+    os.close(fd)
+    env = dict(os.environ, TELIX_CRASH_FILE=crash_path)
+
     log = logging.getLogger(__name__)
 
     global editor_active
@@ -551,12 +603,12 @@ def launch_unified_editor(initial_tab: str, ctx: "SessionContext", replay_buf: A
     result = None
     try:
         with blocking_fds():
-            result = subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False, env=env)
     except FileNotFoundError:
         log.warning("could not launch unified editor subprocess")
     finally:
         editor_active = False
-        pause_on_subprocess_error(result)
+        handle_crash_file(crash_path, cmd, replay_buf, result)
         restore_after_subprocess(replay_buf)
         if capture_file:
             try:
@@ -676,6 +728,10 @@ def launch_tui_editor(editor_type: str, ctx: "SessionContext", replay_buf: Any |
             logfile,
         ]
 
+    fd, crash_path = tempfile.mkstemp(suffix=".json", prefix="crash-")
+    os.close(fd)
+    env = dict(os.environ, TELIX_CRASH_FILE=crash_path)
+
     log = logging.getLogger(__name__)
 
     global editor_active
@@ -703,12 +759,12 @@ def launch_tui_editor(editor_type: str, ctx: "SessionContext", replay_buf: Any |
     result = None
     try:
         with blocking_fds():
-            result = subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False, env=env)
     except FileNotFoundError:
         log.warning("could not launch TUI editor subprocess")
     finally:
         editor_active = False
-        pause_on_subprocess_error(result)
+        handle_crash_file(crash_path, cmd, replay_buf, result)
         restore_after_subprocess(replay_buf)
 
     if editor_type == "macros":
@@ -832,6 +888,10 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> 
         capture_file,
     ]
 
+    fd, crash_path = tempfile.mkstemp(suffix=".json", prefix="crash-")
+    os.close(fd)
+    env = dict(os.environ, TELIX_CRASH_FILE=crash_path)
+
     log = logging.getLogger(__name__)
 
     global editor_active
@@ -846,12 +906,12 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> 
     result = None
     try:
         with blocking_fds():
-            result = subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False, env=env)
     except FileNotFoundError:
         log.warning("could not launch chat viewer subprocess")
     finally:
         editor_active = False
-        pause_on_subprocess_error(result)
+        handle_crash_file(crash_path, cmd, replay_buf, result)
         restore_after_subprocess(replay_buf)
         if capture_file:
             try:
@@ -898,6 +958,10 @@ def launch_room_browser(ctx: "SessionContext", replay_buf: Any | None = None) ->
         logfile,
     ]
 
+    fd, crash_path = tempfile.mkstemp(suffix=".json", prefix="crash-")
+    os.close(fd)
+    env = dict(os.environ, TELIX_CRASH_FILE=crash_path)
+
     log = logging.getLogger(__name__)
 
     global editor_active
@@ -924,12 +988,12 @@ def launch_room_browser(ctx: "SessionContext", replay_buf: Any | None = None) ->
     result = None
     try:
         with blocking_fds():
-            result = subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False, env=env)
     except FileNotFoundError:
         log.warning("could not launch room browser subprocess")
     finally:
         editor_active = False
-        pause_on_subprocess_error(result)
+        handle_crash_file(crash_path, cmd, replay_buf, result)
         restore_after_subprocess(replay_buf)
 
     room_graph = ctx.room_graph

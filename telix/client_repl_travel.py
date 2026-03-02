@@ -135,10 +135,9 @@ async def fast_travel(
         """
         Update the graph edge and rewrite only the current step.
 
-        Earlier versions rewrote *all* remaining steps matching *old_target*, which corrupted paths
-        through grids of same-named rooms (e.g. a cave system where many rooms share the name "A
-        cave" but are distinct locations with different IDs).  Now only the step at *step_idx* is
-        updated.
+        Earlier versions rewrote *all* remaining steps matching *old_target*, which corrupted paths through grids of
+        same-named rooms (e.g. a cave system where many rooms share the name "A cave" but are distinct locations with
+        different IDs).  Now only the step at *step_idx* is updated.
         """
         graph = get_graph()
         if graph is not None:

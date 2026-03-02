@@ -21,8 +21,8 @@ def main() -> None:
     """
     Entry point for the ``telix`` command.
 
-    Without a host argument, launches the TUI session manager. With a host argument, connects
-    directly via telnetlib3's client.
+    Without a host argument, launches the TUI session manager. With a host argument, connects directly via telnetlib3's
+    client.
     """
     if "--reinit" in sys.argv[1:]:
         reinit()

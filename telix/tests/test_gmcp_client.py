@@ -138,7 +138,7 @@ async def test_on_gmcp_dispatches_chat_text_callback():
     client, _ = make_connected_client()
     install_telix_gmcp_wrapper(client)
     received = []
-    client.writer.ctx.on_chat_text = lambda data: received.append(data)
+    client.writer.ctx.on_chat_text = received.append
     msg = {"channel": "chat", "talker": "Bob", "text": "hi\n"}
     client.writer._ext_callback[GMCP]("Comm.Channel.Text", msg)
     assert received == [msg]
@@ -149,7 +149,7 @@ async def test_on_gmcp_dispatches_chat_channels_callback():
     client, _ = make_connected_client()
     install_telix_gmcp_wrapper(client)
     received = []
-    client.writer.ctx.on_chat_channels = lambda data: received.append(data)
+    client.writer.ctx.on_chat_channels = received.append
     channels = [{"name": "chat", "command": "chat"}]
     client.writer._ext_callback[GMCP]("Comm.Channel.List", channels)
     assert received == [channels]
@@ -160,7 +160,7 @@ async def test_on_gmcp_dispatches_room_info_callback():
     client, _ = make_connected_client()
     install_telix_gmcp_wrapper(client)
     received = []
-    client.writer.ctx.on_room_info = lambda data: received.append(data)
+    client.writer.ctx.on_room_info = received.append
     info = {"num": "abc123", "name": "Dark Forest", "exits": {"north": "xyz"}}
     client.writer._ext_callback[GMCP]("Room.Info", info)
     assert received == [info]

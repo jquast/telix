@@ -152,7 +152,12 @@ def until_progress(engine: Any) -> float | None:
 
 
 def write_hint(
-    hint: str, out: "asyncio.StreamWriter", bt: "blessed.Terminal", progress: float | None = None, bg_sgr: str = ""
+    hint: str,
+    out: "asyncio.StreamWriter",
+    bt: "blessed.Terminal",
+    progress: float | None = None,
+    bg_sgr: str = "",
+    autoreply: bool = False,
 ) -> None:
     """
     Write *hint* at the current cursor position with optional progress bar.
@@ -165,10 +170,12 @@ def write_hint(
     :param bt: blessed Terminal instance.
     :param progress: ``0.0..1.0`` fraction, or ``None`` for plain dim text.
     :param bg_sgr: Optional background SGR prefix (e.g. autoreply bg color).
+    :param autoreply: Use autoreply suggestion color instead of normal.
     """
     if not hint:
         return
-    sug = hex_to_rgb(pal("input_suggestion"))
+    key = "input_ar_suggestion" if autoreply else "input_suggestion"
+    sug = hex_to_rgb(pal(key))
     dim = str(bt.color_rgb(*sug))
     normal = bt.normal
     if progress is not None:
@@ -424,7 +431,6 @@ def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
 
 def rgb_to_hsv(r: int, g: int, b: int) -> tuple[float, float, float]:
     """Convert (r, g, b) in [0,255] to HSV (h in [0,360), s/v in [0,1])."""
-
     h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
     return (h * 360.0, s, v)
 
@@ -1485,8 +1491,8 @@ class ToolbarRenderer:
         """
         Show the cursor at *row*, *col*, using the stoplight glyph if animating.
 
-        Picks the appropriate style and OSC color for normal or autoreply background, then makes the
-        terminal cursor visible.
+        Picks the appropriate style and OSC color for normal or autoreply background, then makes the terminal cursor
+        visible.
         """
         if self.cursor_light(bt, row, col, is_autoreply_bg):
             return
@@ -1556,7 +1562,7 @@ class ToolbarRenderer:
                         col = bt.width - hint_w
                         bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
                         self.out.write(bt.move_yx(input_row, col).encode())
-                        write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
+                        write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg, autoreply=is_ar_bg)
                     if prog is not None:
                         still = True
                 else:
@@ -1585,8 +1591,7 @@ class ToolbarRenderer:
         """
         Schedule a periodic ETA refresh at 1-second intervals.
 
-        Only redraws the toolbar when the ETA text has changed since the last render, to avoid
-        unnecessary flicker.
+        Only redraws the toolbar when the ETA text has changed since the last render, to avoid unnecessary flicker.
         """
         if self.eta_refresh_active:
             return
@@ -1633,8 +1638,7 @@ class ToolbarRenderer:
         """
         Schedule a 100 ms ticker to redraw the until progress bar.
 
-        Only redraws when the integer progress-bar split column changes, to avoid unnecessary
-        flicker.
+        Only redraws when the integer progress-bar split column changes, to avoid unnecessary flicker.
         """
         if self.until_progress_active:
             return
@@ -1671,7 +1675,7 @@ class ToolbarRenderer:
             bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
             self.hide_cursor()
             self.out.write(bt.move_yx(self.scroll.input_row, col).encode())
-            write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
+            write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg, autoreply=is_ar_bg)
             if self.ctx.cx_dot is not None:
                 self.ctx.cx_dot.trigger()
             cursor_col = editor_cursor_col(editor)

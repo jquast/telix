@@ -593,7 +593,7 @@ class WalkWriter:
             rooms={},
             get_room=lambda num: types.SimpleNamespace(name=num),
             find_branches=lambda pos, **kw: [],
-            blocked_rooms=lambda: frozenset(),
+            blocked_rooms=frozenset,
         )
 
     def write(self, data: str) -> None:
@@ -1304,7 +1304,7 @@ class TrackingWalkWriter(WalkWriter):
             rooms={},
             get_room=lambda num: types.SimpleNamespace(name=num),
             find_branches=lambda pos, **kw: [],
-            blocked_rooms=lambda: frozenset(),
+            blocked_rooms=frozenset,
         )
 
     def write(self, data: str) -> None:
@@ -1593,9 +1593,7 @@ async def test_home_travel_command(monkeypatch: pytest.MonkeyPatch, fast_sleep) 
     writer = WalkWriter(room_num="room1", adj=adj)
     writer.ctx.room_graph.room_area = lambda num: "town"
     writer.ctx.room_graph.get_home_for_area = lambda area: "room2"
-    writer.ctx.room_graph.find_path_with_rooms = lambda src, dst, **kw: (
-        [("north", "room2")] if dst == "room2" else None
-    )
+    writer.ctx.room_graph.find_path_with_rooms = lambda src, dst, **kw: [("north", "room2")] if dst == "room2" else None
 
     fast_travel_args: list[object] = []
     __import__("telix.client_repl_travel", fromlist=["fast_travel"]).fast_travel

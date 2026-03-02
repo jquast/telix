@@ -730,9 +730,7 @@ class TestActionConnectScreenRefresh:
     def test_screen_refresh_after_suspend(self, tui_tmp_paths: Any) -> None:
         """screen.refresh() is called after returning from app.suspend()."""
         screen = SessionListScreen()
-        screen.sessions = {
-            "srv": SessionConfig(name="srv", host="example.com"),
-        }
+        screen.sessions = {"srv": SessionConfig(name="srv", host="example.com")}
 
         screen.selected_key = MagicMock(return_value="srv")
         screen.save = MagicMock()
@@ -750,10 +748,12 @@ class TestActionConnectScreenRefresh:
         screen._app = mock_app
         type(screen).app = property(lambda self: self._app)
 
-        with patch("telix.client_tui_base.subprocess.Popen") as mock_popen, \
-             patch("telix.client_tui_base.os.get_terminal_size") as mock_ts, \
-             patch("telix.client_tui_base.os.set_blocking"), \
-             patch("telix.client_tui_base.sys.stdout"):
+        with (
+            patch("telix.client_tui_base.subprocess.Popen") as mock_popen,
+            patch("telix.client_tui_base.os.get_terminal_size") as mock_ts,
+            patch("telix.client_tui_base.os.set_blocking"),
+            patch("telix.client_tui_base.sys.stdout"),
+        ):
             mock_ts.return_value = MagicMock(lines=24, columns=80)
             mock_popen.return_value = MagicMock()
 

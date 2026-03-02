@@ -286,8 +286,7 @@ class RoomBrowserPane(textual.containers.Vertical):
         """
         Select the tree node matching *room_num*.
 
-        Expands parent groups as needed and forces a tree rebuild
-        so that line numbers are valid before scrolling.
+        Expands parent groups as needed and forces a tree rebuild so that line numbers are valid before scrolling.
 
         Return True on success.
         """
@@ -382,7 +381,7 @@ class RoomBrowserPane(textual.containers.Vertical):
 
     @staticmethod
     def fit_name(name: str, width: int) -> str:
-        """Left-justify *name* to *width*, adding ``\\u2026`` if truncated."""
+        r"""Left-justify *name* to *width*, adding ``\u2026`` if truncated."""
         if len(name) <= width:
             return name.ljust(width)
         return name[: width - 1] + "\u2026"
@@ -877,10 +876,8 @@ class CapsPane(textual.containers.Vertical):
 
         :param chat_file: Path to the chat JSON file.
         :param session_key: Session identifier.
-        :param initial_channel: Channel to select on open
-            (most recent activity).
-        :param capture_file: Path to a JSON file with
-            capture data.
+        :param initial_channel: Channel to select on open (most recent activity).
+        :param capture_file: Path to a JSON file with capture data.
         """
         super().__init__()
         self.chat_file = chat_file
@@ -1398,7 +1395,7 @@ def confirm_dialog_main(title: str, body: str, warning: str = "", result_file: s
     client_tui_base.patch_writer_thread_queue()
     screen = ConfirmDialogScreen(title=title, body=body, warning=warning, result_file=result_file)
     app = client_tui_base.EditorApp(screen)
-    app.run()
+    client_tui_base.run_editor_app(app)
 
 
 # ---------------------------------------------------------------------------
@@ -1671,7 +1668,7 @@ def randomwalk_dialog_main(
         default_autoreplies=(default_autoreplies == "1"),
     )
     app = client_tui_base.EditorApp(screen)
-    app.run()
+    client_tui_base.run_editor_app(app)
 
 
 # ---------------------------------------------------------------------------
@@ -1936,7 +1933,7 @@ def autodiscover_dialog_main(
         default_autoreplies=(default_autoreplies == "1"),
     )
     app = client_tui_base.EditorApp(screen)
-    app.run()
+    client_tui_base.run_editor_app(app)
 
 
 # ---------------------------------------------------------------------------

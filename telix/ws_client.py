@@ -11,22 +11,23 @@ connections.  The TUI launches it as a subprocess (the same way it
 launches ``telnetlib3-client`` for telnet sessions).
 """
 
-from __future__ import annotations
-
-# std imports
 import sys
 import asyncio
 import logging
 import argparse
-from typing import Optional
-from urllib.parse import urlparse
+import urllib.parse
 
-# local
-from .ws_transport import WebSocketReader, WebSocketWriter, parse_gmcp_frame
+import websockets
+import websockets.typing
+import websockets.exceptions
+import telnetlib3.accessories
+import telnetlib3._session_context
+
+from . import ws_transport
 
 log = logging.getLogger(__name__)
 
-_WS_SUBPROTOCOL = "gmcp.mudstandards.org"
+WS_SUBPROTOCOL = "gmcp.mudstandards.org"
 
 
 async def run_ws_client(url: str, shell: str = "telix.client_shell.ws_client_shell") -> None:
@@ -36,45 +37,37 @@ async def run_ws_client(url: str, shell: str = "telix.client_shell.ws_client_she
     :param url: WebSocket URL (e.g. ``wss://gel.monster:8443``).
     :param shell: Dotted path to the shell coroutine.
     """
-    import websockets
-    import websockets.exceptions
-    from websockets.typing import Subprotocol
-
-    parsed = urlparse(url)
+    parsed = urllib.parse.urlparse(url)
     host = parsed.hostname or "localhost"
     port = parsed.port or (443 if parsed.scheme == "wss" else 80)
 
-    reader = WebSocketReader()
-    writer: Optional[WebSocketWriter] = None
+    reader = ws_transport.WebSocketReader()
+    writer: ws_transport.WebSocketWriter | None = None
 
-    # Resolve the shell function.
-    from telnetlib3.accessories import function_lookup
-
-    shell_fn = function_lookup(shell)
+    shell_fn = telnetlib3.accessories.function_lookup(shell)
 
     async with websockets.connect(
-        url, subprotocols=[Subprotocol(_WS_SUBPROTOCOL)], max_size=2**20, open_timeout=10
+        url, subprotocols=[websockets.typing.Subprotocol(WS_SUBPROTOCOL)], max_size=2**20, open_timeout=10
     ) as ws:
-        writer = WebSocketWriter(ws, peername=(host, port))
+        if ws.subprotocol != WS_SUBPROTOCOL:
+            log.warning(
+                "server did not negotiate %s subprotocol (got %r), GMCP may not work", WS_SUBPROTOCOL, ws.subprotocol
+            )
+        writer = ws_transport.WebSocketWriter(ws, peername=(host, port))
 
-        # Create a minimal session context for the writer.
-        from telnetlib3._session_context import TelnetSessionContext
+        writer.ctx = telnetlib3._session_context.TelnetSessionContext()
 
-        writer.ctx = TelnetSessionContext()
-
-        async def _receive_loop() -> None:
+        async def receive_loop() -> None:
             """Read WebSocket frames and dispatch to reader/writer."""
             assert writer is not None
             try:
                 async for message in ws:
                     if isinstance(message, bytes):
-                        # BINARY frame = raw game text.
                         reader.feed_data(message)
                         writer.fire_prompt_signal()
                     elif isinstance(message, str):
-                        # TEXT frame = GMCP message.
                         try:
-                            pkg, data = parse_gmcp_frame(message)
+                            pkg, data = ws_transport.parse_gmcp_frame(message)
                             writer.dispatch_gmcp(pkg, data)
                         except ValueError:
                             log.warning("invalid GMCP frame: %r", message[:80])
@@ -83,7 +76,7 @@ async def run_ws_client(url: str, shell: str = "telix.client_shell.ws_client_she
             finally:
                 reader.feed_eof()
 
-        recv_task = asyncio.ensure_future(_receive_loop())
+        recv_task = asyncio.ensure_future(receive_loop())
         drain_task = asyncio.ensure_future(writer.drain())
 
         try:
@@ -91,18 +84,17 @@ async def run_ws_client(url: str, shell: str = "telix.client_shell.ws_client_she
         finally:
             writer.close()
             recv_task.cancel()
-            for task in (recv_task, drain_task):
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+            results = await asyncio.gather(recv_task, drain_task, return_exceptions=True)
+            for result in results:
+                if isinstance(result, (asyncio.CancelledError, websockets.exceptions.ConnectionClosed)):
+                    continue
+                if isinstance(result, Exception):
+                    log.exception("unexpected exception during shutdown", exc_info=result)
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for ``telix-ws``."""
-    parser = argparse.ArgumentParser(
-        prog="telix-ws", description="Connect to a WebSocket MUD server."
-    )
+    parser = argparse.ArgumentParser(prog="telix-ws", description="Connect to a WebSocket MUD server.")
     parser.add_argument("url", help="WebSocket URL (e.g. wss://gel.monster:8443)")
     parser.add_argument(
         "--shell",
@@ -114,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Entry point for the ``telix-ws`` console script."""
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args()
 
     try:
