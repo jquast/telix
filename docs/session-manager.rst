@@ -1,7 +1,7 @@
 Session manager
 ===============
 
-When launched without a host argument, telix opens a Textual-based session manager.
+When launched without a host argument, Telix opens a Textual-based session manager.
 
 This is a traditional "Dialing Directory" of host/port combinations and their settings
 which may be set accordingly to preference of the remote system (BBS or MUD):

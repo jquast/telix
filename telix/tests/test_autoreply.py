@@ -211,7 +211,7 @@ def test_save_autoreplies_roundtrip(tmp_path):
     save_autoreplies(str(fp), original, SK)
     loaded = load_autoreplies(str(fp), SK)
     assert len(loaded) == len(original)
-    for orig, restored in zip(original, loaded):
+    for orig, restored in zip(original, loaded, strict=False):
         assert orig.pattern.pattern == restored.pattern.pattern
         assert orig.reply == restored.reply
 
@@ -727,7 +727,7 @@ def test_save_autoreplies_field_roundtrip(
     assert getattr(loaded[0], field) == exp0
     assert getattr(loaded[1], field) == exp1
 
-    with open(str(fp), "r", encoding="utf-8") as fh:
+    with open(str(fp), encoding="utf-8") as fh:
         data = json.load(fh)
     entries = data[SK]["autoreplies"]
     assert entries[0][json_key] == json_in_0

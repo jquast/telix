@@ -6,11 +6,12 @@ import enum
 import asyncio
 import logging
 from time import monotonic as monotonic
-from typing import TYPE_CHECKING, Any, Callable, Optional, Awaitable, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from dataclasses import dataclass
+from collections.abc import Callable, Awaitable
 
 if TYPE_CHECKING:
-    from .session_context import SessionContext, CommandQueue
+    from .session_context import CommandQueue, SessionContext
 
 # local
 from .client_repl_render import ELLIPSIS, get_term, wcswidth, write_hint, flash_bg_rgb
@@ -56,15 +57,15 @@ class DispatchHooks:
 
     ctx: "SessionContext"
     log: logging.Logger
-    wait_fn: Optional[Callable[[], Awaitable[None]]]
+    wait_fn: Callable[[], Awaitable[None]] | None
     send_fn: Callable[[str], None]
-    echo_fn: Optional[Callable[[str], None]]
-    on_status: Optional[Callable[[str], None]] = None
-    on_progress: Optional[Callable[[float, float], None]] = None
-    on_progress_clear: Optional[Callable[[], None]] = None
-    on_activity: Optional[Callable[[], None]] = None
-    prompt_ready: Optional[asyncio.Event] = None
-    search_buffer: Optional[Any] = None
+    echo_fn: Callable[[str], None] | None
+    on_status: Callable[[str], None] | None = None
+    on_progress: Callable[[float, float], None] | None = None
+    on_progress_clear: Callable[[], None] | None = None
+    on_activity: Callable[[], None] | None = None
+    prompt_ready: asyncio.Event | None = None
+    search_buffer: Any | None = None
 
 
 class ExpandedCommands(NamedTuple):
@@ -186,7 +187,7 @@ def expand_commands(line: str) -> list[str]:
     return expand_commands_ex(line).commands
 
 
-def get_search_buffer(ctx: "SessionContext") -> Optional[Any]:
+def get_search_buffer(ctx: "SessionContext") -> Any | None:
     """
     Return the :class:`SearchBuffer` for *ctx*, or ``None``.
 
@@ -397,7 +398,7 @@ def render_active_command(
     out: "asyncio.StreamWriter",
     flash_elapsed: float = -1.0,
     hint: str = "",
-    progress: Optional[float] = None,
+    progress: float | None = None,
     base_bg_sgr: str = "",
 ) -> int:
     """
@@ -446,12 +447,12 @@ def clear_command_queue(ctx: "SessionContext") -> None:
 
 
 def render_command_queue(
-    queue: "Optional[CommandQueue]",
+    queue: "CommandQueue | None",
     scroll: "Any",
     out: "asyncio.StreamWriter",
     flash_elapsed: float = -1.0,
     hint: str = "",
-    progress: Optional[float] = None,
+    progress: float | None = None,
     base_bg_sgr: str = "",
 ) -> int:
     """
@@ -521,7 +522,7 @@ async def send_chained(
     commands: list[str],
     ctx: "SessionContext",
     log: logging.Logger,
-    queue: "Optional[CommandQueue]" = None,
+    queue: "CommandQueue | None" = None,
     immediate_set: frozenset[int] = frozenset(),
 ) -> None:
     """

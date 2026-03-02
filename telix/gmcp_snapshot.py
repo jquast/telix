@@ -16,7 +16,7 @@ from typing import Any
 # local
 from .paths import atomic_json_write
 
-__all__ = ("save_gmcp_snapshot", "load_gmcp_snapshot")
+__all__ = ("load_gmcp_snapshot", "save_gmcp_snapshot")
 
 
 def save_gmcp_snapshot(path: str, session_key: str, gmcp_data: dict[str, Any]) -> None:
@@ -58,5 +58,5 @@ def load_raw(path: str) -> dict[str, Any]:
     """Read raw JSON from *path*, returning empty dict on missing/invalid file."""
     if not os.path.exists(path):
         return {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)

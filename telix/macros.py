@@ -10,18 +10,23 @@ or single characters, matching :attr:`blessed.keyboard.Keystroke.name`
 and ``str(keystroke)`` respectively.
 """
 
-from __future__ import annotations
-
 # std imports
+import asyncio
+import dataclasses
+import datetime
 import json
 import logging
-from typing import Any
-from dataclasses import dataclass
+import os
+import typing
 
-__all__ = ("Macro", "load_macros", "save_macros", "build_macro_dispatch")
+import blessed.line_editor
+
+from . import paths
+
+__all__ = ("Macro", "build_macro_dispatch", "load_macros", "save_macros")
 
 
-@dataclass
+@dataclasses.dataclass
 class Macro:
     """
     A single key-to-text macro binding.
@@ -77,15 +82,17 @@ def load_macros(path: str, session_key: str) -> list[Macro]:
     :raises FileNotFoundError: When *path* does not exist.
     :raises ValueError: When JSON structure is invalid.
     """
-    with open(path, "r", encoding="utf-8") as fh:
-        data: dict[str, Any] = json.load(fh)
+    with open(path, encoding="utf-8") as fh:
+        data: dict[str, typing.Any] = json.load(fh)
 
-    session_data: dict[str, Any] = data.get(session_key, {})
+    session_data: dict[str, typing.Any] = data.get(session_key, {})
     entries: list[dict[str, str]] = session_data.get("macros", [])
     return parse_entries(entries)
 
 
-def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
+def save_macros(
+    path: str, macros: list[Macro], session_key: str
+) -> None:
     """
     Save macro definitions for a session to a JSON file.
 
@@ -95,11 +102,9 @@ def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
     :param macros: List of :class:`Macro` instances to save.
     :param session_key: Session identifier (``"host:port"``).
     """
-    import os
-
-    data: dict[str, Any] = {}
+    data: dict[str, typing.Any] = {}
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
 
     data[session_key] = {
@@ -109,44 +114,50 @@ def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
                 "text": m.text,
                 **({"enabled": False} if not m.enabled else {}),
                 **({"last_used": m.last_used} if m.last_used else {}),
-                **({"toggle": True, "toggle_text": m.toggle_text} if m.toggle else {}),
+                **(
+                    {"toggle": True, "toggle_text": m.toggle_text}
+                    if m.toggle
+                    else {}
+                ),
             }
             for m in macros
         ]
     }
-    from .paths import atomic_write
 
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    atomic_write(path, content)
+    paths.atomic_write(path, content)
 
 
-def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> dict[str, Any]:
+def build_macro_dispatch(
+    macros: list[Macro],
+    ctx: typing.Any,
+    log: logging.Logger,
+) -> dict[str, typing.Any]:
     """
     Build a blessed key name to handler mapping from macro defs.
 
-    Keys are matched directly against :attr:`~blessed.keyboard.Keystroke.name`
-    (for named keys like ``KEY_F1``) or ``str(keystroke)`` (for single chars).
-    Macros bound to keys in :data:`blessed.line_editor.DEFAULT_KEYMAP` are
-    skipped with a warning.
+    Keys are matched directly against
+    :attr:`~blessed.keyboard.Keystroke.name` (for named keys like
+    ``KEY_F1``) or ``str(keystroke)`` (for single chars).  Macros bound
+    to keys in :data:`blessed.line_editor.DEFAULT_KEYMAP` are skipped
+    with a warning.
 
     :param macros: Macro definitions to bind.
     :param ctx: :class:`~telix.session_context.SessionContext` instance.
     :param log: Logger instance.
     :returns: Dict mapping blessed key names (or raw chars) to handlers.
     """
-    import asyncio
-    from datetime import datetime, timezone
-
-    from blessed.line_editor import DEFAULT_KEYMAP
-
     from . import client_repl as repl
 
-    result: dict[str, Any] = {}
+    result: dict[str, typing.Any] = {}
     for macro in macros:
         if not macro.enabled:
             continue
-        if macro.key in DEFAULT_KEYMAP:
-            log.warning("macro %r conflicts with editor keymap, skipping", macro.key)
+        if macro.key in blessed.line_editor.DEFAULT_KEYMAP:
+            log.warning(
+                "macro %r conflicts with editor keymap, skipping",
+                macro.key,
+            )
             continue
         macro_ref = macro
 
@@ -156,14 +167,20 @@ def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> 
                 m.toggle_state = not m.toggle_state
             else:
                 text = m.text
-            m.last_used = datetime.now(timezone.utc).isoformat()
+            m.last_used = (
+                datetime.datetime.now(datetime.timezone.utc).isoformat()
+            )
             if hasattr(ctx, "mark_macros_dirty"):
                 ctx.mark_macros_dirty()
-            task = asyncio.ensure_future(repl.execute_macro_commands(text, ctx, log))
+            task = asyncio.ensure_future(
+                repl.execute_macro_commands(text, ctx, log)
+            )
 
-            def on_done(t: "asyncio.Task[None]") -> None:
+            def on_done(t: asyncio.Task[None]) -> None:
                 if not t.cancelled() and t.exception() is not None:
-                    log.warning("macro execution failed: %s", t.exception())
+                    log.warning(
+                        "macro execution failed: %s", t.exception()
+                    )
 
             task.add_done_callback(on_done)
 

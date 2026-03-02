@@ -6,7 +6,7 @@ import random
 import asyncio
 import logging
 import collections
-from typing import TYPE_CHECKING, Any, List, Tuple, Optional, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     import blessed
@@ -30,7 +30,7 @@ session_key: str = ""
 
 def set_session_key(key: str) -> None:
     """Set the session key used for palette lookups."""
-    global session_key  # noqa: PLW0603
+    global session_key
     session_key = key
 
 
@@ -39,27 +39,27 @@ def pal(key: str) -> str:
     return get_repl_palette(session_key)[key]
 
 
-def idle_rgb() -> Tuple[int, int, int]:
+def idle_rgb() -> tuple[int, int, int]:
     """Normal input-line background as ``(r, g, b)``."""
     return hex_to_rgb(pal("input_bg"))
 
 
-def idle_ar_rgb() -> Tuple[int, int, int]:
+def idle_ar_rgb() -> tuple[int, int, int]:
     """Autoreply input-line background as ``(r, g, b)``."""
     return hex_to_rgb(pal("input_ar_bg"))
 
 
-def peak_green() -> Tuple[int, int, int]:
+def peak_green() -> tuple[int, int, int]:
     """Rx (receive) peak color."""
     return hex_to_rgb(pal("success"))
 
 
-def peak_red() -> Tuple[int, int, int]:
+def peak_red() -> tuple[int, int, int]:
     """Tx (transmit) peak color."""
     return hex_to_rgb(pal("error"))
 
 
-def peak_yellow() -> Tuple[int, int, int]:
+def peak_yellow() -> tuple[int, int, int]:
     """Cx (compute) peak color."""
     return hex_to_rgb(pal("warning"))
 
@@ -138,7 +138,7 @@ def activity_hint(engine: Any, cols: int = 0) -> str:
     return hint
 
 
-def until_progress(engine: Any) -> Optional[float]:
+def until_progress(engine: Any) -> float | None:
     """
     Return the until timer progress fraction, or ``None``.
 
@@ -153,7 +153,7 @@ def write_hint(
     hint: str,
     out: "asyncio.StreamWriter",
     bt: "blessed.Terminal",
-    progress: Optional[float] = None,
+    progress: float | None = None,
     bg_sgr: str = "",
 ) -> None:
     """
@@ -183,7 +183,7 @@ def write_hint(
         out.write(f"{bg_sgr}{dim}{hint}{normal}".encode())
 
 
-def lerp_rgb(c1: Tuple[int, int, int], c2: Tuple[int, int, int], t: float) -> Tuple[int, int, int]:
+def lerp_rgb(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
     """Linearly interpolate between two RGB colors."""
     return (
         int(c1[0] + t * (c2[0] - c1[0])),
@@ -202,9 +202,9 @@ class ActivityDot:
     :param peak_rgb: Peak glow color as ``(r, g, b)`` tuple.
     """
 
-    __slots__ = ("trigger_time", "phase_offset", "peak_rgb")
+    __slots__ = ("peak_rgb", "phase_offset", "trigger_time")
 
-    def __init__(self, peak_rgb: Optional[Tuple[int, int, int]] = None) -> None:
+    def __init__(self, peak_rgb: tuple[int, int, int] | None = None) -> None:
         """Initialize activity dot with given peak color."""
         self.trigger_time: float = 0.0
         self.phase_offset: float = 0.0
@@ -241,7 +241,7 @@ class ActivityDot:
         elapsed = time.monotonic() - self.trigger_time + self.phase_offset
         return 0.0 < elapsed < DURATION
 
-    def color(self, autoreply_bg: bool = False) -> Tuple[int, int, int]:
+    def color(self, autoreply_bg: bool = False) -> tuple[int, int, int]:
         """Return interpolated ``(r, g, b)`` for the current frame."""
         idle = idle_ar_rgb() if autoreply_bg else idle_rgb()
         t = self.intensity()
@@ -261,7 +261,7 @@ class Stoplight:
     and its foreground color.
     """
 
-    __slots__ = ("tx", "cx", "rx", "frame_count", "last_result")
+    __slots__ = ("cx", "frame_count", "last_result", "rx", "tx")
 
     def __init__(self, tx: ActivityDot, cx: ActivityDot, rx: ActivityDot) -> None:
         """Initialize stoplight with three activity dots."""
@@ -269,7 +269,7 @@ class Stoplight:
         self.cx = cx
         self.rx = rx
         self.frame_count: int = 0
-        self.last_result: Tuple[str, Tuple[int, int, int]] = (" ", idle_rgb())
+        self.last_result: tuple[str, tuple[int, int, int]] = (" ", idle_rgb())
 
     @classmethod
     def create(cls) -> "Stoplight":
@@ -284,7 +284,7 @@ class Stoplight:
         """Return ``True`` if any dot is still animating."""
         return self.tx.is_animating() or self.cx.is_animating() or self.rx.is_animating()
 
-    def frame(self, autoreply_bg: bool = False) -> Tuple[str, Tuple[int, int, int]]:
+    def frame(self, autoreply_bg: bool = False) -> tuple[str, tuple[int, int, int]]:
         """
         Advance the frame counter and return ``(sextant_char, (r, g, b))``.
 
@@ -355,12 +355,12 @@ DEFAULT_CURSOR_STYLE = "steady_block"
 CURSOR_COLOR_RESET_OSC: str = "\x1b]112\x07"  # OSC 112 -- reset to default
 
 
-def cursor_color_rgb() -> Tuple[int, int, int]:
+def cursor_color_rgb() -> tuple[int, int, int]:
     """Cursor color from the theme palette."""
     return hex_to_rgb(pal("cursor_color"))
 
 
-def cursor_ar_rgb() -> Tuple[int, int, int]:
+def cursor_ar_rgb() -> tuple[int, int, int]:
     """Autoreply cursor color from the theme palette."""
     return hex_to_rgb(pal("cursor_ar_color"))
 
@@ -422,7 +422,7 @@ def make_styles() -> None:
     )
 
 
-def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
+def hsv_to_rgb(h: float, s: float, v: float) -> tuple[int, int, int]:
     """Convert HSV (h in [0,360), s/v in [0,1]) to (r, g, b) in [0,255]."""
     import colorsys
 
@@ -430,7 +430,7 @@ def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def rgb_to_hsv(r: int, g: int, b: int) -> Tuple[float, float, float]:
+def rgb_to_hsv(r: int, g: int, b: int) -> tuple[float, float, float]:
     """Convert (r, g, b) in [0,255] to HSV (h in [0,360), s/v in [0,1])."""
     import colorsys
 
@@ -439,8 +439,8 @@ def rgb_to_hsv(r: int, g: int, b: int) -> Tuple[float, float, float]:
 
 
 def lerp_hsv(
-    hsv1: Tuple[float, float, float], hsv2: Tuple[float, float, float], t: float
-) -> Tuple[float, float, float]:
+    hsv1: tuple[float, float, float], hsv2: tuple[float, float, float], t: float
+) -> tuple[float, float, float]:
     """Linearly interpolate between two HSV colors using shortest-arc hue."""
     h1, s1, v1 = hsv1
     h2, s2, v2 = hsv2
@@ -615,10 +615,10 @@ def vital_bar(
     width: int,
     kind: str,
     flash_elapsed: float = -1.0,
-    color_override: Optional[str] = None,
-    text_fill_color: Optional[str] = None,
-    text_empty_color: Optional[str] = None,
-) -> "List[Tuple[str, str]]":
+    color_override: str | None = None,
+    text_fill_color: str | None = None,
+    text_empty_color: str | None = None,
+) -> "list[tuple[str, str]]":
     """
     Build a labelled progress-bar with sextant bookends and overlaid text.
 
@@ -647,8 +647,8 @@ def vital_bar(
     else:
         frac = 1.0
 
-    filled = int(round(frac * width))
-    pct = int(round(frac * 100))
+    filled = round(frac * width)
+    pct = round(frac * 100)
     kind_lower = kind.lower()
 
     bar_color = color_override if color_override else vital_color(frac, kind_lower)
@@ -728,12 +728,12 @@ class ToolbarSlot(NamedTuple):
     priority: int
     display_order: int
     width: int
-    fragments: List[Tuple[str, str]]
+    fragments: list[tuple[str, str]]
     side: str
     min_width: int
     label: str
     growable: bool = False
-    grow_params: Optional[Tuple[Any, ...]] = None
+    grow_params: tuple[Any, ...] | None = None
 
 
 SEPARATOR_WIDTH = 3
@@ -741,15 +741,15 @@ BAR_GAP_WIDTH = 1
 
 
 def layout_toolbar(
-    slots: List["ToolbarSlot"], cols: int
-) -> Tuple[List["ToolbarSlot"], List["ToolbarSlot"]]:
+    slots: list["ToolbarSlot"], cols: int
+) -> tuple[list["ToolbarSlot"], list["ToolbarSlot"]]:
     """
     Fit toolbar slots into *cols* columns by priority.
 
     :returns: ``(left_slots, right_slots)`` ordered by ``display_order``.
     """
-    left: List[ToolbarSlot] = []
-    right: List[ToolbarSlot] = []
+    left: list[ToolbarSlot] = []
+    right: list[ToolbarSlot] = []
     left_used = 0
     right_used = 0
     has_left = False
@@ -794,14 +794,14 @@ def layout_toolbar(
     return (left, right)
 
 
-def left_sep_widths(left: List["ToolbarSlot"]) -> List[int]:
+def left_sep_widths(left: list["ToolbarSlot"]) -> list[int]:
     """
     Return per-gap separator widths for left slots.
 
     Adjacent growable (vital-bar) slots use ``BAR_GAP_WIDTH``; all other
     gaps use ``SEPARATOR_WIDTH``.
     """
-    gaps: List[int] = []
+    gaps: list[int] = []
     for i in range(1, len(left)):
         if left[i - 1].growable and left[i].growable:
             gaps.append(BAR_GAP_WIDTH)
@@ -811,8 +811,8 @@ def left_sep_widths(left: List["ToolbarSlot"]) -> List[int]:
 
 
 def fill_toolbar(
-    left: List["ToolbarSlot"], right: List["ToolbarSlot"], cols: int
-) -> Tuple[List["ToolbarSlot"], List["ToolbarSlot"], int]:
+    left: list["ToolbarSlot"], right: list["ToolbarSlot"], cols: int
+) -> tuple[list["ToolbarSlot"], list["ToolbarSlot"], int]:
     """
     Distribute extra horizontal space across growable slots and separators.
 
@@ -842,7 +842,7 @@ def fill_toolbar(
     per_bar = remaining // len(growable)
     leftover = remaining - per_bar * len(growable)
 
-    grow_set = set(id(s) for s in growable)
+    grow_set = {id(s) for s in growable}
     grow_idx = 0
 
     def expand(slot: ToolbarSlot) -> ToolbarSlot:
@@ -890,11 +890,11 @@ def fill_toolbar(
 class VitalTracker:
     """Track one vital stat (HP, MP) with flash-on-change timing."""
 
-    __slots__ = ("last_value", "flash_time")
+    __slots__ = ("flash_time", "last_value")
 
     def __init__(self) -> None:
         """Initialize tracker with no previous value."""
-        self.last_value: Optional[int] = None
+        self.last_value: int | None = None
         self.flash_time: float = 0.0
 
     def update(self, raw: Any, now: float) -> float:
@@ -924,7 +924,7 @@ class XPTracker(VitalTracker):
     def __init__(self) -> None:
         """Initialize XP tracker with empty history deque."""
         super().__init__()
-        self.history: collections.deque[Tuple[float, int]] = collections.deque()
+        self.history: collections.deque[tuple[float, int]] = collections.deque()
 
     def update(self, raw: Any, now: float) -> float:
         """Update tracker, also maintaining XP history for ETA."""
@@ -946,7 +946,7 @@ class XPTracker(VitalTracker):
         elapsed = now - self.flash_time
         return elapsed if elapsed < FLASH_DURATION else -1.0
 
-    def eta_fragments(self, maxxp: Any, now: float) -> Optional[List[Tuple[str, str]]]:
+    def eta_fragments(self, maxxp: Any, now: float) -> list[tuple[str, str]] | None:
         """
         Compute ETA fragments from XP history.
 
@@ -988,7 +988,7 @@ class ToolbarRenderer:
         ctx: "SessionContext",
         scroll: Any,
         out: asyncio.StreamWriter,
-        stoplight: Optional[Stoplight],
+        stoplight: Stoplight | None,
         rprompt_text: str = "",
     ) -> None:
         """Initialize toolbar renderer for *ctx*."""
@@ -1003,14 +1003,14 @@ class ToolbarRenderer:
         self.until_progress_active: bool = False
         self.last_progress_col: int = -1
         self.last_progress_hint: str = ""
-        self.last_hint_split: Optional[Tuple[str, int]] = None
+        self.last_hint_split: tuple[str, int] | None = None
         self.last_eta_text: str = ""
-        self.cached_eta_frags: Optional[List[Tuple[str, str]]] = None
+        self.cached_eta_frags: list[tuple[str, str]] | None = None
         self.hp = VitalTracker()
         self.mp = VitalTracker()
         self.xp = XPTracker()
         self.bar_trackers: dict[str, VitalTracker] = {}
-        self.cursor_show_handle: Optional[asyncio.TimerHandle] = None
+        self.cursor_show_handle: asyncio.TimerHandle | None = None
         self.cursor_hidden: bool = False
 
     CURSOR_SHOW_DELAY = 0.05
@@ -1082,7 +1082,7 @@ class ToolbarRenderer:
         """Initialize toolbar on first GMCP data; return ``False`` if no data yet."""
         from .client_repl import RESERVE_WITH_TOOLBAR
 
-        gmcp_data: Optional[dict[str, Any]] = self.ctx.gmcp_data or None
+        gmcp_data: dict[str, Any] | None = self.ctx.gmcp_data or None
         if not self.has_gmcp:
             if not gmcp_data:
                 return False
@@ -1100,11 +1100,11 @@ class ToolbarRenderer:
         discover_active: bool,
         randomwalk_active: bool,
         now: float,
-    ) -> Tuple[List[ToolbarSlot], bool]:
+    ) -> tuple[list[ToolbarSlot], bool]:
         """Build all toolbar slots and return ``(slots, needs_reflash)``."""
-        slots: List[ToolbarSlot] = []
+        slots: list[ToolbarSlot] = []
         needs_reflash = False
-        gmcp_data: Optional[dict[str, Any]] = self.ctx.gmcp_data or None
+        gmcp_data: dict[str, Any] | None = self.ctx.gmcp_data or None
 
         if gmcp_data:
             status = gmcp_data.get("Char.Status")
@@ -1144,7 +1144,7 @@ class ToolbarRenderer:
         self.right_slot(engine, ar_active, discover_active, randomwalk_active, slots)
         return slots, needs_reflash
 
-    def default_bars(self, gmcp_data: dict[str, Any], now: float, slots: List[ToolbarSlot]) -> bool:
+    def default_bars(self, gmcp_data: dict[str, Any], now: float, slots: list[ToolbarSlot]) -> bool:
         """Build HP/MP/XP bars using hardcoded aliases (backward compat)."""
         needs_reflash = False
         vitals = gmcp_data.get("Char.Vitals")
@@ -1181,7 +1181,7 @@ class ToolbarRenderer:
         gmcp_data: dict[str, Any],
         bar_configs: list[Any],
         now: float,
-        slots: List[ToolbarSlot],
+        slots: list[ToolbarSlot],
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
         from .progressbars import bar_color_at, resolve_text_color_hex
@@ -1235,7 +1235,7 @@ class ToolbarRenderer:
                 needs_reflash = True
         return needs_reflash
 
-    def status_slots(self, status: dict[str, Any], slots: List[ToolbarSlot]) -> None:
+    def status_slots(self, status: dict[str, Any], slots: list[ToolbarSlot]) -> None:
         """Add Level and Money slots from ``Char.Status``."""
         level = status.get("level")
         if level is not None:
@@ -1280,10 +1280,10 @@ class ToolbarRenderer:
         priority: int,
         order: int,
         now: float,
-        slots: List[ToolbarSlot],
-        color_override: Optional[str] = None,
-        text_fill_color: Optional[str] = None,
-        text_empty_color: Optional[str] = None,
+        slots: list[ToolbarSlot],
+        color_override: str | None = None,
+        text_fill_color: str | None = None,
+        text_empty_color: str | None = None,
         side: str = "left",
     ) -> bool:
         """
@@ -1327,7 +1327,7 @@ class ToolbarRenderer:
         )
         return needs_reflash
 
-    def xp_eta_slot(self, maxxp: Any, now: float, slots: List[ToolbarSlot]) -> None:
+    def xp_eta_slot(self, maxxp: Any, now: float, slots: list[ToolbarSlot]) -> None:
         """
         Append an ETA slot from cached fragments.
 
@@ -1357,7 +1357,7 @@ class ToolbarRenderer:
         ar_active: bool,
         discover_active: bool,
         randomwalk_active: bool,
-        slots: List[ToolbarSlot],
+        slots: list[ToolbarSlot],
     ) -> None:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:
@@ -1403,7 +1403,7 @@ class ToolbarRenderer:
                 )
 
     def travel_bar_slot(
-        self, cur: Any, tot: Any, width: int, kind: str, slots: List[ToolbarSlot]
+        self, cur: Any, tot: Any, width: int, kind: str, slots: list[ToolbarSlot]
     ) -> None:
         """Append a travel progress bar slot, using config colors when available."""
         from .progressbars import TRAVEL_BAR_NAME, bar_color_at, resolve_text_color_hex
@@ -1454,7 +1454,7 @@ class ToolbarRenderer:
             )
         )
 
-    def paint(self, slots: List[ToolbarSlot], is_autoreply_bg: bool, needs_reflash: bool) -> bool:
+    def paint(self, slots: list[ToolbarSlot], is_autoreply_bg: bool, needs_reflash: bool) -> bool:
         """Write ANSI sequences for the toolbar row."""
         blessed_term = get_term()
         cols = blessed_term.width

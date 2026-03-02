@@ -14,7 +14,7 @@ import os
 import re
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from dataclasses import field, dataclass
 
 # 3rd party
@@ -33,11 +33,11 @@ if TYPE_CHECKING:
     from .session_context import SessionContext
 
 # (start, end, highlight, stop_movement, rule_idx, match)
-Span = tuple[int, int, str, bool, int, Optional[re.Match[str]]]
+Span = tuple[int, int, str, bool, int, re.Match[str] | None]
 
 __all__ = (
-    "HighlightRule",
     "HighlightEngine",
+    "HighlightRule",
     "load_highlights",
     "save_highlights",
     "validate_highlight",
@@ -138,7 +138,7 @@ def load_highlights(path: str, session_key: str) -> list[HighlightRule]:
     :raises FileNotFoundError: When *path* does not exist.
     :raises ValueError: When JSON structure is invalid or regex fails.
     """
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         data: dict[str, Any] = json.load(fh)
     session_data: dict[str, Any] = data.get(session_key, {})
     entries: list[dict[str, Any]] = session_data.get("highlights", [])
@@ -157,7 +157,7 @@ def save_highlights(path: str, rules: list[HighlightRule], session_key: str) -> 
     """
     data: dict[str, Any] = {}
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     data[session_key] = {
         "highlights": [
@@ -224,7 +224,7 @@ class CompiledRuleSet:
                 parts.append(f"(?P<{gname}>{pat})")
             self.group_map.append((rule.highlight, rule.stop_movement, rule_i))
 
-        self.combined: Optional[re.Pattern[str]] = None
+        self.combined: re.Pattern[str] | None = None
         if parts:
             try:
                 self.combined = re.compile("|".join(parts), RE_FLAGS)
@@ -270,7 +270,7 @@ class HighlightEngine:
         rules: list[HighlightRule],
         autoreply_rules: list[AutoreplyRule],
         term: blessed.Terminal,
-        ctx: Optional[SessionContext] = None,
+        ctx: SessionContext | None = None,
         autoreply_highlight: str = DEFAULT_AUTOREPLY_HIGHLIGHT,
         autoreply_enabled: bool = True,
     ) -> None:
@@ -395,7 +395,7 @@ class HighlightEngine:
                 except (ValueError, TypeError):
                     pass
 
-    def handle_stop_movement(self, spans: list[Span]) -> Optional[str]:
+    def handle_stop_movement(self, spans: list[Span]) -> str | None:
         """
         Cancel discover/randomwalk tasks if any span has stop_movement.
 

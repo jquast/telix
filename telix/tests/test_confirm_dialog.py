@@ -61,11 +61,11 @@ def test_warning_passed_in_command(mock_subprocess: Any) -> None:
 pytest.importorskip("textual")
 
 # 3rd party
-from textual.app import App, ComposeResult  # noqa: E402
-from textual.widgets import Button  # noqa: E402
+from textual.app import App, ComposeResult
+from textual.widgets import Button
 
 # local
-from telix.client_tui import ConfirmDialogScreen  # noqa: E402
+from telix.client_tui import ConfirmDialogScreen
 
 
 class ConfirmTestApp(App[bool]):

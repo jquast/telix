@@ -1,6 +1,6 @@
 ## Room Mapping
 
-When the server sends GMCP `Room.Info` messages, telix builds an
+When the server sends GMCP `Room.Info` messages, Telix builds an
 incrementally-growing room graph stored in SQLite at
 `$XDG_DATA_HOME/telix/rooms-<hash>.db`.
 

@@ -71,7 +71,7 @@ def test_save_macros_roundtrip(tmp_path):
     save_macros(str(fp), original, SK)
     loaded = load_macros(str(fp), SK)
     assert len(loaded) == len(original)
-    for orig, restored in zip(original, loaded):
+    for orig, restored in zip(original, loaded, strict=False):
         assert orig.key == restored.key
         assert orig.text == restored.text
 

@@ -10,20 +10,20 @@ from __future__ import annotations
 # std imports
 import os
 import json
-from typing import Any, Optional, NamedTuple
+from typing import Any, NamedTuple
 
 # local
 from .paths import atomic_json_write
 
 __all__ = (
-    "BarConfig",
-    "TRAVEL_BAR_NAME",
-    "load_progressbars",
-    "save_progressbars",
-    "detect_progressbars",
-    "bar_color_at",
-    "resolve_text_color_hex",
     "CURATED_COLORS",
+    "TRAVEL_BAR_NAME",
+    "BarConfig",
+    "bar_color_at",
+    "detect_progressbars",
+    "load_progressbars",
+    "resolve_text_color_hex",
+    "save_progressbars",
 )
 
 TRAVEL_BAR_NAME = "<Travel>"  #: Name of the built-in travel progress bar.
@@ -155,7 +155,7 @@ def load_progressbars(path: str, session_key: str) -> list[BarConfig]:
     """
     if not os.path.exists(path):
         return []
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         data: dict[str, Any] = json.load(fh)
     session_data: dict[str, Any] = data.get(session_key, {})
     entries: list[dict[str, Any]] = session_data.get("bars", [])
@@ -175,7 +175,7 @@ def save_progressbars(path: str, session_key: str, bars: list[BarConfig]) -> Non
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     data: dict[str, Any] = {}
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     entries = [bar_to_dict(b) for b in bars]
     data[session_key] = {"bars": entries}
@@ -229,7 +229,7 @@ def detect_progressbars(gmcp_data: dict[str, Any]) -> list[BarConfig]:
     return bars
 
 
-def get_theme_color_hex(name: str) -> Optional[str]:
+def get_theme_color_hex(name: str) -> str | None:
     """
     Resolve a Textual theme color name to ``#rrggbb``.
 
@@ -240,7 +240,7 @@ def get_theme_color_hex(name: str) -> Optional[str]:
     return theme_colors.get(name)
 
 
-def resolve_text_color_hex(name: str) -> Optional[str]:
+def resolve_text_color_hex(name: str) -> str | None:
     """
     Resolve a text color name to ``#rrggbb``, or ``None`` for ``"auto"``.
 
@@ -263,7 +263,7 @@ def resolve_color_rgb(name: str) -> tuple[int, int, int]:
 
 
 def bar_color_at(
-    fraction: float, bar: BarConfig, theme_accent: Optional[tuple[int, int, int]] = None
+    fraction: float, bar: BarConfig, theme_accent: tuple[int, int, int] | None = None
 ) -> str:
     """
     Return an ``#rrggbb`` hex color for a bar at *fraction* full.
@@ -300,9 +300,8 @@ def lerp_hsv_path(
     if path == "shortest":
         if dh > 180.0:
             dh -= 360.0
-    else:
-        if dh <= 180.0:
-            dh = dh - 360.0
+    elif dh <= 180.0:
+        dh = dh - 360.0
     h = (h1 + t * dh) % 360.0
     return (h, s1 + t * (s2 - s1), v1 + t * (v2 - v1))
 

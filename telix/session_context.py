@@ -4,7 +4,8 @@ from __future__ import annotations
 
 # std imports
 import asyncio
-from typing import Any, Union, Callable, Optional, Awaitable
+from typing import Any
+from collections.abc import Callable, Awaitable
 
 # 3rd party
 from telnetlib3.stream_writer import TelnetWriter, TelnetWriterUnicode
@@ -14,7 +15,7 @@ from telnetlib3._session_context import TelnetSessionContext  # pylint: disable=
 class CommandQueue:
     """Mutable state for a running command queue, enabling display and cancellation."""
 
-    __slots__ = ("commands", "current_idx", "cancelled", "cancel_event", "render")
+    __slots__ = ("cancel_event", "cancelled", "commands", "current_idx", "render")
 
     def __init__(self, commands: list[str], render: Callable[[], None]) -> None:
         self.commands = commands
@@ -40,7 +41,7 @@ class SessionContext(TelnetSessionContext):
         super().__init__()
 
         # back-reference to the writer (set by session_shell)
-        self.writer: Optional[Union[TelnetWriter, TelnetWriterUnicode]] = None
+        self.writer: TelnetWriter | TelnetWriterUnicode | None = None
 
         # identity
         self.session_key: str = session_key
@@ -59,16 +60,16 @@ class SessionContext(TelnetSessionContext):
         self.discover_active: bool = False
         self.discover_current: int = 0
         self.discover_total: int = 0
-        self.discover_task: Optional[asyncio.Task[None]] = None
+        self.discover_task: asyncio.Task[None] | None = None
         self.randomwalk_active: bool = False
         self.randomwalk_current: int = 0
         self.randomwalk_total: int = 0
-        self.randomwalk_task: Optional[asyncio.Task[None]] = None
+        self.randomwalk_task: asyncio.Task[None] | None = None
         self.randomwalk_auto_search: bool = False
         self.randomwalk_auto_evaluate: bool = False
         self.randomwalk_auto_survey: bool = False
-        self.travel_task: Optional[asyncio.Task[None]] = None
-        self.active_command: Optional[str] = None
+        self.travel_task: asyncio.Task[None] | None = None
+        self.active_command: str | None = None
         self.active_command_time: float = 0.0
         self.blocked_exits: set[tuple[str, str]] = set()  # (room_num, direction)
 
@@ -81,7 +82,7 @@ class SessionContext(TelnetSessionContext):
         self.last_walk_tried: set[tuple[str, str]] = set()
 
         # command queue
-        self.command_queue: Optional[CommandQueue] = None
+        self.command_queue: CommandQueue | None = None
 
         # macros & autoreplies (autoreply_engine inherited from base)
         self.macro_defs: list[Any] = []
@@ -92,16 +93,16 @@ class SessionContext(TelnetSessionContext):
         # highlighters
         self.highlight_rules: list[Any] = []
         self.highlights_file: str = ""
-        self.highlight_engine: Optional[Any] = None
+        self.highlight_engine: Any | None = None
 
         # prompt / GA pacing
-        self.wait_for_prompt: Optional[Callable[..., Awaitable[None]]] = None
-        self.echo_command: Optional[Callable[[str], None]] = None
-        self.prompt_ready: Optional[asyncio.Event] = None
+        self.wait_for_prompt: Callable[..., Awaitable[None]] | None = None
+        self.echo_command: Callable[[str], None] | None = None
+        self.prompt_ready: asyncio.Event | None = None
 
         # GMCP
         self.gmcp_data: dict[str, Any] = {}
-        self.on_gmcp_ready: Optional[Callable[[], None]] = None
+        self.on_gmcp_ready: Callable[[], None] | None = None
         self.gmcp_snapshot_file: str = ""
         self.gmcp_dirty: bool = False
 
@@ -118,33 +119,33 @@ class SessionContext(TelnetSessionContext):
         self.chat_unread: int = 0
         self.chat_channels: list[dict[str, Any]] = []
         self.chat_file: str = ""
-        self.on_room_info: Optional[Callable[[dict[str, Any]], None]] = None
-        self.on_chat_text: Optional[Callable[[dict[str, Any]], None]] = None
-        self.on_chat_channels: Optional[Callable[[list[dict[str, Any]]], None]] = None
-        self.on_autoreply_activity: Optional[Callable[[], None]] = None
+        self.on_room_info: Callable[[dict[str, Any]], None] | None = None
+        self.on_chat_text: Callable[[dict[str, Any]], None] | None = None
+        self.on_chat_channels: Callable[[list[dict[str, Any]]], None] | None = None
+        self.on_autoreply_activity: Callable[[], None] | None = None
 
         # rendering / input config
         # (raw_mode, ascii_eol, input_filter, color_filter, typescript_file
         #  inherited from TelnetSessionContext)
         self.repl_enabled: bool = False
-        self.history_file: Optional[str] = None
+        self.history_file: str | None = None
 
         # modem activity dots (set by REPL, used by send_chained et al.)
-        self.rx_dot: Optional[Any] = None
-        self.tx_dot: Optional[Any] = None
-        self.cx_dot: Optional[Any] = None
+        self.rx_dot: Any | None = None
+        self.tx_dot: Any | None = None
+        self.cx_dot: Any | None = None
 
         # REPL internals
-        self.key_dispatch: Optional[Any] = None
+        self.key_dispatch: Any | None = None
         self.cursor_style: str = ""
-        self.send_line: Optional[Callable[[str], None]] = None
+        self.send_line: Callable[[str], None] | None = None
         # autoreply_wait_fn inherited from TelnetSessionContext
-        self.send_naws: Optional[Callable[[], None]] = None
+        self.send_naws: Callable[[], None] | None = None
 
         # debounced timestamp persistence
         self.macros_dirty: bool = False
         self.autoreplies_dirty: bool = False
-        self.save_timer: Optional[asyncio.TimerHandle] = None
+        self.save_timer: asyncio.TimerHandle | None = None
 
     def mark_macros_dirty(self) -> None:
         """Mark macros as needing a save and schedule a debounced flush."""

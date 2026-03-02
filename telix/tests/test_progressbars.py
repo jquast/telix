@@ -298,7 +298,7 @@ def test_save_empty_gmcp_noop(tmp_path):
 def test_snapshot_has_session_key(tmp_path):
     path = str(tmp_path / "snap.json")
     save_gmcp_snapshot(path, "mud:4000", {"X": {"a": 1}})
-    with open(path, "r") as f:
+    with open(path) as f:
         raw = json.load(f)
     assert raw["session_key"] == "mud:4000"
     assert "last_updated" in raw
@@ -326,7 +326,7 @@ def test_auto_omitted_from_json(tmp_path):
     path = str(tmp_path / "pb.json")
     bars = [BarConfig("HP", "V", "hp", "mhp")]
     save_progressbars(path, "m:1", bars)
-    with open(path, "r") as f:
+    with open(path) as f:
         raw = json.load(f)
     entry = raw["m:1"]["bars"][0]
     assert "text_color_fill" not in entry
@@ -364,7 +364,7 @@ def test_side_left_omitted_from_json(tmp_path):
     path = str(tmp_path / "pb.json")
     bars = [BarConfig("HP", "V", "hp", "mhp")]
     save_progressbars(path, "m:1", bars)
-    with open(path, "r") as f:
+    with open(path) as f:
         raw = json.load(f)
     entry = raw["m:1"]["bars"][0]
     assert "side" not in entry

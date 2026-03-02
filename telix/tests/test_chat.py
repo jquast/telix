@@ -1,11 +1,9 @@
 """Tests for GMCP chat message handling, persistence, and toolbar badge."""
 
-from __future__ import annotations
-
 # std imports
 import os
 import json
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import MagicMock
 
 # 3rd party
@@ -24,7 +22,7 @@ def make_ctx(tmp_path: Any, session_key: str = "test:4000") -> SessionContext:
 
 def sample_gmcp_msg(
     channel: str = "chat", talker: str = "Bob", text: str = "hello"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "channel": channel,
         "channel_ansi": f"\x1b[0m[{channel}]\x1b[0m",
@@ -64,7 +62,7 @@ class TestAppendChat:
         ctx = make_ctx(tmp_path)
         append_chat_msg(ctx, sample_gmcp_msg())
         assert os.path.exists(ctx.chat_file)
-        with open(ctx.chat_file, "r", encoding="utf-8") as f:
+        with open(ctx.chat_file, encoding="utf-8") as f:
             data = json.load(f)
         assert len(data) == 1
         assert data[0]["talker"] == "Bob"

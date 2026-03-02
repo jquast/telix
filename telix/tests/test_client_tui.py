@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip("textual", reason="textual not installed")
 
 # local
-from telix.client_tui import (  # noqa: E402
+from telix.client_tui import (
     EDITOR_TABS,
     DEFAULTS_KEY,
     PRIMARY_PASTE_COMMANDS,
@@ -468,7 +468,7 @@ def test_randomwalk_dialog_writes_visit_level(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=3)
     screen.write_result(True, 3)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["confirmed"] is True
     assert data["visit_level"] == 3
@@ -488,7 +488,7 @@ def test_randomwalk_dialog_command_field(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 3, auto_search=True, auto_evaluate=False)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 3 autosearch`"
 
@@ -501,7 +501,7 @@ def test_randomwalk_dialog_command_all_flags(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 5, auto_search=True, auto_evaluate=True)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 5 autosearch autoevaluate`"
 
@@ -514,7 +514,7 @@ def test_randomwalk_dialog_command_no_flags(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, auto_search=False, auto_evaluate=False)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 2`"
 
@@ -526,7 +526,7 @@ def test_autodiscover_dialog_writes_bfs(tmp_path: Any) -> None:
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
     screen.write_result(True, "bfs")
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["confirmed"] is True
     assert data["strategy"] == "bfs"
@@ -540,7 +540,7 @@ def test_autodiscover_dialog_writes_dfs(tmp_path: Any) -> None:
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="dfs")
     screen.write_result(True, "dfs")
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["confirmed"] is True
     assert data["strategy"] == "dfs"
@@ -554,7 +554,7 @@ def test_autodiscover_dialog_cancel(tmp_path: Any) -> None:
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
     screen.write_result(False, "bfs")
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["confirmed"] is False
 
@@ -573,7 +573,7 @@ def test_autodiscover_dialog_all_flags(tmp_path: Any) -> None:
         True, "bfs", auto_search=True, auto_evaluate=True, auto_survey=True, autoreplies=True
     )
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`autodiscover bfs autosearch autoevaluate autosurvey`"
     assert data["auto_search"] is True
@@ -589,7 +589,7 @@ def test_autodiscover_dialog_noreply(tmp_path: Any) -> None:
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="dfs")
     screen.write_result(True, "dfs", autoreplies=False)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`autodiscover dfs noreply`"
     assert data["autoreplies"] is False
@@ -602,7 +602,7 @@ def test_autodiscover_dialog_autosurvey_only(tmp_path: Any) -> None:
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
     screen.write_result(True, "bfs", auto_survey=True)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`autodiscover bfs autosurvey`"
 
@@ -627,7 +627,7 @@ def test_randomwalk_dialog_autosurvey(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, auto_survey=True)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 2 autosurvey`"
     assert data["auto_survey"] is True
@@ -640,7 +640,7 @@ def test_randomwalk_dialog_noreply(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, autoreplies=False)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 2 noreply`"
     assert data["autoreplies"] is False
@@ -655,7 +655,7 @@ def test_randomwalk_dialog_all_new_flags(tmp_path: Any) -> None:
         True, 3, auto_search=True, auto_evaluate=True, auto_survey=True, autoreplies=True
     )
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 3 autosearch autoevaluate autosurvey`"
 
@@ -667,7 +667,7 @@ def test_randomwalk_dialog_noreply_with_flags(tmp_path: Any) -> None:
     screen = RandomwalkDialogScreen(result_file=result_file, default_visit_level=2)
     screen.write_result(True, 2, auto_search=True, autoreplies=False)
 
-    with open(result_file, "r", encoding="utf-8") as f:
+    with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["command"] == "`randomwalk 999 2 autosearch noreply`"
 

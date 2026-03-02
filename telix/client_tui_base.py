@@ -219,7 +219,7 @@ TOOLTIP_CACHE: dict[str, str] | None = None
 
 def build_tooltips() -> dict[str, str]:
     """Extract help text from argparse and return ``{widget_id: help}``."""
-    global TOOLTIP_CACHE  # noqa: PLW0603
+    global TOOLTIP_CACHE
     if TOOLTIP_CACHE is not None:
         return TOOLTIP_CACHE
     from telnetlib3.client import _get_argument_parser
@@ -958,7 +958,7 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
     ]
 
     @staticmethod
-    def field_row(label: str, *widgets: "Widget", row_class: str = "field-row") -> Horizontal:
+    def field_row(label: str, *widgets: Widget, row_class: str = "field-row") -> Horizontal:
         """Return a ``Horizontal`` row with a label and widgets."""
         return Horizontal(Label(label, classes="field-label"), *widgets, classes=row_class)
 
@@ -1021,11 +1021,10 @@ class SessionEditScreen(Screen[SessionConfig | None]):  # type: ignore[misc]
                     yield RadioButton("Auto-detect", value=cfg.mode == "auto", id="mode-auto")
                     yield RadioButton("Raw mode", value=cfg.mode == "raw", id="mode-raw")
                     yield RadioButton("Line mode", value=cfg.mode == "line", id="mode-line")
-            with Vertical(id="repl-col"):
-                with Horizontal(classes="switch-row"):
-                    repl_dim = "" if cfg.mode != "raw" else " dimmed"
-                    yield Label("Advanced REPL", id="repl-label", classes=f"field-label{repl_dim}")
-                    yield Switch(value=not cfg.no_repl, id="use-repl", disabled=cfg.mode == "raw")
+            with Vertical(id="repl-col"), Horizontal(classes="switch-row"):
+                repl_dim = "" if cfg.mode != "raw" else " dimmed"
+                yield Label("Advanced REPL", id="repl-label", classes=f"field-label{repl_dim}")
+                yield Switch(value=not cfg.no_repl, id="use-repl", disabled=cfg.mode == "raw")
         enc = cfg.encoding or "utf-8"
         is_retro = enc.lower() in ("atascii", "petscii")
         with Horizontal(classes="field-row"):
@@ -1370,7 +1369,7 @@ def float_val(text: str, default: float) -> float:
 
 def get_help_topic(topic: str) -> str:
     """Load help text for a TUI dialog topic from bundled markdown files."""
-    from telix.help import get_help  # noqa: E501  # deferred to avoid import cost
+    from telix.help import get_help  # deferred to avoid import cost
 
     return get_help(topic)
 
@@ -1403,9 +1402,8 @@ class HelpPane(Vertical):
 
     def compose(self) -> ComposeResult:
         content = get_help_topic(self.topic)
-        with Vertical(id="help-dialog"):
-            with VerticalScroll(id="help-scroll"):
-                yield Markdown(content, id="help-content")
+        with Vertical(id="help-dialog"), VerticalScroll(id="help-scroll"):
+            yield Markdown(content, id="help-content")
 
     def update_topic(self, topic: str) -> None:
         """
@@ -1524,7 +1522,7 @@ class EditListPane(Vertical):
         self.filtered_indices: list[int] = []
         self.search_query: str = ""
 
-    def request_close(self, result: "bool | None" = None) -> None:
+    def request_close(self, result: bool | None = None) -> None:
         """Dismiss the parent screen or exit the app."""
         try:
             self.screen.dismiss(result)
@@ -1811,7 +1809,7 @@ class EditListPane(Vertical):
         if not rooms_file or not os.path.exists(rooms_file):
             return
 
-        def do_pick(room_id: "str | None") -> None:
+        def do_pick(room_id: str | None) -> None:
             if room_id is None:
                 return
             cmd = f"`travel {room_id}`"
@@ -1888,7 +1886,7 @@ class EditListScreen(Screen["bool | None"]):
 class EditorApp(App[None]):
     """Minimal Textual app for standalone macro/autoreply editing."""
 
-    def __init__(self, screen: Screen["bool | None"], session_key: str = "") -> None:
+    def __init__(self, screen: Screen[bool | None], session_key: str = "") -> None:
         """Initialize with the editor screen to push."""
         super().__init__()
         self.editor_screen = screen

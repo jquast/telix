@@ -94,8 +94,8 @@ async def fast_travel(
 
     from .rooms import RoomGraph
 
-    def get_graph() -> Optional[RoomGraph]:
-        graph: Optional[RoomGraph] = ctx.room_graph
+    def get_graph() -> RoomGraph | None:
+        graph: RoomGraph | None = ctx.room_graph
         return graph
 
     def room_name(num: str) -> str:
@@ -808,7 +808,7 @@ async def randomwalk(
         stuck_count = 0
         retry_count = 0
         bounce_count = 0
-        prev_room: Optional[str] = None
+        prev_room: str | None = None
         for step in range(limit):
             current = ctx.current_room_num
             exits = dict(adj.get(current, {}))

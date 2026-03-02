@@ -5,7 +5,7 @@ import os
 import sys
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 # local
 from .paths import safe_terminal_size
@@ -33,7 +33,7 @@ def get_logfile_path() -> str:
 
 
 def confirm_dialog(
-    title: str, body: str, warning: str = "", replay_buf: Optional[Any] = None
+    title: str, body: str, warning: str = "", replay_buf: Any | None = None
 ) -> bool:
     """
     Show a Textual confirmation dialog in a subprocess.
@@ -72,7 +72,7 @@ def confirm_dialog(
         logfile,
     ]
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log = logging.getLogger(__name__)
     log.debug(
         "confirm_dialog: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
@@ -105,7 +105,7 @@ def confirm_dialog(
 
     confirmed = False
     try:
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             data = json.load(f)
         confirmed = bool(data.get("confirmed", False))
     except (OSError, ValueError):
@@ -119,7 +119,7 @@ def confirm_dialog(
     return confirmed
 
 
-def randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -> Optional[str]:
+def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> str | None:
     """
     Show the random walk dialog with visit-level parameter.
 
@@ -176,7 +176,7 @@ def randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -
         logfile,
     ]
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log = logging.getLogger(__name__)
     log.debug("randomwalk_dialog: launching subprocess")
     blessed_term = get_term()
@@ -196,7 +196,7 @@ def randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -
         restore_after_subprocess(replay_buf)
 
     try:
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             data = json.load(f)
         if not data.get("confirmed", False):
             return None
@@ -223,7 +223,7 @@ def randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -
             pass
 
 
-def autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -> Optional[str]:
+def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") -> str | None:
     """
     Show the autodiscover dialog with BFS/DFS strategy selection.
 
@@ -282,7 +282,7 @@ def autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = "")
         logfile,
     ]
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log = logging.getLogger(__name__)
     log.debug("autodiscover_dialog: launching subprocess")
     blessed_term = get_term()
@@ -302,7 +302,7 @@ def autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = "")
         restore_after_subprocess(replay_buf)
 
     try:
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             data = json.load(f)
         if not data.get("confirmed", False):
             return None
@@ -369,9 +369,7 @@ def render_help_md(has_gmcp: bool = False) -> list[str]:
             lines.append("  " + heading)
             lines.append("")
             in_header_row = True
-        elif skip_section:
-            continue
-        elif stripped.startswith("|") and "---" in stripped:
+        elif skip_section or (stripped.startswith("|") and "---" in stripped):
             continue
         elif stripped.startswith("|"):
             cells = [strip_md(c) for c in stripped.split("|")[1:-1]]
@@ -388,7 +386,7 @@ def render_help_md(has_gmcp: bool = False) -> list[str]:
 
 
 def show_help(
-    macro_defs: "Any" = None, replay_buf: Optional[Any] = None, has_gmcp: bool = False
+    macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp: bool = False
 ) -> None:
     """
     Launch the keybindings help viewer as a Textual TUI subprocess.
@@ -412,7 +410,7 @@ def show_help(
     ]
 
     log = logging.getLogger(__name__)
-    global editor_active  # noqa: PLW0603
+    global editor_active
     blessed_term = get_term()
     sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
@@ -430,7 +428,7 @@ def show_help(
         restore_after_subprocess(replay_buf)
 
 
-def pause_on_subprocess_error(result: Optional[Any]) -> None:
+def pause_on_subprocess_error(result: Any | None) -> None:
     """
     Pause so the user can read any error output before screen repaint.
 
@@ -454,7 +452,7 @@ def pause_on_subprocess_error(result: Optional[Any]) -> None:
 
 
 def launch_unified_editor(
-    initial_tab: str, ctx: "SessionContext", replay_buf: Optional[Any] = None
+    initial_tab: str, ctx: "SessionContext", replay_buf: Any | None = None
 ) -> None:
     """
     Launch the unified tabbed TUI editor as a subprocess.
@@ -546,7 +544,7 @@ def launch_unified_editor(
 
     log = logging.getLogger(__name__)
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log.debug(
         "unified_editor: pre-subprocess initial_tab=%s " "TERM=%s COLORTERM=%s terminal_size=%s",
         initial_tab,
@@ -614,7 +612,7 @@ def launch_unified_editor(
 
 
 def launch_tui_editor(
-    editor_type: str, ctx: "SessionContext", replay_buf: Optional[Any] = None
+    editor_type: str, ctx: "SessionContext", replay_buf: Any | None = None
 ) -> None:
     """
     Launch a TUI editor for macros or autoreplies in a subprocess.
@@ -701,7 +699,7 @@ def launch_tui_editor(
 
     log = logging.getLogger(__name__)
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log.debug(
         "tui_editor: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s editor_type=%s "
@@ -813,7 +811,7 @@ def reload_highlights(
         log.warning("failed to reload highlights: %s", exc)
 
 
-def launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
+def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the Capture Window TUI in a subprocess.
 
@@ -870,7 +868,7 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None) 
 
     log = logging.getLogger(__name__)
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log.debug("chat_viewer: launching subprocess")
     blessed_term = get_term()
     sys.stdout.write(terminal_cleanup())
@@ -896,7 +894,7 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None) 
                 pass
 
 
-def launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
+def launch_room_browser(ctx: "SessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the room browser TUI in a subprocess.
 
@@ -939,7 +937,7 @@ def launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None)
 
     log = logging.getLogger(__name__)
 
-    global editor_active  # noqa: PLW0603
+    global editor_active
     log.debug(
         "room_browser: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s "

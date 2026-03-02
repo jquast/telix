@@ -24,7 +24,7 @@ connected, then name.
 | **B** | Toggle bookmark on the selected session |
 | **D** | Delete the selected session |
 | **F1** | Open this help screen |
-| **Q** | Quit telix |
+| **Q** | Quit Telix |
 
 ### Search
 

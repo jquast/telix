@@ -27,7 +27,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: ISC License (ISCL)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -40,7 +39,7 @@ classifiers = [
     "Topic :: System :: Networking",
     "Topic :: Terminals :: Telnet",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "telnetlib3>=3.0.1,<4",
     "blessed>=1.32,<2",
@@ -79,89 +78,97 @@ include = [
 packages = ["telix"]
 artifacts = ["telix/help/*.md", "telix/data/*.json"]
 
-[tool.pylint.main]
-load-plugins = [
-    "pylint.extensions.check_elif",
-    "pylint.extensions.mccabe",
-    "pylint.extensions.overlapping_exceptions",
-    "pylint.extensions.redefined_variable_type",
-]
-persistent = false
-jobs = 0
+[tool.ruff]
+line-length = 100
+target-version = "py310"
 
-[tool.pylint."messages control"]
-enable = ["all"]
-disable = [
-    "fixme",
-    "locally-disabled",
-    "suppressed-message",
-    "wrong-import-order",
-    "wrong-import-position",
-    "use-implicit-booleaness-not-comparison-to-zero",
-    "too-many-instance-attributes",
-    "too-many-public-methods",
-    "too-few-public-methods",
-    "too-many-arguments",
-    "too-many-positional-arguments",
-    "too-many-locals",
-    "too-many-branches",
-    "too-many-statements",
-    "too-many-nested-blocks",
-    "too-many-return-statements",
-    "too-many-lines",
-    "too-complex",
-    "duplicate-code",
-    "cyclic-import",
-    "import-outside-toplevel",
-    "protected-access",
-    "broad-exception-caught",
-    "broad-except",
-    "unused-argument",
-    "redefined-builtin",
-    "global-statement",
-    "invalid-name",
-    "reimported",
-    "redefined-outer-name",
-    "arguments-renamed",
-    "arguments-differ",
-    "import-error",
-    "overlapping-except",
-    "redefined-variable-type",
-    "unsupported-assignment-operation",
-    "use-implicit-booleaness-not-comparison-to-string",
-    "ungrouped-imports",
-    "consider-using-with",
-    "consider-using-from-import",
-    "missing-function-docstring",
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes
+    "E", "W", # pycodestyle
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade (modernize syntax)
+    "B",      # flake8-bugbear
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "ICN",    # flake8-import-conventions
+    "TID",    # flake8-tidy-imports
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking (move type-only imports to TYPE_CHECKING)
+    "PL",     # pylint rules
+    "SLF",    # flake8-self (private member access)
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "PLR09",    # too-many-* (branches, args, etc.)
+    "PLR2004",  # magic value comparison
+    "PLW0603",  # global statement
+    "PLW2901",  # redefined loop variable
+    "PLC0414",  # useless-import-alias (we use X as X for re-exports)
+    "SLF001",   # private member access (we access external lib internals)
+    "SIM108",   # ternary operator (not always clearer)
+    "SIM105",   # suppressible-exception (contextlib.suppress not always clearer)
+    "SIM115",   # open-file-with-context-handler (not always applicable)
+    "RUF012",   # mutable-class-default (ClassVar annotation noise)
+    "RUF059",   # unused-unpacked-variable (we use _s, _e pattern)
+    "RUF006",   # asyncio-dangling-task (false positives in async code)
+    "RUF002",   # ambiguous-unicode-character-docstring
+    "B007",     # unused-loop-control-variable (intentional named vars)
+    "B017",     # assert-raises-exception (too strict for tests)
+    "B023",     # function-uses-loop-variable (legitimate closures)
+    "N806",     # non-lowercase-variable-in-function (META constants)
+    "N811",     # constant-imported-as-non-constant
+    "TCH",      # type-checking imports (deferred to future cleanup)
+    "SIM102",   # collapsible-if (readability preference)
+    "SIM117",   # multiple-with-statements (readability preference)
+    "RUF005",   # collection-literal-concatenation (style preference)
+    "B018",     # useless-expression (test import probing)
 ]
 
-[tool.pylint.format]
-max-line-length = 100
-good-names = ["fd", "_", "x", "y", "tn", "ip"]
+[tool.ruff.lint.isort]
+length-sort = true
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+no-lines-before = ["local-folder"]
+known-first-party = ["telix"]
 
-[tool.pylint.design]
-max-args = 18
-max-attributes = 22
-max-branches = 22
-max-complexity = 22
-max-locals = 30
-max-module-lines = 3000
-max-parents = 10
-max-positional-arguments = 8
-max-public-methods = 45
-max-returns = 12
-max-statements = 90
+[tool.ruff.lint.flake8-import-conventions]
+banned-from = [
+    # stdlib
+    "abc", "collections", "contextlib", "dataclasses", "datetime",
+    "functools", "importlib", "io", "itertools", "json", "logging",
+    "math", "os", "pathlib", "re", "shutil", "signal", "subprocess",
+    "sys", "tempfile", "textwrap", "time", "traceback",
+    # 3rd party
+    "blessed", "blessed.keyboard", "blessed.line_editor",
+    "rich.style", "rich.text",
+    "textual", "textual.app", "textual.binding", "textual.containers",
+    "textual.css.query", "textual.screen", "textual.widgets",
+    "textual.widgets.tree",
+    "wcwidth", "wcwidth.sgr_state",
+    # telnetlib3
+    "telnetlib3", "telnetlib3.client", "telnetlib3.client_shell",
+    "telnetlib3._session_context", "telnetlib3.stream_reader",
+    "telnetlib3.stream_writer", "telnetlib3.telopt",
+]
 
-[tool.pylint.similarities]
-ignore-imports = true
-min-similarity-lines = 8
-
-[tool.pylint.reports]
-reports = false
-msg-template = "{path}:{line}: [{msg_id}({symbol}), {obj}] {msg}"
+[tool.ruff.lint.per-file-ignores]
+"telix/tests/*" = [
+    "F401",   # unused imports (fixtures)
+    "F811",   # redefinition (fixtures)
+    "E402",   # import position (conftest)
+    "E712",   # comparison to False
+    "PLR",    # pylint complexity in tests
+    "SLF001", # private member access in tests
+    "ICN003", # from-imports OK in tests for brevity
+    "TID252", # relative imports in tests
+]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict = true
 disallow_subclassing_any = false
 ignore_missing_imports = true
@@ -170,8 +177,3 @@ disable_error_code = ["union-attr"]
 [[tool.mypy.overrides]]
 module = ["telix.tests.*"]
 ignore_errors = true
-
-[tool.black]
-line-length = 100
-skip-magic-trailing-comma = true
-target-version = ["py39", "py310", "py311", "py312", "py313"]

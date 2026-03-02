@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from rich.text import Text as RichText
+
     from .rooms import RoomStore
 
 # 3rd party
@@ -102,7 +103,7 @@ class RoomTree(Tree[str]):
         self.home: set[str] = set()
         self.marked: set[str] = set()
 
-    def render_label(self, node: TreeNode[str], base_style: Style, style: Style) -> "RichText":
+    def render_label(self, node: TreeNode[str], base_style: Style, style: Style) -> RichText:
         """Render label with fixed icon+arrow prefix columns."""
         from rich.text import Text as RichText
 
@@ -214,7 +215,7 @@ class RoomBrowserPane(Vertical):
         self.fasttravel_file = fasttravel_file
         self.all_rooms: list[tuple[str, str, str, int, bool, str, bool, bool, bool]] = []
         self.current_area: str = ""
-        self.graph: "RoomStore | None" = None
+        self.graph: RoomStore | None = None
         self.mounted = False
         self.sort_mode: str = "name"
         self.distances: dict[str, int] = {}
@@ -234,35 +235,34 @@ class RoomBrowserPane(Vertical):
 
     def compose(self) -> ComposeResult:
         """Build the room browser layout."""
-        with Vertical(id="room-panel"):
-            with Horizontal(id="room-body"):
-                with Vertical(id="room-button-col"):
-                    travel_btn = Button("Travel", variant="success", id="room-travel")
-                    travel_btn.tooltip = "Travel to the selected room"
-                    yield travel_btn
-                    yield Button("Help", variant="success", id="room-help")
-                    yield Button("Close", id="room-close")
-                    with Vertical(id="room-area-frame"):
-                        yield Static("Area:")
-                        yield Select[str](
-                            [], id="room-area-select", allow_blank=True, prompt="All Areas"
-                        )
-                        yield Static("", id="room-total")
-                with Vertical(id="room-right"):
-                    yield Input(placeholder="Search rooms\u2026", id="room-search")
-                    yield Static(self.heading_text(), id="room-heading")
-                    yield RoomTree("Rooms", id="room-tree")
-                    with Horizontal(id="room-status"):
-                        yield Static("", id="room-count")
-                        yield Static("", id="room-distance")
-                    yield Static("", id="room-exits")
-                    with Horizontal(id="room-marker-bar"):
-                        yield Button("Bookmark \u2021", variant="warning", id="room-bookmark")
-                        yield Button("Block \u2300", variant="error", id="room-block")
-                        yield Button("Home \u2302", variant="primary", id="room-home")
-                        yield Button("Mark \u27bd", variant="default", id="room-mark")
+        with Vertical(id="room-panel"), Horizontal(id="room-body"):
+            with Vertical(id="room-button-col"):
+                travel_btn = Button("Travel", variant="success", id="room-travel")
+                travel_btn.tooltip = "Travel to the selected room"
+                yield travel_btn
+                yield Button("Help", variant="success", id="room-help")
+                yield Button("Close", id="room-close")
+                with Vertical(id="room-area-frame"):
+                    yield Static("Area:")
+                    yield Select[str](
+                        [], id="room-area-select", allow_blank=True, prompt="All Areas"
+                    )
+                    yield Static("", id="room-total")
+            with Vertical(id="room-right"):
+                yield Input(placeholder="Search rooms\u2026", id="room-search")
+                yield Static(self.heading_text(), id="room-heading")
+                yield RoomTree("Rooms", id="room-tree")
+                with Horizontal(id="room-status"):
+                    yield Static("", id="room-count")
+                    yield Static("", id="room-distance")
+                yield Static("", id="room-exits")
+                with Horizontal(id="room-marker-bar"):
+                    yield Button("Bookmark \u2021", variant="warning", id="room-bookmark")
+                    yield Button("Block \u2300", variant="error", id="room-block")
+                    yield Button("Home \u2302", variant="primary", id="room-home")
+                    yield Button("Mark \u27bd", variant="default", id="room-mark")
 
-    def request_close(self, result: "bool | None" = None) -> None:
+    def request_close(self, result: bool | None = None) -> None:
         """Dismiss the parent screen or exit the app."""
         try:
             self.screen.dismiss(result)
@@ -273,8 +273,7 @@ class RoomBrowserPane(Vertical):
         """Return the length of the longest area name in loaded rooms."""
         best = 0
         for _, _, area, _, _, _, _, _, _ in self.all_rooms:
-            if len(area) > best:
-                best = len(area)
+            best = max(best, len(area))
         return best
 
     def estimate_button_col_width(self) -> int:
@@ -317,7 +316,7 @@ class RoomBrowserPane(Vertical):
         self.mounted = True
         self.call_after_refresh(self.select_current_room)
 
-    def on_resize(self, event: "events.Resize") -> None:
+    def on_resize(self, event: events.Resize) -> None:
         """Reflow columns and rebuild the tree on terminal resize."""
         if not self.mounted:
             return
@@ -350,7 +349,7 @@ class RoomBrowserPane(Vertical):
         if target is None:
             return False
         # Force tree line rebuild so node.line values are current.
-        _ = tree._tree_lines  # noqa: SLF001
+        _ = tree._tree_lines
         tree.select_node(target)
         tree.focus()
         return True
@@ -443,7 +442,7 @@ class RoomBrowserPane(Vertical):
             return name.ljust(width)
         return name[: width - 1] + "\u2026"
 
-    def room_label(self, num: str, name: str = "") -> "RichText":
+    def room_label(self, num: str, name: str = "") -> RichText:
         """Format a child leaf label with muted name, aligned dist/time + id."""
         from rich.text import Text as RichText
 
@@ -542,7 +541,7 @@ class RoomBrowserPane(Vertical):
         total_label = self.query_one("#room-total", Static)
         total_label.update(f"{n_total:,} Rooms Total")
 
-    def get_selected_room_num(self) -> "str | None":
+    def get_selected_room_num(self) -> str | None:
         """Return the room number of the currently highlighted tree node."""
         tree = self.query_one("#room-tree", Tree)
         node = tree.cursor_node
@@ -866,23 +865,22 @@ class RoomPickerPane(RoomBrowserPane):
 
     def compose(self) -> ComposeResult:
         """Build the room picker layout with Select/Cancel buttons only."""
-        with Vertical(id="room-panel"):
-            with Horizontal(id="room-body"):
-                with Vertical(id="room-button-col"):
-                    yield Button("Select", variant="success", id="room-select")
-                    yield Button("Cancel", id="room-close")
-                    with Vertical(id="room-area-frame"):
-                        yield Static("Area:")
-                        yield Select[str](
-                            [], id="room-area-select", allow_blank=True, prompt="All Areas"
-                        )
-                with Vertical(id="room-right"):
-                    yield Input(placeholder="Search rooms\u2026", id="room-search")
-                    yield RoomTree("Rooms", id="room-tree")
-                    with Horizontal(id="room-status"):
-                        yield Static("", id="room-count")
-                        yield Static("", id="room-distance")
-                    yield Static("", id="room-exits")
+        with Vertical(id="room-panel"), Horizontal(id="room-body"):
+            with Vertical(id="room-button-col"):
+                yield Button("Select", variant="success", id="room-select")
+                yield Button("Cancel", id="room-close")
+                with Vertical(id="room-area-frame"):
+                    yield Static("Area:")
+                    yield Select[str](
+                        [], id="room-area-select", allow_blank=True, prompt="All Areas"
+                    )
+            with Vertical(id="room-right"):
+                yield Input(placeholder="Search rooms\u2026", id="room-search")
+                yield RoomTree("Rooms", id="room-tree")
+                with Horizontal(id="room-status"):
+                    yield Static("", id="room-count")
+                    yield Static("", id="room-distance")
+                yield Static("", id="room-exits")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle Select/Cancel button presses."""
@@ -998,12 +996,12 @@ class CapsPane(Vertical):
     def load_messages(self) -> None:
         """Read messages from chat JSON and capture data files."""
         if self.chat_file and os.path.exists(self.chat_file):
-            with open(self.chat_file, "r", encoding="utf-8") as fh:
+            with open(self.chat_file, encoding="utf-8") as fh:
                 data = json.load(fh)
             if isinstance(data, list):
                 self.messages = data
         if self.capture_file and os.path.exists(self.capture_file):
-            with open(self.capture_file, "r", encoding="utf-8") as fh:
+            with open(self.capture_file, encoding="utf-8") as fh:
                 cap_data = json.load(fh)
             if isinstance(cap_data, dict):
                 self.captures = cap_data.get("captures", {})
@@ -1638,17 +1636,16 @@ class RandomwalkDialogScreen(Screen[bool]):
                 "required number of times.",
                 id="rw-body",
             )
-            with Vertical(id="rw-options-col"):
-                with Horizontal(classes="rw-option"):
-                    lbl = Label("Visit level:")
-                    lbl.tooltip = (
-                        "Minimum number of times each reachable room must be "
-                        "visited before the walk stops."
-                    )
-                    yield lbl
-                    yield Input(
-                        value=str(self.default_visit_level), id="rw-visit-level", type="integer"
-                    )
+            with Vertical(id="rw-options-col"), Horizontal(classes="rw-option"):
+                lbl = Label("Visit level:")
+                lbl.tooltip = (
+                    "Minimum number of times each reachable room must be "
+                    "visited before the walk stops."
+                )
+                yield lbl
+                yield Input(
+                    value=str(self.default_visit_level), id="rw-visit-level", type="integer"
+                )
             with Vertical(id="rw-switches"):
                 with Horizontal(classes="rw-switch-row"):
                     with Horizontal(classes="rw-switch-cell"):
@@ -1908,18 +1905,17 @@ class AutodiscoverDialogScreen(Screen[bool]):
                 "character may die. Use with caution.",
                 id="ad-warning",
             )
-            with Horizontal(id="ad-strategy-row"):
-                with RadioSet(id="ad-strategy-set"):
-                    yield RadioButton(
-                        "BFS: explore nearest exits first",
-                        id="ad-bfs",
-                        value=(self.default_strategy == "bfs"),
-                    )
-                    yield RadioButton(
-                        "DFS: explore farthest exits first",
-                        id="ad-dfs",
-                        value=(self.default_strategy == "dfs"),
-                    )
+            with Horizontal(id="ad-strategy-row"), RadioSet(id="ad-strategy-set"):
+                yield RadioButton(
+                    "BFS: explore nearest exits first",
+                    id="ad-bfs",
+                    value=(self.default_strategy == "bfs"),
+                )
+                yield RadioButton(
+                    "DFS: explore farthest exits first",
+                    id="ad-dfs",
+                    value=(self.default_strategy == "dfs"),
+                )
             with Vertical(id="ad-switches"):
                 with Horizontal(classes="ad-switch-row"):
                     with Horizontal(classes="ad-switch-cell"):

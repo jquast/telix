@@ -10,13 +10,13 @@ from __future__ import annotations
 import os
 import json
 import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 #: Maximum number of chat messages persisted to disk.
 CHAT_FILE_CAP = 1000
 
 
-def load_chat(path: str) -> List[Dict[str, Any]]:
+def load_chat(path: str) -> list[dict[str, Any]]:
     """
     Load chat messages from a JSON file.
 
@@ -25,14 +25,14 @@ def load_chat(path: str) -> List[Dict[str, Any]]:
     """
     if not os.path.exists(path):
         return []
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     if isinstance(data, list):
         return data[-CHAT_FILE_CAP:]
     return []
 
 
-def persist_chat(path: str, msg: Dict[str, Any]) -> None:
+def persist_chat(path: str, msg: dict[str, Any]) -> None:
     """
     Append a single chat message to the JSON file on disk, capping at :data:`CHAT_FILE_CAP`.
 
@@ -48,14 +48,14 @@ def persist_chat(path: str, msg: Dict[str, Any]) -> None:
     atomic_write(path, json.dumps(msgs, ensure_ascii=False) + "\n")
 
 
-def append_chat_msg(ctx: Any, data: Dict[str, Any]) -> None:
+def append_chat_msg(ctx: Any, data: dict[str, Any]) -> None:
     """
     Append a GMCP ``Comm.Channel.Text`` message to chat state and disk.
 
     :param ctx: Session context with ``chat_messages``, ``chat_unread``, and ``chat_file`` attrs.
     :param data: GMCP message dict with ``channel``, ``talker``, ``text``, etc.
     """
-    msg: Dict[str, Any] = {
+    msg: dict[str, Any] = {
         "ts": datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "channel": data.get("channel", ""),
         "channel_ansi": data.get("channel_ansi", ""),

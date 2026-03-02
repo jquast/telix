@@ -8,7 +8,8 @@ import logging
 import contextlib
 import collections
 from time import monotonic as monotonic
-from typing import TYPE_CHECKING, Any, List, Tuple, Union, Callable, Optional, Generator
+from typing import TYPE_CHECKING, Any, Optional
+from collections.abc import Callable, Generator
 
 # 3rd party
 from telnetlib3.stream_reader import TelnetReader, TelnetReaderUnicode
@@ -20,8 +21,6 @@ from .session_context import CommandQueue, SessionContext
 # Re-export from sub-modules so existing ``from .client_repl import X``
 # in tests and other modules continues to work without changes.
 # pylint: disable=unused-import,useless-import-alias
-from .client_repl_render import STOPLIGHT_WIDTH  # noqa: F401
-from .client_repl_render import Stoplight  # noqa: F401
 from .client_repl_render import (  # noqa: F401
     HOLD,
     PHASES,
@@ -46,6 +45,7 @@ from .client_repl_render import (  # noqa: F401
     FLASH_INTERVAL,
     FLASH_RAMP_DOWN,
     SEPARATOR_WIDTH,
+    STOPLIGHT_WIDTH,
     STYLE_AUTOREPLY,
     CURSOR_STEADY_BAR,
     CURSOR_BLINKING_BAR,
@@ -55,6 +55,7 @@ from .client_repl_render import (  # noqa: F401
     CURSOR_COLOR_RESET_OSC,
     CURSOR_STEADY_UNDERLINE,
     CURSOR_BLINKING_UNDERLINE,
+    Stoplight,
     ActivityDot,
     ToolbarSlot,
     ToolbarRenderer,
@@ -107,7 +108,7 @@ from .client_repl_dialogs import (  # noqa: F401
     reload_progressbars,
     launch_unified_editor,
 )
-from .client_repl_commands import (  # noqa: F401
+from .client_repl_commands import (  # noqa: F401  # noqa: F401
     DELAY_RE,
     REPEAT_RE,
     TRAVEL_RE,
@@ -116,15 +117,13 @@ from .client_repl_commands import (  # noqa: F401
     MOVE_MAX_RETRIES,
     send_chained,
     collapse_runs,
-)
-from .client_repl_commands import expand_commands as expand_commands  # noqa: F401
-from .client_repl_commands import expand_commands_ex as expand_commands_ex  # noqa: F401
-from .client_repl_commands import (  # noqa: F401
     clear_command_queue,
     render_command_queue,
     render_active_command,
 )
-from .client_repl_commands import execute_macro_commands as execute_macro_commands  # noqa: F401
+from .client_repl_commands import expand_commands as expand_commands
+from .client_repl_commands import expand_commands_ex as expand_commands_ex
+from .client_repl_commands import execute_macro_commands as execute_macro_commands
 
 # pylint: enable=unused-import,useless-import-alias
 
@@ -133,6 +132,7 @@ if TYPE_CHECKING:
     import blessed.keyboard
     import blessed.line_editor
     from telnetlib3 import client_shell
+
     from .macros import Macro
     from .autoreply import AutoreplyEngine
 
@@ -154,7 +154,7 @@ def load_history(history: "blessed.line_editor.LineHistory", path: str) -> None:
     :param path: Path to the history file.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for raw in f:
                 line = raw.rstrip("\n")
                 if line:
@@ -188,7 +188,7 @@ blessed_term: Optional["blessed.Terminal"] = None
 
 def get_term() -> "blessed.Terminal":
     """Return the module-level blessed Terminal singleton."""
-    global blessed_term  # noqa: PLW0603
+    global blessed_term
     if blessed_term is None:
         import blessed
 
@@ -248,7 +248,7 @@ def terminal_cleanup() -> str:
 # Maximum bytes retained in the output replay ring buffer for Ctrl-L repaint.
 REPLAY_BUFFER_MAX = 65536
 
-__all__ = ("ScrollRegion", "ReplSession", "repl_event_loop", "split_incomplete_esc")
+__all__ = ("ReplSession", "ScrollRegion", "repl_event_loop", "split_incomplete_esc")
 
 
 def split_incomplete_esc(data: bytes) -> tuple[bytes, bytes]:
@@ -353,7 +353,7 @@ def restore_after_subprocess(
     :param replay_buf: Ring buffer to replay, or ``None`` to skip replay.
     :param reserve: Number of bottom rows reserved for the input area.
     """
-    global subprocess_needs_rearm  # noqa: PLW0603
+    global subprocess_needs_rearm
     subprocess_needs_rearm = True
     try:
         os.set_blocking(sys.stdin.fileno(), True)
@@ -392,7 +392,7 @@ def restore_after_subprocess(
 
 
 def repaint_screen(
-    replay_buf: Optional[OutputRingBuffer],
+    replay_buf: OutputRingBuffer | None,
     scroll: Optional["ScrollRegion"] = None,
     active: bool = False,
 ) -> None:
@@ -448,7 +448,7 @@ if sys.platform != "win32":
     import struct
     import termios
 
-    def get_terminal_size() -> Tuple[int, int]:
+    def get_terminal_size() -> tuple[int, int]:
         """Return ``(rows, cols)`` of the controlling terminal."""
         try:
             fmt = "hhhh"
@@ -611,11 +611,11 @@ if sys.platform != "win32":
 
     @contextlib.asynccontextmanager
     async def repl_scaffold(
-        telnet_writer: Union[TelnetWriter, TelnetWriterUnicode],
+        telnet_writer: TelnetWriter | TelnetWriterUnicode,
         tty_shell: "client_shell.Terminal",
         stdout: asyncio.StreamWriter,
         reserve_bottom: int = 1,
-        on_resize: "Optional[Callable[[int, int], None]]" = None,
+        on_resize: "Callable[[int, int], None] | None" = None,
     ) -> "Any":
         """
         Set up NAWS patch, scroll region, and resize handler.
@@ -631,11 +631,11 @@ if sys.platform != "win32":
 
         rows, cols = get_terminal_size()
         rows_cols = [rows, cols]
-        scroll_region: Optional[ScrollRegion] = None
+        scroll_region: ScrollRegion | None = None
 
         orig_send_naws = getattr(telnet_writer, "handle_send_naws", None)
 
-        def adjusted_send_naws() -> Tuple[int, int]:
+        def adjusted_send_naws() -> tuple[int, int]:
             if scroll_region is not None and scroll_region.active:
                 _, cur_cols = get_terminal_size()
                 return (scroll_region.scroll_rows, cur_cols)
@@ -708,7 +708,7 @@ if sys.platform != "win32":
                 else:
                     self.by_name[key_name] = handler
 
-        def lookup(self, key: "blessed.keyboard.Keystroke") -> Optional[Callable[..., Any]]:
+        def lookup(self, key: "blessed.keyboard.Keystroke") -> Callable[..., Any] | None:
             """Look up a handler for a blessed Keystroke, or ``None``."""
             name = getattr(key, "name", None)
             if name and name in self.by_name:
@@ -813,12 +813,12 @@ if sys.platform != "win32":
 
         def __init__(
             self,
-            telnet_reader: Union[TelnetReader, TelnetReaderUnicode],
-            telnet_writer: Union[TelnetWriter, TelnetWriterUnicode],
+            telnet_reader: TelnetReader | TelnetReaderUnicode,
+            telnet_writer: TelnetWriter | TelnetWriterUnicode,
             tty_shell: "client_shell.Terminal",
             stdout: asyncio.StreamWriter,
-            history_file: Optional[str] = None,
-            banner_lines: Optional[List[str]] = None,
+            history_file: str | None = None,
+            banner_lines: list[str] | None = None,
         ) -> None:
             """Initialize REPL session with telnet streams and TTY shell."""
             self.telnet_reader = telnet_reader
@@ -839,26 +839,26 @@ if sys.platform != "win32":
             self.prompt_pending = False
             self.gmcp_keys_registered = False
             self.last_resize_size: list[int] = [0, 0]
-            self.last_input_style: Optional[dict[str, str]] = None
-            self.scroll: Optional[ScrollRegion] = None
-            self.autoreply_engine: Optional["AutoreplyEngine"] = None
+            self.last_input_style: dict[str, str] | None = None
+            self.scroll: ScrollRegion | None = None
+            self.autoreply_engine: AutoreplyEngine | None = None
             self.ar_rules_ref: object = None
             self.prompt_ready = asyncio.Event()
             self.prompt_ready.set()
 
             # Late-initialized in init_* methods.
-            self.blessed_term: "blessed.Terminal" = None  # type: ignore[assignment]
+            self.blessed_term: blessed.Terminal = None  # type: ignore[assignment]
             self.replay_buf: OutputRingBuffer = None  # type: ignore[assignment]
-            self.history: "blessed.line_editor.LineHistory" = None  # type: ignore[assignment]
-            self.editor: "blessed.line_editor.LineEditor" = None  # type: ignore[assignment]
+            self.history: blessed.line_editor.LineHistory = None  # type: ignore[assignment]
+            self.editor: blessed.line_editor.LineEditor = None  # type: ignore[assignment]
             self.stoplight: Stoplight = None  # type: ignore[assignment]
             self.toolbar: ToolbarRenderer = None  # type: ignore[assignment]
             self.dispatch: KeyDispatch = None  # type: ignore[assignment]
-            self.macro_defs: "Optional[list[Macro]]" = None
+            self.macro_defs: list[Macro] | None = None
             self.loop: asyncio.AbstractEventLoop = None  # type: ignore[assignment]
             self.dialogs_mod: Any = None
             self.line_hold: LineHoldBuffer = LineHoldBuffer(lambda: self.ctx.highlight_engine)
-            self.line_hold_timer: Optional[asyncio.TimerHandle] = None
+            self.line_hold_timer: asyncio.TimerHandle | None = None
 
         def init_terminal(self) -> None:
             """Import blessed, create terminal singleton, styles, replay buffer."""
@@ -1329,7 +1329,7 @@ if sys.platform != "win32":
             records the current terminal size to suppress a redundant
             ``on_resize_repaint``, and re-enables DEC mode 2048.
             """
-            global subprocess_needs_rearm  # noqa: PLW0603
+            global subprocess_needs_rearm
             if not subprocess_needs_rearm:
                 return
             subprocess_needs_rearm = False
@@ -1344,8 +1344,8 @@ if sys.platform != "win32":
                 self.last_resize_size[:] = [tsize.lines, tsize.columns]
             except OSError:
                 pass
-            if self.tty_shell._resize_pending.is_set():  # noqa: SLF001
-                self.tty_shell._resize_pending.clear()  # noqa: SLF001
+            if self.tty_shell._resize_pending.is_set():
+                self.tty_shell._resize_pending.clear()
             sys.stdout.write("\x1b[?2048h")
             sys.stdout.flush()
 
@@ -1617,23 +1617,23 @@ if sys.platform != "win32":
             tx_dot = self.stoplight.tx
             self.update_input_style()
             self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
-            chained_task_ref: list[Optional[asyncio.Task[None]]] = [None]
+            chained_task_ref: list[asyncio.Task[None] | None] = [None]
             with bt.raw(), bt.notify_on_resize():
                 while not self.server_done:
                     key = await bt.async_inkey(timeout=0.1)
 
                     if key.name == "RESIZE_EVENT":
-                        self.tty_shell._resize_pending.set()  # noqa: SLF001
+                        self.tty_shell._resize_pending.set()
                         continue
 
                     if not key:
-                        if self.tty_shell._resize_pending.is_set():  # noqa: SLF001
-                            self.tty_shell._resize_pending.clear()  # noqa: SLF001
+                        if self.tty_shell._resize_pending.is_set():
+                            self.tty_shell._resize_pending.clear()
                             self.fire_resize()
                         continue
 
-                    if self.tty_shell._resize_pending.is_set():  # noqa: SLF001
-                        self.tty_shell._resize_pending.clear()  # noqa: SLF001
+                    if self.tty_shell._resize_pending.is_set():
+                        self.tty_shell._resize_pending.clear()
                         self.fire_resize()
 
                     action = self.dispatch.lookup(key)
@@ -1858,12 +1858,12 @@ if sys.platform != "win32":
             return self.mode_switched
 
     async def repl_event_loop(
-        telnet_reader: Union[TelnetReader, TelnetReaderUnicode],
-        telnet_writer: Union[TelnetWriter, TelnetWriterUnicode],
+        telnet_reader: TelnetReader | TelnetReaderUnicode,
+        telnet_writer: TelnetWriter | TelnetWriterUnicode,
         tty_shell: "client_shell.Terminal",
         stdout: asyncio.StreamWriter,
-        history_file: Optional[str] = None,
-        banner_lines: Optional[List[str]] = None,
+        history_file: str | None = None,
+        banner_lines: list[str] | None = None,
     ) -> bool:
         """
         Event loop with REPL input at the bottom of the screen.

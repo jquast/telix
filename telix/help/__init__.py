@@ -1,4 +1,4 @@
-"""Help topic loader for telix TUI."""
+"""Help topic loader for Telix TUI."""
 
 # std imports
 import importlib.resources

@@ -16,7 +16,7 @@ if sys.platform == "win32":
     pytest.skip("POSIX-only tests", allow_module_level=True)
 
 # local
-from telix.client_repl import ScrollRegion  # noqa: E402
+from telix.client_repl import ScrollRegion
 
 
 class MockTransport:
@@ -31,7 +31,7 @@ class MockTransport:
         return self.closing
 
 
-def mock_stdout() -> "asyncio.StreamWriter":
+def mock_stdout() -> asyncio.StreamWriter:
     transport = MockTransport()
     writer = types.SimpleNamespace(write=transport.write)
     return writer, transport  # type: ignore[return-value]
@@ -402,7 +402,7 @@ def test_style_normal_populated() -> None:
     from telix.client_repl import make_styles
 
     make_styles()
-    from telix.client_repl import STYLE_NORMAL  # noqa: F811
+    from telix.client_repl import STYLE_NORMAL
 
     assert isinstance(STYLE_NORMAL, dict)
     assert STYLE_NORMAL["text_sgr"] != ""
@@ -415,7 +415,7 @@ def test_style_autoreply_populated() -> None:
     from telix.client_repl import make_styles
 
     make_styles()
-    from telix.client_repl import STYLE_AUTOREPLY  # noqa: F811
+    from telix.client_repl import STYLE_AUTOREPLY
 
     assert isinstance(STYLE_AUTOREPLY, dict)
     assert STYLE_AUTOREPLY["text_sgr"] != ""
@@ -427,7 +427,7 @@ def test_style_normal_and_autoreply_differ() -> None:
     from telix.client_repl import make_styles
 
     make_styles()
-    from telix.client_repl import STYLE_NORMAL, STYLE_AUTOREPLY  # noqa: F811
+    from telix.client_repl import STYLE_NORMAL, STYLE_AUTOREPLY
 
     assert STYLE_NORMAL["bg_sgr"] != STYLE_AUTOREPLY["bg_sgr"]
     assert STYLE_NORMAL["text_sgr"] != STYLE_AUTOREPLY["text_sgr"]
@@ -496,7 +496,7 @@ def test_resize_pending_flag_is_threading_event() -> None:
     assert not term._resize_pending.is_set()
 
 
-def test_load_history_populates_entries(tmp_path: "os.PathLike[str]") -> None:
+def test_load_history_populates_entries(tmp_path: os.PathLike[str]) -> None:
     pytest.importorskip("blessed")
     from blessed.line_editor import LineHistory
 
@@ -509,7 +509,7 @@ def test_load_history_populates_entries(tmp_path: "os.PathLike[str]") -> None:
     assert history.entries == ["alpha", "beta", "gamma"]
 
 
-def test_save_history_entry_appends(tmp_path: "os.PathLike[str]") -> None:
+def test_save_history_entry_appends(tmp_path: os.PathLike[str]) -> None:
     from telix.client_repl import save_history_entry
 
     hfile = tmp_path / "history"
@@ -519,7 +519,7 @@ def test_save_history_entry_appends(tmp_path: "os.PathLike[str]") -> None:
     assert lines == ["first", "second"]
 
 
-def test_load_history_missing_file(tmp_path: "os.PathLike[str]") -> None:
+def test_load_history_missing_file(tmp_path: os.PathLike[str]) -> None:
     pytest.importorskip("blessed")
     from blessed.line_editor import LineHistory
 
@@ -955,22 +955,22 @@ async def test_send_chained_delay_pauses(monkeypatch: pytest.MonkeyPatch) -> Non
     assert 2.0 in sleep_args
 
 
-def dispatch_hooks(**overrides: Any) -> "tuple[Any, list[str], list[str]]":
+def dispatch_hooks(**overrides: Any) -> tuple[Any, list[str], list[str]]:
     """Build a DispatchHooks with recording send/echo and return (hooks, sent, echoed)."""
     from telix.client_repl_commands import DispatchHooks
 
     sent: list[str] = []
     echoed: list[str] = []
     status: list[str] = []
-    defaults = dict(
-        ctx=types.SimpleNamespace(gmcp_data={}, captures={}, autoreply_engine=None),
-        log=__import__("logging").getLogger("test"),
-        wait_fn=None,
-        send_fn=sent.append,
-        echo_fn=echoed.append,
-        on_status=status.append,
-        prompt_ready=None,
-    )
+    defaults = {
+        "ctx": types.SimpleNamespace(gmcp_data={}, captures={}, autoreply_engine=None),
+        "log": __import__("logging").getLogger("test"),
+        "wait_fn": None,
+        "send_fn": sent.append,
+        "echo_fn": echoed.append,
+        "on_status": status.append,
+        "prompt_ready": None,
+    }
     defaults.update(overrides)
     hooks = DispatchHooks(**defaults)
     return hooks, sent, echoed
@@ -1232,7 +1232,7 @@ def test_render_command_queue_highlight_active() -> None:
 
 
 # local
-from telix.client_repl_render import (  # noqa: E402
+from telix.client_repl_render import (
     HOLD,
     WARM_UP,
     DURATION,
@@ -1460,7 +1460,6 @@ async def test_autodiscover_skips_persistently_blocked_exits(
 
     writer.ctx.room_graph.find_branches = fake_find_branches
 
-    orig_send_line = writer.ctx.send_line
 
     def track_send(direction: str) -> None:
         explored_dirs.append(direction)
@@ -1769,7 +1768,7 @@ async def test_home_travel_command(monkeypatch: pytest.MonkeyPatch, fast_sleep) 
     )
 
     fast_travel_args: list[object] = []
-    original_ft = __import__("telix.client_repl_travel", fromlist=["fast_travel"]).fast_travel
+    __import__("telix.client_repl_travel", fromlist=["fast_travel"]).fast_travel
 
     async def mock_fast_travel(*args: object, **kwargs: object) -> None:
         fast_travel_args.append((args, kwargs))

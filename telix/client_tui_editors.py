@@ -1287,7 +1287,7 @@ class ProgressBarEditPane(EditListPane):
             return
         if not os.path.exists(self.gmcp_snapshot_path):
             return
-        with open(self.gmcp_snapshot_path, "r", encoding="utf-8") as fh:
+        with open(self.gmcp_snapshot_path, encoding="utf-8") as fh:
             data = json.load(fh)
         packages = data.get("packages", {}) if isinstance(data, dict) else {}
         if packages:
@@ -1396,7 +1396,7 @@ class ProgressBarEditPane(EditListPane):
                     yield Static("", id=f"{pfx}-count")
 
     @staticmethod
-    def color_options() -> "list[tuple[RichText, str]]":
+    def color_options() -> list[tuple[RichText, str]]:
         """Build Select options from all Rich named colors with swatches."""
         from rich.text import Text
 
@@ -1411,7 +1411,7 @@ class ProgressBarEditPane(EditListPane):
         return options
 
     @staticmethod
-    def theme_color_options() -> "list[tuple[RichText, str]]":
+    def theme_color_options() -> list[tuple[RichText, str]]:
         """Build Select options from Textual theme colors with swatches."""
         from rich.text import Text
 
@@ -1426,7 +1426,7 @@ class ProgressBarEditPane(EditListPane):
         return options
 
     @staticmethod
-    def text_color_options(is_custom: bool) -> "list[tuple[RichText, str]]":
+    def text_color_options(is_custom: bool) -> list[tuple[RichText, str]]:
         """Build Select options for text color: ``auto`` plus bar color options."""
         from rich.text import Text
 
@@ -1474,7 +1474,7 @@ class ProgressBarEditPane(EditListPane):
     SWATCH_STEPS = 10
 
     @staticmethod
-    def color_swatch(bar: ProgressBarTuple) -> "RichText":
+    def color_swatch(bar: ProgressBarTuple) -> RichText:
         """Build a solid-block gradient swatch for the Color column."""
         from rich.text import Text
 
@@ -1877,7 +1877,7 @@ class ProgressBarEditPane(EditListPane):
             if not silent:
                 self.notify("GMCP snapshot file not found.", severity="warning")
             return
-        with open(self.gmcp_snapshot_path, "r", encoding="utf-8") as fh:
+        with open(self.gmcp_snapshot_path, encoding="utf-8") as fh:
             raw = json.load(fh)
         packages = raw.get("packages", {}) if isinstance(raw, dict) else {}
         gmcp_data = {

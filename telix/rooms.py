@@ -14,7 +14,7 @@ import re
 import json
 import random
 import sqlite3
-from typing import Any, Optional
+from typing import Any
 from datetime import datetime, timezone
 from collections import deque
 from dataclasses import field, dataclass
@@ -198,7 +198,7 @@ class RoomStore:
         row = self.conn.execute("SELECT area FROM room WHERE num = ?", (num,)).fetchone()
         return row[0] if row else ""
 
-    def get_room(self, num: str) -> Optional[Room]:
+    def get_room(self, num: str) -> Room | None:
         """
         Get a single room by number.
 
@@ -549,7 +549,7 @@ def load_prefs(session_key: str) -> dict[str, bool | str]:
     """
     path = prefs_path(session_key)
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             result: dict[str, bool | str] = {}
@@ -593,7 +593,7 @@ def read_current_room(path: str) -> str:
     :returns: Room number string, or empty string if unavailable.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return f.read().strip()
     except (OSError, ValueError):
         return ""
@@ -621,7 +621,7 @@ def read_fasttravel(path: str) -> tuple[list[tuple[str, str]], bool]:
         whether autoreplies should be disabled.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         os.unlink(path)
         if isinstance(data, dict):

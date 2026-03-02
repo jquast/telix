@@ -6,36 +6,36 @@ and :class:`AutoreplyEngine` for matching regex patterns and queuing replies
 with delay/chaining support.
 """
 
-from __future__ import annotations
-
 # std imports
 import os
 import re
 import json
 import time
+import typing
 import asyncio
 import logging
-from time import monotonic as monotonic
-from typing import TYPE_CHECKING, Any, Callable, Optional, Awaitable
-from datetime import datetime, timezone
-from dataclasses import field, dataclass
+import datetime
+import dataclasses
+from typing import TYPE_CHECKING
+from collections.abc import Callable, Awaitable
 
 # 3rd party
-from wcwidth import strip_sequences
+import wcwidth
 
 # local
-from .client_repl_render import scramble_password
+from . import paths
+from . import client_repl_render
 
 if TYPE_CHECKING:
     from .session_context import SessionContext
 
 __all__ = (
+    "AutoreplyEngine",
     "AutoreplyRule",
     "SearchBuffer",
-    "AutoreplyEngine",
+    "check_condition",
     "load_autoreplies",
     "save_autoreplies",
-    "check_condition",
 )
 
 GROUP_RE = re.compile(r"\\(\d+)")
@@ -55,7 +55,7 @@ VITAL_RAW_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
-def get_vital_raw(key: str, vitals: dict[str, Any]) -> Optional[int]:
+def get_vital_raw(key: str, vitals: dict[str, typing.Any]) -> int | None:
     """Return the raw vital value for *key*, or ``None`` if unavailable."""
     field_names = VITAL_RAW_KEYS.get(key)
     if field_names is None:
@@ -70,7 +70,7 @@ def get_vital_raw(key: str, vitals: dict[str, Any]) -> Optional[int]:
     return None
 
 
-def get_vital_pct(key: str, vitals: dict[str, Any]) -> Optional[int]:
+def get_vital_pct(key: str, vitals: dict[str, typing.Any]) -> int | None:
     """Return the vital percentage (0-100+) for *key*, or ``None`` if unavailable."""
     spec = VITAL_PCT_KEYS.get(key)
     if spec is None:
@@ -98,7 +98,7 @@ def get_vital_pct(key: str, vitals: dict[str, Any]) -> Optional[int]:
     return int(cur * 100 / mx)
 
 
-def gmcp_lookup_raw(key: str, gmcp: dict[str, Any]) -> Optional[int]:
+def gmcp_lookup_raw(key: str, gmcp: dict[str, typing.Any]) -> int | None:
     """Look up *key* directly in any GMCP package dict."""
     for pkg_data in gmcp.values():
         if not isinstance(pkg_data, dict):
@@ -112,7 +112,7 @@ def gmcp_lookup_raw(key: str, gmcp: dict[str, Any]) -> Optional[int]:
     return None
 
 
-def gmcp_lookup_pct(key: str, gmcp: dict[str, Any]) -> Optional[int]:
+def gmcp_lookup_pct(key: str, gmcp: dict[str, typing.Any]) -> int | None:
     """Look up *key* (without trailing ``%``) as a value/max pair in any GMCP package."""
     base = key[:-1] if key.endswith("%") else key
     for pkg_data in gmcp.values():
@@ -157,7 +157,7 @@ def compare(value: int, op: str, threshold: int) -> bool:
     raise ValueError(f"unknown operator: {op!r}")
 
 
-def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, str]:
+def check_condition(when: dict[str, str], ctx: SessionContext) -> tuple[bool, str]:
     """
     Check vital conditions against GMCP data and captured variables on *ctx*.
 
@@ -170,8 +170,8 @@ def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, 
     """
     if not when:
         return True, ""
-    gmcp: Optional[dict[str, Any]] = ctx.gmcp_data if ctx is not None else None
-    vitals: Optional[dict[str, Any]] = None
+    gmcp: dict[str, typing.Any] | None = ctx.gmcp_data if ctx is not None else None
+    vitals: dict[str, typing.Any] | None = None
     if gmcp:
         v = gmcp.get("Char.Vitals")
         vitals = v if isinstance(v, dict) else None
@@ -181,7 +181,7 @@ def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, 
         if not m:
             continue
         op, threshold = m.group(1), int(m.group(2))
-        value: Optional[int] = None
+        value: int | None = None
         unit = ""
         if key.endswith("%"):
             if vitals is not None:
@@ -288,10 +288,10 @@ def load_autoreplies(path: str, session_key: str) -> list[AutoreplyRule]:
     :raises FileNotFoundError: When *path* does not exist.
     :raises ValueError: When JSON structure is invalid or regex fails.
     """
-    with open(path, "r", encoding="utf-8") as fh:
-        data: dict[str, Any] = json.load(fh)
+    with open(path, encoding="utf-8") as fh:
+        data: dict[str, typing.Any] = json.load(fh)
 
-    session_data: dict[str, Any] = data.get(session_key, {})
+    session_data: dict[str, typing.Any] = data.get(session_key, {})
     entries: list[dict[str, str]] = session_data.get("autoreplies", [])
     return parse_entries(entries)
 
@@ -306,9 +306,9 @@ def save_autoreplies(path: str, rules: list[AutoreplyRule], session_key: str) ->
     :param rules: List of :class:`AutoreplyRule` instances to save.
     :param session_key: Session identifier (``"host:port"``).
     """
-    data: dict[str, Any] = {}
+    data: dict[str, typing.Any] = {}
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
 
     data[session_key] = {
@@ -332,7 +332,7 @@ def save_autoreplies(path: str, rules: list[AutoreplyRule], session_key: str) ->
     atomic_write(path, content)
 
 
-def extract_group_source(pattern_src: str, group_num: int) -> Optional[str]:
+def extract_group_source(pattern_src: str, group_num: int) -> str | None:
     r"""
     Extract the source text of capture group *group_num* from *pattern_src*.
 
@@ -487,7 +487,7 @@ class SearchBuffer:
         self.max_lines = max_lines
         self.last_match_line: int = 0
         self.last_match_col: int = 0
-        self.new_text: Optional[asyncio.Event] = None
+        self.new_text: asyncio.Event | None = None
 
     @property
     def lines(self) -> list[str]:
@@ -499,7 +499,7 @@ class SearchBuffer:
         """Incomplete trailing line (no newline yet)."""
         return self._partial
 
-    def add_text(self, text: str, echo_filter: Optional["set[str]"] = None) -> bool:
+    def add_text(self, text: str, echo_filter: set[str] | None = None) -> bool:
         """
         Add server output text, stripping ANSI sequences first.
 
@@ -616,7 +616,7 @@ class SearchBuffer:
 
     async def wait_for_pattern(
         self, pattern: re.Pattern[str], timeout: float
-    ) -> Optional[re.Match[str]]:
+    ) -> re.Match[str] | None:
         """
         Wait for *pattern* to appear in the buffer within *timeout* seconds.
 
@@ -688,19 +688,19 @@ class AutoreplyEngine:
     def __init__(
         self,
         rules: list[AutoreplyRule],
-        ctx: "SessionContext",
+        ctx: SessionContext,
         log: logging.Logger,
         max_lines: int = 100,
-        insert_fn: Optional[Callable[[str], None]] = None,
-        echo_fn: Optional[Callable[[str], None]] = None,
-        wait_fn: Optional[Callable[[], Awaitable[None]]] = None,
+        insert_fn: Callable[[str], None] | None = None,
+        echo_fn: Callable[[str], None] | None = None,
+        wait_fn: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize AutoreplyEngine with rules and I/O handles."""
         self.rules = rules
         self.ctx = ctx
         self.log = log
         self._buffer = SearchBuffer(max_lines=max_lines)
-        self.reply_chain: Optional[asyncio.Task[None]] = None
+        self.reply_chain: asyncio.Task[None] | None = None
         self.insert_fn = insert_fn
         self.echo_fn = echo_fn
         self.wait_fn = wait_fn
@@ -713,12 +713,12 @@ class AutoreplyEngine:
         self.condition_retried: bool = False
         self._enabled = True
         self._last_matched_pattern: str = ""
-        self.condition_failed: Optional[tuple[int, str]] = None
+        self.condition_failed: tuple[int, str] | None = None
         self.status: str = ""
         self.until_start: float = 0.0
         self.until_deadline: float = 0.0
 
-    def pop_condition_failed(self) -> Optional[tuple[int, str]]:
+    def pop_condition_failed(self) -> tuple[int, str] | None:
         """
         Return and clear the last condition failure.
 
@@ -774,7 +774,7 @@ class AutoreplyEngine:
         return self.status
 
     @property
-    def until_progress(self) -> Optional[float]:
+    def until_progress(self) -> float | None:
         """Fraction of until/untils timeout elapsed, 0.0-1.0, or ``None``."""
         if self.until_deadline <= self.until_start:
             return None
@@ -917,7 +917,7 @@ class AutoreplyEngine:
         task.add_done_callback(self.on_reply_done)
         self.reply_chain = task
 
-    def on_reply_done(self, task: "asyncio.Task[None]") -> None:
+    def on_reply_done(self, task: asyncio.Task[None]) -> None:
         """Clear exclusive state when the reply chain completes."""
         if self.reply_chain is not None and self.reply_chain.done():
             self.excl.clear()

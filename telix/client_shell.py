@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
-from typing import Any, Union
+from typing import Any
 
 # 3rd party
 from telnetlib3.client_shell import (
@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 __all__ = ("telix_client_shell",)
 
 
-def build_session_key(writer: Union[TelnetWriter, TelnetWriterUnicode]) -> str:
+def build_session_key(writer: TelnetWriter | TelnetWriterUnicode) -> str:
     """
     Derive ``host:port`` session key from CLI arguments or peername.
 
@@ -144,14 +144,14 @@ def load_configs(ctx: SessionContext) -> None:
     ctx.history_file = paths.history_path(session_key)
 
 
-def want_repl(ctx: SessionContext, writer: Union[TelnetWriter, TelnetWriterUnicode]) -> bool:
+def want_repl(ctx: SessionContext, writer: TelnetWriter | TelnetWriterUnicode) -> bool:
     """Return True when the REPL should be active."""
     return ctx.repl_enabled and getattr(writer, "mode", "local") == "local"
 
 
 async def telix_client_shell(
-    telnet_reader: Union[TelnetReader, TelnetReaderUnicode],
-    telnet_writer: Union[TelnetWriter, TelnetWriterUnicode],
+    telnet_reader: TelnetReader | TelnetReaderUnicode,
+    telnet_writer: TelnetWriter | TelnetWriterUnicode,
 ) -> None:
     """
     Telix client shell with REPL/raw mode switching.

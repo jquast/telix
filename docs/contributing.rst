@@ -41,7 +41,7 @@ for use in any projects, version contracted is for only the CLI and TUI interfac
 Architecture
 ------------
 
-**telnetlib3 must never import from telix.** Use `writer.ctx` session context or callback hooks.
+**telnetlib3 must never import from Telix.** Use `writer.ctx` session context or callback hooks.
 
 Module map::
 
@@ -144,17 +144,17 @@ the telnet reader's internal buffer and consumed by the first
 Integration boundary
 --------------------
 
-telix connects to a remote host by calling ``telnetlib3.open_connection()``
+Telix connects to a remote host by calling ``telnetlib3.open_connection()``
 with ``--shell=telix.client_shell.telix_client_shell``, a drop-in
 replacement for ``telnetlib3.client_shell.telnet_client_shell``.
 
 Every ``TelnetWriter`` has a ``.ctx`` attribute that defaults to a
-``TelnetSessionContext``.  telix's ``SessionContext`` subclasses
+``TelnetSessionContext``.  Telix's ``SessionContext`` subclasses
 ``TelnetSessionContext``, adding MUD-specific state (rooms, macros,
 highlights, chat, etc.).  The shell callback creates a ``SessionContext``
 and assigns it to ``writer.ctx``.
 
-telix's ``SessionContext`` also provides ``captures`` (a flat
+Telix's ``SessionContext`` also provides ``captures`` (a flat
 ``dict[str, int]`` of captured variables) and ``capture_log`` (a
 ``dict[str, list[dict]]`` of per-channel capture history), populated by
 the highlight engine and consumed by the ``when`` condition checker and
@@ -180,7 +180,7 @@ sub-negotiation and is parsed by telnetlib3_ into package/data pairs.
 ``TelnetClient.on_gmcp()`` stores each package in ``ctx.gmcp_data``
 (merging dict updates for the same package key).
 
-telix overrides the GMCP ext callback in ``telix_client_shell`` to
+Telix overrides the GMCP ext callback in ``telix_client_shell`` to
 wrap the base ``on_gmcp`` with package-specific dispatch to callbacks
 on ``SessionContext``:
 
@@ -188,7 +188,7 @@ on ``SessionContext``:
 - ``on_chat_channels`` -- called for ``Comm.Channel.List``
 - ``on_room_info`` -- called for ``Room.Info``
 
-These callback attributes are defined on telix's ``SessionContext``
+These callback attributes are defined on Telix's ``SessionContext``
 and wired up in ``client_shell._load_configs()``.  Access them as
 regular attributes -- do not use ``getattr()``.
 
@@ -261,7 +261,7 @@ Pressing F-keys (F5-F11) launches Textual-based editor screens in a
 Developing
 ----------
 
-Development requires Python 3.9+.  Install in editable mode::
+Development requires Python 3.10+.  Install in editable mode::
 
     pip install -e .
 
@@ -284,10 +284,10 @@ Run a single test file::
 Code Formatting
 ---------------
 
-This project uses `black <https://github.com/psf/black/>`_ for code
-formatting.  Run it against any new code::
+This project uses `ruff <https://docs.astral.sh/ruff/>`_ for code
+formatting and linting.  Run it against any new code::
 
-    tox -e black
+    tox -e format
 
 You can also set up a `pre-commit <https://pre-commit.com/>`_ hook::
 
@@ -308,6 +308,9 @@ Style and Static Analysis
     ``parser._actions``) which must keep their underscore
   - Dunder methods (``__init__``, ``__enter__``, etc.)
 
+- Import style: ``import module`` everywhere, access via ``module.name``.
+  Internal imports use ``from . import module``.  Never ``from X import Y``
+  except ``from typing import TYPE_CHECKING`` and inside ``if TYPE_CHECKING:`` blocks.
 - do not wrote unicode em-dash, arrows, or similar characters in code or documentation.
 - use tox to run tests, linters, and formatters, to ensure requirements are met exactly.
 - Max line length: 100 characters
@@ -339,10 +342,9 @@ Run all linters::
 
 Run individual linters::
 
-    tox -e flake8
-    tox -e isort_check
+    tox -e ruff
+    tox -e ruff_format
     tox -e pydocstyle
-    tox -e pylint
     tox -e codespell
 
 Run all formatters::
