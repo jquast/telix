@@ -10,9 +10,9 @@ import logging
 import pytest
 
 # local
-from telix.macros import Macro, build_macro_dispatch, load_macros, save_macros
+from telix.macros import Macro, load_macros, save_macros, build_macro_dispatch
 
-_SK = "test.host:23"
+SK = "test.host:23"
 
 
 def test_load_macros_valid(tmp_path):
@@ -20,7 +20,7 @@ def test_load_macros_valid(tmp_path):
     fp.write_text(
         json.dumps(
             {
-                _SK: {
+                SK: {
                     "macros": [
                         {"key": "KEY_F5", "text": "look;"},
                         {"key": "KEY_ALT_N", "text": "north;"},
@@ -29,7 +29,7 @@ def test_load_macros_valid(tmp_path):
             }
         )
     )
-    macros = load_macros(str(fp), _SK)
+    macros = load_macros(str(fp), SK)
     assert len(macros) == 2
     assert macros[0].key == "KEY_F5"
     assert macros[0].text == "look;"
@@ -38,38 +38,38 @@ def test_load_macros_valid(tmp_path):
 
 def test_load_macros_missing_file():
     with pytest.raises(FileNotFoundError):
-        load_macros("/nonexistent/path.json", _SK)
+        load_macros("/nonexistent/path.json", SK)
 
 
 def test_load_macros_empty_key_skipped(tmp_path):
     fp = tmp_path / "macros.json"
     fp.write_text(
         json.dumps(
-            {_SK: {"macros": [{"key": "", "text": "skip"}, {"key": "KEY_F6", "text": "keep;"}]}}
+            {SK: {"macros": [{"key": "", "text": "skip"}, {"key": "KEY_F6", "text": "keep;"}]}}
         )
     )
-    macros = load_macros(str(fp), _SK)
+    macros = load_macros(str(fp), SK)
     assert len(macros) == 1
     assert macros[0].key == "KEY_F6"
 
 
 def test_load_macros_empty_list(tmp_path):
     fp = tmp_path / "macros.json"
-    fp.write_text(json.dumps({_SK: {"macros": []}}))
-    assert not load_macros(str(fp), _SK)
+    fp.write_text(json.dumps({SK: {"macros": []}}))
+    assert not load_macros(str(fp), SK)
 
 
 def test_load_macros_no_session(tmp_path):
     fp = tmp_path / "macros.json"
     fp.write_text(json.dumps({"other.host:23": {"macros": [{"key": "KEY_F5", "text": "x"}]}}))
-    assert not load_macros(str(fp), _SK)
+    assert not load_macros(str(fp), SK)
 
 
 def test_save_macros_roundtrip(tmp_path):
     fp = tmp_path / "macros.json"
     original = [Macro(key="KEY_F5", text="look;"), Macro(key="KEY_ALT_N", text="north;")]
-    save_macros(str(fp), original, _SK)
-    loaded = load_macros(str(fp), _SK)
+    save_macros(str(fp), original, SK)
+    loaded = load_macros(str(fp), SK)
     assert len(loaded) == len(original)
     for orig, restored in zip(original, loaded):
         assert orig.key == restored.key
@@ -86,15 +86,15 @@ def test_save_macros_preserves_other_sessions(tmp_path):
 
 def test_save_macros_empty(tmp_path):
     fp = tmp_path / "macros.json"
-    save_macros(str(fp), [], _SK)
-    assert not load_macros(str(fp), _SK)
+    save_macros(str(fp), [], SK)
+    assert not load_macros(str(fp), SK)
 
 
 def test_save_macros_unicode(tmp_path):
     fp = tmp_path / "macros.json"
     macros = [Macro(key="KEY_F1", text="say héllo;")]
-    save_macros(str(fp), macros, _SK)
-    loaded = load_macros(str(fp), _SK)
+    save_macros(str(fp), macros, SK)
+    loaded = load_macros(str(fp), SK)
     assert loaded[0].text == "say héllo;"
 
 
@@ -119,8 +119,8 @@ def test_build_dispatch_skips_editor_keymap_conflicts(caplog):
 def test_toggle_macro_roundtrip(tmp_path):
     fp = tmp_path / "macros.json"
     original = [Macro(key="KEY_F5", text="survey on", toggle=True, toggle_text="survey off")]
-    save_macros(str(fp), original, _SK)
-    loaded = load_macros(str(fp), _SK)
+    save_macros(str(fp), original, SK)
+    loaded = load_macros(str(fp), SK)
     assert loaded[0].toggle is True
     assert loaded[0].toggle_text == "survey off"
     assert loaded[0].text == "survey on"
@@ -128,31 +128,37 @@ def test_toggle_macro_roundtrip(tmp_path):
 
 def test_toggle_default_state_false(tmp_path):
     fp = tmp_path / "macros.json"
-    fp.write_text(json.dumps({
-        _SK: {"macros": [
-            {"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"},
-        ]}
-    }))
-    loaded = load_macros(str(fp), _SK)
+    fp.write_text(
+        json.dumps(
+            {
+                SK: {
+                    "macros": [
+                        {"key": "KEY_F5", "text": "on", "toggle": True, "toggle_text": "off"}
+                    ]
+                }
+            }
+        )
+    )
+    loaded = load_macros(str(fp), SK)
     assert loaded[0].toggle_state is False
 
 
 def test_toggle_dispatch_alternates():
     pytest.importorskip("blessed")
-    import asyncio
     import types
+    import asyncio
     from unittest.mock import patch
 
     sent: list[str] = []
 
-    async def _fake_exec(text, ctx, log):
+    async def fake_exec(text, ctx, log):
         sent.append(text)
 
     ctx = types.SimpleNamespace()
     macro = Macro(key="KEY_F9", text="survey on", toggle=True, toggle_text="survey off")
     log = logging.getLogger("test")
 
-    with patch("telix.client_repl.execute_macro_commands", _fake_exec):
+    with patch("telix.client_repl.execute_macro_commands", fake_exec):
         dispatch = build_macro_dispatch([macro], ctx, log)
         handler = dispatch["KEY_F9"]
         loop = asyncio.new_event_loop()
@@ -167,12 +173,12 @@ def test_toggle_dispatch_alternates():
 def test_non_toggle_macro_unchanged(tmp_path):
     fp = tmp_path / "macros.json"
     original = [Macro(key="KEY_F5", text="look;")]
-    save_macros(str(fp), original, _SK)
-    loaded = load_macros(str(fp), _SK)
+    save_macros(str(fp), original, SK)
+    loaded = load_macros(str(fp), SK)
     assert loaded[0].toggle is False
     assert loaded[0].toggle_text == ""
     raw = json.loads(fp.read_text())
-    assert "toggle" not in raw[_SK]["macros"][0]
+    assert "toggle" not in raw[SK]["macros"][0]
 
 
 def test_expand_commands():

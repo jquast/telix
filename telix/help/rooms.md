@@ -8,8 +8,7 @@ area.
 
 | Button | Action |
 |--------|--------|
-| **Travel** | Fast travel to the selected room (skip exclusive autoreplies) |
-| **Slow** | Slow travel (wait for autoreplies in each room) |
+| **Travel** | Fast travel to the selected room |
 | **Help** | Open this help screen |
 | **Close** | Close the room browser |
 
@@ -17,7 +16,7 @@ area.
 
 | Button | Action |
 |--------|--------|
-| **Bookmark ╾** | Toggle a bookmark on the selected room |
+| **Bookmark ‡** | Toggle a bookmark on the selected room |
 | **Block ⌀** | Toggle block -- blocked rooms are excluded from all travel |
 | **Home ⌂** | Set as home room for this area (one per area) |
 | **Mark ➽** | Toggle a visual marker (no functional effect) |
@@ -57,7 +56,7 @@ search field and the tree.
 
 ### Bookmarks
 
-Bookmarked rooms are marked with **╾** in the tree.  Use the
+Bookmarked rooms are marked with **‡** in the tree.  Use the
 Bookmark button or press **\*** to toggle the bookmark on the selected
 room.
 
@@ -82,6 +81,6 @@ functional effect -- use them to flag rooms of interest.
 
 ### Travel
 
-Travel moves through rooms, waiting for autoreplies (including exclusive
-ones) to finish in each room before proceeding.  Use the `noreply`
-option to disable autoreplies entirely during travel.
+Travel moves through rooms one step at a time.  Autoreplies fire in
+each room along the path.  Use the backtick `noreply` option to
+disable autoreplies during travel.

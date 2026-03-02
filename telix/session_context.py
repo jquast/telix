@@ -11,7 +11,7 @@ from telnetlib3.stream_writer import TelnetWriter, TelnetWriterUnicode
 from telnetlib3._session_context import TelnetSessionContext  # pylint: disable=no-name-in-module
 
 
-class _CommandQueue:
+class CommandQueue:
     """Mutable state for a running command queue, enabling display and cancellation."""
 
     __slots__ = ("commands", "current_idx", "cancelled", "cancel_event", "render")
@@ -30,7 +30,7 @@ class SessionContext(TelnetSessionContext):
 
     Extends :class:`~telnetlib3._session_context.TelnetSessionContext` with
     MUD-specific state (rooms, macros, autoreplies, highlights, chat, etc.).
-    Created in ``_session_shell`` and attached as ``writer.ctx``.
+    Created in ``session_shell`` and attached as ``writer.ctx``.
 
     :param session_key: Session identifier (``"host:port"``).
     """
@@ -39,7 +39,7 @@ class SessionContext(TelnetSessionContext):
         """Initialize session context with default state."""
         super().__init__()
 
-        # back-reference to the writer (set by _session_shell)
+        # back-reference to the writer (set by session_shell)
         self.writer: Optional[Union[TelnetWriter, TelnetWriterUnicode]] = None
 
         # identity
@@ -81,7 +81,7 @@ class SessionContext(TelnetSessionContext):
         self.last_walk_tried: set[tuple[str, str]] = set()
 
         # command queue
-        self.command_queue: Optional[_CommandQueue] = None
+        self.command_queue: Optional[CommandQueue] = None
 
         # macros & autoreplies (autoreply_engine inherited from base)
         self.macro_defs: list[Any] = []
@@ -103,7 +103,7 @@ class SessionContext(TelnetSessionContext):
         self.gmcp_data: dict[str, Any] = {}
         self.on_gmcp_ready: Optional[Callable[[], None]] = None
         self.gmcp_snapshot_file: str = ""
-        self._gmcp_dirty: bool = False
+        self.gmcp_dirty: bool = False
 
         # progress bars
         self.progressbar_configs: list[Any] = []
@@ -129,7 +129,7 @@ class SessionContext(TelnetSessionContext):
         self.repl_enabled: bool = False
         self.history_file: Optional[str] = None
 
-        # modem activity dots (set by REPL, used by _send_chained et al.)
+        # modem activity dots (set by REPL, used by send_chained et al.)
         self.rx_dot: Optional[Any] = None
         self.tx_dot: Optional[Any] = None
         self.cx_dot: Optional[Any] = None
@@ -142,57 +142,57 @@ class SessionContext(TelnetSessionContext):
         self.send_naws: Optional[Callable[[], None]] = None
 
         # debounced timestamp persistence
-        self._macros_dirty: bool = False
-        self._autoreplies_dirty: bool = False
-        self._save_timer: Optional[asyncio.TimerHandle] = None
+        self.macros_dirty: bool = False
+        self.autoreplies_dirty: bool = False
+        self.save_timer: Optional[asyncio.TimerHandle] = None
 
     def mark_macros_dirty(self) -> None:
         """Mark macros as needing a save and schedule a debounced flush."""
-        self._macros_dirty = True
-        self._schedule_flush()
+        self.macros_dirty = True
+        self.schedule_flush()
 
     def mark_autoreplies_dirty(self) -> None:
         """Mark autoreplies as needing a save and schedule a debounced flush."""
-        self._autoreplies_dirty = True
-        self._schedule_flush()
+        self.autoreplies_dirty = True
+        self.schedule_flush()
 
     def mark_gmcp_dirty(self) -> None:
         """Mark GMCP snapshot as needing a save and schedule a debounced flush."""
-        self._gmcp_dirty = True
-        self._schedule_flush()
+        self.gmcp_dirty = True
+        self.schedule_flush()
 
-    def _schedule_flush(self) -> None:
+    def schedule_flush(self) -> None:
         """Schedule :meth:`flush_timestamps` after 30 seconds if not already pending."""
-        if self._save_timer is not None:
+        if self.save_timer is not None:
             return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        self._save_timer = loop.call_later(30, self._flush_timestamps_sync)
+        self.save_timer = loop.call_later(30, self.flush_timestamps_sync)
 
-    def _flush_timestamps_sync(self) -> None:
+    def flush_timestamps_sync(self) -> None:
         """Synchronous wrapper called by the event loop timer."""
-        self._save_timer = None
+        self.save_timer = None
         self.flush_timestamps()
 
     def flush_timestamps(self) -> None:
         """Persist macro/autoreply timestamps if dirty."""
-        if self._macros_dirty and self.macros_file and self.macro_defs:
+        if self.macros_dirty and self.macros_file and self.macro_defs:
             from .macros import save_macros
 
             save_macros(self.macros_file, self.macro_defs, self.session_key)
-            self._macros_dirty = False
-        if self._autoreplies_dirty and self.autoreplies_file and self.autoreply_rules:
+            self.macros_dirty = False
+        if self.autoreplies_dirty and self.autoreplies_file and self.autoreply_rules:
             from .autoreply import save_autoreplies
 
             save_autoreplies(self.autoreplies_file, self.autoreply_rules, self.session_key)
-            self._autoreplies_dirty = False
-        if self._gmcp_dirty and self.gmcp_snapshot_file and self.gmcp_data:
+            self.autoreplies_dirty = False
+        if self.gmcp_dirty and self.gmcp_snapshot_file and self.gmcp_data:
             from .gmcp_snapshot import save_gmcp_snapshot
 
             save_gmcp_snapshot(self.gmcp_snapshot_file, self.session_key, self.gmcp_data)
-            self._gmcp_dirty = False
+            self.gmcp_dirty = False
 
     def close(self) -> None:
         """Cancel pending tasks and flush dirty timestamps."""
@@ -201,7 +201,7 @@ class SessionContext(TelnetSessionContext):
                 task.cancel()
         self.discover_task = None
         self.randomwalk_task = None
-        if self._save_timer is not None:
-            self._save_timer.cancel()
-            self._save_timer = None
+        if self.save_timer is not None:
+            self.save_timer.cancel()
+            self.save_timer = None
         self.flush_timestamps()

@@ -39,7 +39,7 @@ class Macro:
     toggle_state: bool = False
 
 
-def _parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
+def parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
     """Parse a list of macro entry dicts into :class:`Macro` instances."""
     macros: list[Macro] = []
     for entry in entries:
@@ -51,10 +51,16 @@ def _parse_entries(entries: list[dict[str, str]]) -> list[Macro]:
         last_used = str(entry.get("last_used", ""))
         toggle = bool(entry.get("toggle", False))
         toggle_text = str(entry.get("toggle_text", ""))
-        macros.append(Macro(
-            key=key, text=text, enabled=enabled, last_used=last_used,
-            toggle=toggle, toggle_text=toggle_text,
-        ))
+        macros.append(
+            Macro(
+                key=key,
+                text=text,
+                enabled=enabled,
+                last_used=last_used,
+                toggle=toggle,
+                toggle_text=toggle_text,
+            )
+        )
     return macros
 
 
@@ -76,7 +82,7 @@ def load_macros(path: str, session_key: str) -> list[Macro]:
 
     session_data: dict[str, Any] = data.get(session_key, {})
     entries: list[dict[str, str]] = session_data.get("macros", [])
-    return _parse_entries(entries)
+    return parse_entries(entries)
 
 
 def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
@@ -108,10 +114,10 @@ def save_macros(path: str, macros: list[Macro], session_key: str) -> None:
             for m in macros
         ]
     }
-    from ._paths import _atomic_write
+    from .paths import atomic_write
 
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    _atomic_write(path, content)
+    atomic_write(path, content)
 
 
 def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> dict[str, Any]:
@@ -133,7 +139,7 @@ def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> 
 
     from blessed.line_editor import DEFAULT_KEYMAP
 
-    from . import client_repl as _repl
+    from . import client_repl as repl
 
     result: dict[str, Any] = {}
     for macro in macros:
@@ -142,26 +148,24 @@ def build_macro_dispatch(macros: list[Macro], ctx: Any, log: logging.Logger) -> 
         if macro.key in DEFAULT_KEYMAP:
             log.warning("macro %r conflicts with editor keymap, skipping", macro.key)
             continue
-        _macro_ref = macro
+        macro_ref = macro
 
-        async def _handler(_m: Macro = _macro_ref) -> None:
-            if _m.toggle:
-                _text = _m.toggle_text if _m.toggle_state else _m.text
-                _m.toggle_state = not _m.toggle_state
+        async def handler(m: Macro = macro_ref) -> None:
+            if m.toggle:
+                text = m.toggle_text if m.toggle_state else m.text
+                m.toggle_state = not m.toggle_state
             else:
-                _text = _m.text
-            _m.last_used = datetime.now(timezone.utc).isoformat()
+                text = m.text
+            m.last_used = datetime.now(timezone.utc).isoformat()
             if hasattr(ctx, "mark_macros_dirty"):
                 ctx.mark_macros_dirty()
-            task = asyncio.ensure_future(
-                _repl.execute_macro_commands(_text, ctx, log)
-            )
+            task = asyncio.ensure_future(repl.execute_macro_commands(text, ctx, log))
 
-            def _on_done(t: "asyncio.Task[None]") -> None:
+            def on_done(t: "asyncio.Task[None]") -> None:
                 if not t.cancelled() and t.exception() is not None:
                     log.warning("macro execution failed: %s", t.exception())
 
-            task.add_done_callback(_on_done)
+            task.add_done_callback(on_done)
 
-        result[macro.key] = _handler
+        result[macro.key] = handler
     return result

@@ -17,14 +17,14 @@ from telix.rooms import (
     prefs_path,
     rooms_path,
     save_prefs,
-    _xdg_data_dir,
+    xdg_data_dir,
     fasttravel_path,
     read_fasttravel,
     strip_exit_dirs,
     write_fasttravel,
     current_room_path,
     read_current_room,
-    _session_file_path,
+    session_file_path,
     write_current_room,
 )
 
@@ -38,13 +38,13 @@ def store(tmp_path: Any) -> RoomStore:
     s.close()
 
 
-def _build_linear(store: RoomStore) -> None:
+def build_linear(store: RoomStore) -> None:
     store.update_room({"num": "A", "exits": {"east": "B"}})
     store.update_room({"num": "B", "exits": {"east": "C", "west": "A"}})
     store.update_room({"num": "C", "exits": {"west": "B"}})
 
 
-def _build_graph(store: RoomStore) -> None:
+def build_graph(store: RoomStore) -> None:
     store.update_room({"num": "A", "exits": {"east": "B", "north": "X"}})
     store.update_room({"num": "B", "exits": {"east": "C", "west": "A"}})
     store.update_room({"num": "C", "exits": {"west": "B"}})
@@ -134,22 +134,22 @@ def test_close(tmp_path: Any) -> None:
 
 
 def test_direct_neighbor(store: RoomStore) -> None:
-    _build_linear(store)
+    build_linear(store)
     assert store.find_path("A", "B") == ["east"]
 
 
 def test_multi_hop(store: RoomStore) -> None:
-    _build_linear(store)
+    build_linear(store)
     assert store.find_path("A", "C") == ["east", "east"]
 
 
 def test_reverse_path(store: RoomStore) -> None:
-    _build_linear(store)
+    build_linear(store)
     assert store.find_path("C", "A") == ["west", "west"]
 
 
 def test_same_room(store: RoomStore) -> None:
-    _build_linear(store)
+    build_linear(store)
     assert store.find_path("A", "A") == []
 
 
@@ -197,7 +197,7 @@ def test_find_path_with_rooms_same(store: RoomStore) -> None:
 
 
 def test_bfs_distances(store: RoomStore) -> None:
-    _build_linear(store)
+    build_linear(store)
     d = store.bfs_distances("A")
     assert d == {"A": 0, "B": 1, "C": 2}
 
@@ -214,23 +214,23 @@ def test_bfs_distances_unknown_src(store: RoomStore) -> None:
 
 
 def test_basic_same_name(store: RoomStore) -> None:
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
         ("1", "A dusty road", "2024-01-01"),
     )
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
         ("2", "A dusty road", "2024-01-03"),
     )
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
         ("3", "A dusty road", "2024-01-02"),
     )
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
         ("4", "Town Square", "2024-01-01"),
     )
-    store._conn.commit()
+    store.conn.commit()
     result = store.find_same_name("1")
     assert len(result) == 2
     assert result[0].num == "3"
@@ -238,13 +238,13 @@ def test_basic_same_name(store: RoomStore) -> None:
 
 
 def test_excludes_self(store: RoomStore) -> None:
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "Forest", "2024-01-01")
     )
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "Forest", "2024-01-02")
     )
-    store._conn.commit()
+    store.conn.commit()
     result = store.find_same_name("1")
     assert all(r.num != "1" for r in result)
 
@@ -254,9 +254,9 @@ def test_missing_room(store: RoomStore) -> None:
 
 
 def test_empty_name(store: RoomStore) -> None:
-    store._conn.execute("INSERT INTO room (num, name) VALUES (?, ?)", ("1", ""))
-    store._conn.execute("INSERT INTO room (num, name) VALUES (?, ?)", ("2", ""))
-    store._conn.commit()
+    store.conn.execute("INSERT INTO room (num, name) VALUES (?, ?)", ("1", ""))
+    store.conn.execute("INSERT INTO room (num, name) VALUES (?, ?)", ("2", ""))
+    store.conn.commit()
     assert store.find_same_name("1") == []
 
 
@@ -267,45 +267,45 @@ def test_no_matches(store: RoomStore) -> None:
 
 
 def test_never_visited_sort_first(store: RoomStore) -> None:
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("1", "Road", "2024-01-01")
     )
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("2", "Road", "2024-06-01")
     )
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("3", "Road", "")
     )
-    store._conn.commit()
+    store.conn.commit()
     result = store.find_same_name("1")
     assert result[0].num == "3"
     assert result[1].num == "2"
 
 
 def test_limit(store: RoomStore) -> None:
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("0", "Road", "2024-01-01")
     )
     for i in range(1, 30):
-        store._conn.execute(
+        store.conn.execute(
             "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
             (str(i), "Road", f"2024-01-{i:02d}"),
         )
-    store._conn.commit()
+    store.conn.commit()
     result = store.find_same_name("0", limit=5)
     assert len(result) == 5
 
 
 def test_default_limit_99(store: RoomStore) -> None:
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)", ("0", "Road", "2024-01-01")
     )
     for i in range(1, 120):
-        store._conn.execute(
+        store.conn.execute(
             "INSERT INTO room (num, name, last_visited) VALUES (?, ?, ?)",
             (str(i), "Road", f"2024-01-{i % 28 + 1:02d}"),
         )
-    store._conn.commit()
+    store.conn.commit()
     result = store.find_same_name("0")
     assert len(result) == 99
 
@@ -394,9 +394,9 @@ def test_fasttravel_path_format() -> None:
     ["../../etc/passwd:80", "../../../tmp/evil:23", "/absolute/path:99", "..%2f..%2fetc/shadow:22"],
 )
 def test_session_file_path_traversal(malicious_key: str) -> None:
-    result = _session_file_path("rooms-", malicious_key)
+    result = session_file_path("rooms-", malicious_key)
     assert ".." not in result
-    assert os.path.dirname(result) == _xdg_data_dir()
+    assert os.path.dirname(result) == xdg_data_dir()
 
 
 def test_current_room_file_write_read_roundtrip(tmp_path: Any) -> None:
@@ -435,7 +435,7 @@ def test_fasttravel_file_read_missing_file(tmp_path: Any) -> None:
 
 
 def test_finds_frontier_exit(store: RoomStore) -> None:
-    _build_graph(store)
+    build_graph(store)
     branches = store.find_branches("A")
     dirs = [(gw, d) for gw, d, _ in branches]
     assert ("A", "north") in dirs
@@ -450,10 +450,10 @@ def test_unknown_target_is_frontier(store: RoomStore) -> None:
 
 def test_unvisited_target_is_frontier(store: RoomStore) -> None:
     store.update_room({"num": "A", "exits": {"east": "B"}})
-    store._conn.execute(
+    store.conn.execute(
         "INSERT INTO room (num, name, visit_count) VALUES (?, ?, ?)", ("B", "Empty", 0)
     )
-    store._conn.commit()
+    store.conn.commit()
     branches = store.find_branches("A")
     assert len(branches) == 1
     assert branches[0][2] == "B"
@@ -507,7 +507,7 @@ def test_prefs_path_format() -> None:
 
 
 def test_save_load_roundtrip(tmp_path: Any, monkeypatch: Any) -> None:
-    monkeypatch.setattr("telix.rooms._xdg_data_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("telix.rooms.xdg_data_dir", lambda: str(tmp_path))
     prefs = {"skip_randomwalk_confirm": True, "skip_autodiscover_confirm": False}
     save_prefs("host:1234", prefs)
     loaded = load_prefs("host:1234")
@@ -521,7 +521,7 @@ def test_load_missing_file() -> None:
 
 
 def test_save_overwrites(tmp_path: Any, monkeypatch: Any) -> None:
-    monkeypatch.setattr("telix.rooms._xdg_data_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("telix.rooms.xdg_data_dir", lambda: str(tmp_path))
     save_prefs("h:1", {"skip_randomwalk_confirm": False})
     save_prefs("h:1", {"skip_randomwalk_confirm": True})
     loaded = load_prefs("h:1")
@@ -530,7 +530,7 @@ def test_save_overwrites(tmp_path: Any, monkeypatch: Any) -> None:
 
 def test_prefs_string_value(tmp_path: Any, monkeypatch: Any) -> None:
     """String preference values round-trip correctly."""
-    monkeypatch.setattr("telix.rooms._xdg_data_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("telix.rooms.xdg_data_dir", lambda: str(tmp_path))
     save_prefs("h:1", {"skip_randomwalk_confirm": True, "tui_theme": "nord"})
     loaded = load_prefs("h:1")
     assert loaded["skip_randomwalk_confirm"] is True

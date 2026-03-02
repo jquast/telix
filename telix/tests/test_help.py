@@ -48,9 +48,9 @@ def test_unknown_topic_raises() -> None:
 
 
 def test_render_help_md_no_gmcp() -> None:
-    from telix.client_repl_dialogs import _render_help_md
+    from telix.client_repl_dialogs import render_help_md
 
-    lines = _render_help_md(has_gmcp=False)
+    lines = render_help_md(has_gmcp=False)
     text = "\n".join(lines)
     assert "F1" in text
     assert "F8" in text
@@ -59,9 +59,9 @@ def test_render_help_md_no_gmcp() -> None:
 
 
 def test_render_help_md_with_gmcp() -> None:
-    from telix.client_repl_dialogs import _render_help_md
+    from telix.client_repl_dialogs import render_help_md
 
-    lines = _render_help_md(has_gmcp=True)
+    lines = render_help_md(has_gmcp=True)
     text = "\n".join(lines)
     assert "F1" in text
     assert "F3" in text

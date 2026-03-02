@@ -16,13 +16,13 @@ from telix.chat import CHAT_FILE_CAP, load_chat, persist_chat, append_chat_msg
 from telix.session_context import SessionContext
 
 
-def _make_ctx(tmp_path: Any, session_key: str = "test:4000") -> SessionContext:
+def make_ctx(tmp_path: Any, session_key: str = "test:4000") -> SessionContext:
     ctx = SessionContext(session_key=session_key)
     ctx.chat_file = str(tmp_path / "chat.json")
     return ctx
 
 
-def _sample_gmcp_msg(
+def sample_gmcp_msg(
     channel: str = "chat", talker: str = "Bob", text: str = "hello"
 ) -> Dict[str, Any]:
     return {
@@ -35,8 +35,8 @@ def _sample_gmcp_msg(
 
 class TestAppendChat:
     def test_appends_to_ctx(self, tmp_path: Any) -> None:
-        ctx = _make_ctx(tmp_path)
-        data = _sample_gmcp_msg()
+        ctx = make_ctx(tmp_path)
+        data = sample_gmcp_msg()
         append_chat_msg(ctx, data)
 
         assert len(ctx.chat_messages) == 1
@@ -45,24 +45,24 @@ class TestAppendChat:
         assert "ts" in ctx.chat_messages[0]
 
     def test_increments_unread(self, tmp_path: Any) -> None:
-        ctx = _make_ctx(tmp_path)
+        ctx = make_ctx(tmp_path)
         assert ctx.chat_unread == 0
-        append_chat_msg(ctx, _sample_gmcp_msg())
+        append_chat_msg(ctx, sample_gmcp_msg())
         assert ctx.chat_unread == 1
-        append_chat_msg(ctx, _sample_gmcp_msg(talker="Alice"))
+        append_chat_msg(ctx, sample_gmcp_msg(talker="Alice"))
         assert ctx.chat_unread == 2
 
     def test_ring_buffer_cap(self, tmp_path: Any) -> None:
-        ctx = _make_ctx(tmp_path)
+        ctx = make_ctx(tmp_path)
         ctx.chat_file = ""
         for i in range(510):
-            append_chat_msg(ctx, _sample_gmcp_msg(talker=f"user{i}"))
+            append_chat_msg(ctx, sample_gmcp_msg(talker=f"user{i}"))
         assert len(ctx.chat_messages) == 500
         assert ctx.chat_messages[0]["talker"] == "user10"
 
     def test_persists_to_file(self, tmp_path: Any) -> None:
-        ctx = _make_ctx(tmp_path)
-        append_chat_msg(ctx, _sample_gmcp_msg())
+        ctx = make_ctx(tmp_path)
+        append_chat_msg(ctx, sample_gmcp_msg())
         assert os.path.exists(ctx.chat_file)
         with open(ctx.chat_file, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -107,16 +107,16 @@ class TestPersistChat:
 
 class TestChatBadge:
     def test_badge_present_when_unread(self) -> None:
-        from telix.client_repl_render import _sgr_fg, _wcswidth, _ToolbarSlot
+        from telix.client_repl_render import ToolbarSlot, sgr_fg, wcswidth
 
         ctx = SessionContext(session_key="test:4000")
         ctx.chat_unread = 5
         badge = f"F10-Chat:{ctx.chat_unread}"
-        slot = _ToolbarSlot(
+        slot = ToolbarSlot(
             priority=3,
             display_order=8,
-            width=_wcswidth(badge),
-            fragments=[(_sgr_fg("#ffff00"), badge)],
+            width=wcswidth(badge),
+            fragments=[(sgr_fg("#ffff00"), badge)],
             side="left",
             min_width=0,
             label="",
@@ -140,9 +140,9 @@ class TestChannelList:
 
 class TestOnChatTextCallback:
     def test_callback_appends_message(self, tmp_path: Any) -> None:
-        ctx = _make_ctx(tmp_path)
+        ctx = make_ctx(tmp_path)
         ctx.on_chat_text = lambda data: append_chat_msg(ctx, data)
-        ctx.on_chat_text(_sample_gmcp_msg(channel="tp", talker="Alice", text="hey"))
+        ctx.on_chat_text(sample_gmcp_msg(channel="tp", talker="Alice", text="hey"))
         assert len(ctx.chat_messages) == 1
         assert ctx.chat_messages[0]["talker"] == "Alice"
         assert ctx.chat_unread == 1
@@ -157,14 +157,14 @@ class TestOnChatTextCallback:
 
 class TestChatPath:
     def test_chat_path_returns_string(self) -> None:
-        from telix._paths import chat_path
+        from telix.paths import chat_path
 
         p = chat_path("mud.example.com:4000")
         assert p.endswith(".json")
         assert "chat-" in p
 
     def test_chat_path_unique_per_session(self) -> None:
-        from telix._paths import chat_path
+        from telix.paths import chat_path
 
         p1 = chat_path("mud.example.com:4000")
         p2 = chat_path("other.host:23")

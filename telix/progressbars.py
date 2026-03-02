@@ -13,7 +13,7 @@ import json
 from typing import Any, Optional, NamedTuple
 
 # local
-from ._paths import _atomic_json_write
+from .paths import atomic_json_write
 
 __all__ = (
     "BarConfig",
@@ -48,14 +48,14 @@ class BarConfig(NamedTuple):
 
 
 #: All Rich named colors for the custom color picker.
-def _all_rich_colors() -> list[str]:
+def all_rich_colors() -> list[str]:
     """Return all Rich named colors sorted alphabetically."""
     from rich.color import ANSI_COLOR_NAMES
 
     return sorted(ANSI_COLOR_NAMES.keys())
 
 
-CURATED_COLORS: list[str] = _all_rich_colors()
+CURATED_COLORS: list[str] = all_rich_colors()
 
 
 def get_theme_colors() -> dict[str, str]:
@@ -73,12 +73,27 @@ def get_theme_colors() -> dict[str, str]:
             cs = app.current_theme
             if cs is not None:
                 return {
-                    k: v for k, v in sorted(cs.generate().items())
-                    if not any(x in k for x in (
-                        "cursor", "button", "footer", "style", "hover",
-                        "disabled", "scrollbar", "input", "link", "text-",
-                        "markdown", "tooltip",
-                    )) and len(v) in (7, 9) and v.startswith("#")
+                    k: v
+                    for k, v in sorted(cs.generate().items())
+                    if not any(
+                        x in k
+                        for x in (
+                            "cursor",
+                            "button",
+                            "footer",
+                            "style",
+                            "hover",
+                            "disabled",
+                            "scrollbar",
+                            "input",
+                            "link",
+                            "text-",
+                            "markdown",
+                            "tooltip",
+                        )
+                    )
+                    and len(v) in (7, 9)
+                    and v.startswith("#")
                 }
     except Exception:
         pass
@@ -88,27 +103,42 @@ def get_theme_colors() -> dict[str, str]:
 
         cs = BUILTIN_THEMES["textual-dark"].to_color_system()
         return {
-            k: v for k, v in sorted(cs.generate().items())
-            if not any(x in k for x in (
-                "cursor", "button", "footer", "style", "hover",
-                "disabled", "scrollbar", "input", "link", "text-",
-                "markdown", "tooltip",
-            )) and len(v) in (7, 9) and v.startswith("#")
+            k: v
+            for k, v in sorted(cs.generate().items())
+            if not any(
+                x in k
+                for x in (
+                    "cursor",
+                    "button",
+                    "footer",
+                    "style",
+                    "hover",
+                    "disabled",
+                    "scrollbar",
+                    "input",
+                    "link",
+                    "text-",
+                    "markdown",
+                    "tooltip",
+                )
+            )
+            and len(v) in (7, 9)
+            and v.startswith("#")
         }
     except Exception:
         return {}
 
 
 # Standard HP/MP/XP field aliases from Char.Vitals and Char.Status.
-_HP_ALIASES = {"hp": ("maxhp", "maxHP", "max_hp"), "HP": ("maxHP", "maxhp", "max_hp")}
-_MP_ALIASES = {
+HP_ALIASES = {"hp": ("maxhp", "maxHP", "max_hp"), "HP": ("maxHP", "maxhp", "max_hp")}
+MP_ALIASES = {
     "mp": ("maxmp", "maxMP", "max_mp", "maxsp", "maxSP"),
     "MP": ("maxMP", "maxmp", "max_mp"),
     "mana": ("maxmana", "max_mana"),
     "sp": ("maxsp", "maxSP", "max_sp"),
     "SP": ("maxSP", "maxsp", "max_sp"),
 }
-_XP_ALIASES = {
+XP_ALIASES = {
     "xp": ("maxxp", "maxXP", "max_xp", "maxexp"),
     "XP": ("maxXP", "maxxp", "max_xp"),
     "experience": ("maxexp", "max_experience", "maxexperience"),
@@ -129,7 +159,7 @@ def load_progressbars(path: str, session_key: str) -> list[BarConfig]:
         data: dict[str, Any] = json.load(fh)
     session_data: dict[str, Any] = data.get(session_key, {})
     entries: list[dict[str, Any]] = session_data.get("bars", [])
-    return [_dict_to_bar(e, i) for i, e in enumerate(entries)]
+    return [dict_to_bar(e, i) for i, e in enumerate(entries)]
 
 
 def save_progressbars(path: str, session_key: str, bars: list[BarConfig]) -> None:
@@ -147,9 +177,9 @@ def save_progressbars(path: str, session_key: str, bars: list[BarConfig]) -> Non
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-    entries = [_bar_to_dict(b) for b in bars]
+    entries = [bar_to_dict(b) for b in bars]
     data[session_key] = {"bars": entries}
-    _atomic_json_write(path, data)
+    atomic_json_write(path, data)
 
 
 def detect_progressbars(gmcp_data: dict[str, Any]) -> list[BarConfig]:
@@ -182,17 +212,17 @@ def detect_progressbars(gmcp_data: dict[str, Any]) -> list[BarConfig]:
             color_path="shortest",
             display_order=0,
             side="right",
-        ),
+        )
     ]
     seen: set[tuple[str, str, str]] = set()
 
     # Standard vitals first.
-    _detect_standard(gmcp_data, bars, seen)
+    detect_standard(gmcp_data, bars, seen)
     # Then scan all packages for Max*/prefix/suffix pairs.
     for pkg_name, pkg_data in gmcp_data.items():
         if not isinstance(pkg_data, dict):
             continue
-        _detect_pairs(pkg_name, pkg_data, bars, seen)
+        detect_pairs(pkg_name, pkg_data, bars, seen)
 
     for i, bar in enumerate(bars):
         bars[i] = bar._replace(display_order=i)
@@ -219,17 +249,17 @@ def resolve_text_color_hex(name: str) -> Optional[str]:
     """
     if name == "auto":
         return None
-    r, g, b = _resolve_color_rgb(name)
+    r, g, b = resolve_color_rgb(name)
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _resolve_color_rgb(name: str) -> tuple[int, int, int]:
+def resolve_color_rgb(name: str) -> tuple[int, int, int]:
     """Resolve a color name (theme or Rich named) to ``(r, g, b)``."""
     hex_val = get_theme_color_hex(name)
     if hex_val is not None:
         h = hex_val.lstrip("#")
         return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-    return _named_color_rgb(name)
+    return named_color_rgb(name)
 
 
 def bar_color_at(
@@ -247,20 +277,20 @@ def bar_color_at(
     :param theme_accent: Unused, kept for API compatibility.
     :returns: Hex color string.
     """
-    from .client_repl_render import _hsv_to_rgb, _rgb_to_hsv
+    from .client_repl_render import hsv_to_rgb, rgb_to_hsv
 
     fraction = max(0.0, min(1.0, fraction))
-    max_rgb = _resolve_color_rgb(bar.color_name_max)
-    min_rgb = _resolve_color_rgb(bar.color_name_min)
-    hsv_max = _rgb_to_hsv(*max_rgb)
-    hsv_min = _rgb_to_hsv(*min_rgb)
+    max_rgb = resolve_color_rgb(bar.color_name_max)
+    min_rgb = resolve_color_rgb(bar.color_name_min)
+    hsv_max = rgb_to_hsv(*max_rgb)
+    hsv_min = rgb_to_hsv(*min_rgb)
     path = bar.color_path if bar.color_mode == "custom" else "shortest"
-    h, s, v = _lerp_hsv_path(hsv_min, hsv_max, fraction, path)
-    r, g, b = _hsv_to_rgb(h, s, v)
+    h, s, v = lerp_hsv_path(hsv_min, hsv_max, fraction, path)
+    r, g, b = hsv_to_rgb(h, s, v)
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _lerp_hsv_path(
+def lerp_hsv_path(
     hsv1: tuple[float, float, float], hsv2: tuple[float, float, float], t: float, path: str
 ) -> tuple[float, float, float]:
     """Interpolate HSV using shortest or longest hue arc."""
@@ -277,7 +307,7 @@ def _lerp_hsv_path(
     return (h, s1 + t * (s2 - s1), v1 + t * (v2 - v1))
 
 
-def _named_color_rgb(name: str) -> tuple[int, int, int]:
+def named_color_rgb(name: str) -> tuple[int, int, int]:
     """Convert a Rich named color to an (r, g, b) tuple."""
     from rich.color import Color
 
@@ -286,24 +316,24 @@ def _named_color_rgb(name: str) -> tuple[int, int, int]:
     return (triplet.red, triplet.green, triplet.blue)
 
 
-def _detect_standard(
+def detect_standard(
     gmcp_data: dict[str, Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]
 ) -> None:
     """Detect standard HP/MP/XP bars from known GMCP packages."""
     vitals = gmcp_data.get("Char.Vitals")
     if isinstance(vitals, dict):
         for alias_map, bar_name, defaults in (
-            (_HP_ALIASES, "HP", ("green", "red")),
-            (_MP_ALIASES, "MP", ("dodger_blue2", "gold1")),
+            (HP_ALIASES, "HP", ("green", "red")),
+            (MP_ALIASES, "MP", ("dodger_blue2", "gold1")),
         ):
-            _try_aliases(vitals, "Char.Vitals", alias_map, bar_name, defaults, True, bars, seen)
+            try_aliases(vitals, "Char.Vitals", alias_map, bar_name, defaults, True, bars, seen)
 
     status = gmcp_data.get("Char.Status")
     if isinstance(status, dict):
-        _try_aliases(status, "Char.Status", _XP_ALIASES, "XP", ("purple", "cyan"), True, bars, seen)
+        try_aliases(status, "Char.Status", XP_ALIASES, "XP", ("purple", "cyan"), True, bars, seen)
 
 
-def _is_numeric(value: Any) -> bool:
+def is_numeric(value: Any) -> bool:
     """Return ``True`` if *value* is numeric (int, float, or numeric string)."""
     if isinstance(value, (int, float)):
         return True
@@ -316,7 +346,7 @@ def _is_numeric(value: Any) -> bool:
     return False
 
 
-def _try_aliases(
+def try_aliases(
     pkg_data: dict[str, Any],
     pkg_name: str,
     alias_map: dict[str, tuple[str, ...]],
@@ -331,7 +361,7 @@ def _try_aliases(
         if val_field not in pkg_data:
             continue
         for max_field in max_fields:
-            if max_field in pkg_data and _is_numeric(pkg_data[max_field]):
+            if max_field in pkg_data and is_numeric(pkg_data[max_field]):
                 key = (pkg_name, val_field, max_field)
                 if key not in seen:
                     seen.add(key)
@@ -350,7 +380,7 @@ def _try_aliases(
                 return
 
 
-def _detect_pairs(
+def detect_pairs(
     pkg_name: str, pkg_data: dict[str, Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]
 ) -> None:
     """Scan a GMCP package for Max*/prefix/suffix value/max pairs."""
@@ -363,7 +393,7 @@ def _detect_pairs(
             base_lower = lower[3:]
             if base_lower in keys_lower:
                 val_field = keys_lower[base_lower]
-                if not _is_numeric(pkg_data[val_field]):
+                if not is_numeric(pkg_data[val_field]):
                     continue
                 trio = (pkg_name, val_field, key)
                 if trio not in seen:
@@ -382,7 +412,7 @@ def _detect_pairs(
             base_lower = lower[:-3]
             if base_lower in keys_lower:
                 val_field = keys_lower[base_lower]
-                if not _is_numeric(pkg_data[val_field]):
+                if not is_numeric(pkg_data[val_field]):
                     continue
                 trio = (pkg_name, val_field, key)
                 if trio not in seen:
@@ -398,7 +428,7 @@ def _detect_pairs(
                     )
 
 
-def _dict_to_bar(entry: dict[str, Any], idx: int) -> BarConfig:
+def dict_to_bar(entry: dict[str, Any], idx: int) -> BarConfig:
     """Convert a JSON dict to a :class:`BarConfig`."""
     return BarConfig(
         name=str(entry.get("name", "")),
@@ -417,7 +447,7 @@ def _dict_to_bar(entry: dict[str, Any], idx: int) -> BarConfig:
     )
 
 
-def _bar_to_dict(bar: BarConfig) -> dict[str, Any]:
+def bar_to_dict(bar: BarConfig) -> dict[str, Any]:
     """Convert a :class:`BarConfig` to a JSON-serializable dict."""
     result: dict[str, Any] = {
         "name": bar.name,

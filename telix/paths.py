@@ -17,15 +17,13 @@ import pathlib
 import tempfile
 from typing import Any
 
-_XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
-_XDG_DATA = os.environ.get(
-    "XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share")
-)
+XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
+XDG_DATA = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
 
-_APP_NAME = os.environ.get("TELIX_XDGNAME", "telix")
+APP_NAME = os.environ.get("TELIX_XDGNAME", "telix")
 
-CONFIG_DIR = os.path.join(_XDG_CONFIG, _APP_NAME)
-DATA_DIR = os.path.join(_XDG_DATA, _APP_NAME)
+CONFIG_DIR = os.path.join(XDG_CONFIG, APP_NAME)
+DATA_DIR = os.path.join(XDG_DATA, APP_NAME)
 
 SESSIONS_FILE = pathlib.Path(CONFIG_DIR) / "sessions.json"
 HISTORY_FILE = os.path.join(DATA_DIR, "history")
@@ -93,7 +91,7 @@ def xdg_data_dir() -> pathlib.Path:
     return pathlib.Path(DATA_DIR)
 
 
-def _safe_terminal_size() -> str:
+def safe_terminal_size() -> str:
     """Return ``os.get_terminal_size()`` as a string, or ``"?"`` on error."""
     try:
         sz = os.get_terminal_size()
@@ -102,7 +100,7 @@ def _safe_terminal_size() -> str:
         return "?"
 
 
-class _BytesSafeEncoder(json.JSONEncoder):
+class BytesSafeEncoder(json.JSONEncoder):
     """JSON encoder that converts bytes to str (UTF-8) or hex."""
 
     def default(self, o: Any) -> Any:
@@ -114,15 +112,15 @@ class _BytesSafeEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def _atomic_json_write(filepath: str, data: dict[str, Any]) -> None:
+def atomic_json_write(filepath: str, data: dict[str, Any]) -> None:
     """Atomically write JSON data to file via write-to-new + rename."""
     tmp_path = os.path.splitext(filepath)[0] + ".json.new"
     with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, sort_keys=True, cls=_BytesSafeEncoder)
+        json.dump(data, f, indent=2, sort_keys=True, cls=BytesSafeEncoder)
     os.replace(tmp_path, filepath)
 
 
-def _atomic_write(path: str, content: str) -> None:
+def atomic_write(path: str, content: str) -> None:
     """
     Atomically write *content* to *path* via temp file and :func:`os.replace`.
 

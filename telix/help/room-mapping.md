@@ -29,7 +29,8 @@ before trying the next branch.
 | **DFS** | Explore farthest exits first (depth-first) |
 | **noreply** | Disable autoreply processing during the walk |
 | **autosearch** | Send `search` in each new room |
-| **autoevaluate** | Send `evaluate` in each new room |
+| **autoevaluate** | Enable consider-before-kill autoreply logic |
+| **autosurvey** | Send `survey` in each new room |
 
 **Warning:** Autodiscover can lead to dangerous areas, death traps, or
 aggressive monsters.  Your character may die.
@@ -44,5 +45,7 @@ required number of times.
 | Option | Meaning |
 |--------|---------|
 | **Visit level** | Minimum visits per room before the walk stops (default 2) |
-| **Auto search** | Send `search` in each new room |
-| **Auto evaluate** | Send `evaluate` in each new room |
+| **autosearch** | Send `search` in each new room |
+| **autoevaluate** | Enable consider-before-kill autoreply logic |
+| **autosurvey** | Send `survey` in each new room |
+| **noreply** | Disable autoreply processing during the walk |

@@ -13,6 +13,7 @@ which may be set accordingly to preference of the remote system (BBS or MUD):
 - raw (BBS) or line mode (MUDs)
 - Advanced REPL (MUDs)
 
-To connect to a system, use the mouse to click the selected entry, or select using keyboard and press return.
+To connect to a system, use the mouse to click the selected entry, or select
+using keyboard and press return.
 
 Once connected, disconnect using ``Control  + ]``, which returns to the session manager.

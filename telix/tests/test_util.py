@@ -1,4 +1,4 @@
-"""Tests for telix._util module."""
+"""Tests for telix.util module."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from __future__ import annotations
 import datetime
 
 # local
-from telix._util import relative_time
+from telix.util import relative_time
 
 
 def test_relative_time_empty():

@@ -87,7 +87,7 @@ class TestDirectoryToSessions:
 
 class TestParseLine:
     @pytest.fixture(autouse=True)
-    def _import_parser(self) -> None:
+    def import_parser(self) -> None:
         tools_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tools"
         )
@@ -183,7 +183,7 @@ class TestParseLine:
 
 class TestParseFile:
     @pytest.fixture(autouse=True)
-    def _import_parser(self) -> None:
+    def import_parser(self) -> None:
         tools_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tools"
         )

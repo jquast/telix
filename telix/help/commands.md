@@ -139,7 +139,6 @@ arguments (in any order after the verb):
 
 - **limit** -- maximum steps (default 999)
 - **visit_level** -- minimum visits per room before stopping (default 2)
-- **bfs** / **dfs** -- search strategy (default bfs)
 - **autosearch** -- send ``search`` in each new room
 - **autoevaluate** -- enable consider-before-kill autoreply logic
 - **autosurvey** -- send ``survey`` in each new room

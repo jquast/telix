@@ -39,13 +39,13 @@ def persist_chat(path: str, msg: Dict[str, Any]) -> None:
     :param path: Path to the chat JSON file.
     :param msg: Message dict to append.
     """
-    from ._paths import _atomic_write
+    from .paths import atomic_write
 
     msgs = load_chat(path)
     msgs.append(msg)
     if len(msgs) > CHAT_FILE_CAP:
         msgs = msgs[-CHAT_FILE_CAP:]
-    _atomic_write(path, json.dumps(msgs, ensure_ascii=False) + "\n")
+    atomic_write(path, json.dumps(msgs, ensure_ascii=False) + "\n")
 
 
 def append_chat_msg(ctx: Any, data: Dict[str, Any]) -> None:

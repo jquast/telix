@@ -7,32 +7,39 @@ We welcome contributions via GitHub pull requests:
 - `Creating a pull request
   <https://help.github.com/articles/creating-a-pull-request/>`_
 
+Dependencies
+------------
+
+Telix is a TUI telnet and MUD client layered on top of telnetlib3_, blessed_, textual_, and
+wcwidth_.  Telix, telnetlib3_, blessed_, and textual_'s dependency rich_ all depend on wcwidth_,
+because it's just so darn useful for measuring the width of strings in a terminal.
+
+::
+
+    telix --+--> telnetlib3 ---------+
+      |     |                        | 
+      +     +--> blessed ------------+----> wcwidth
+      |     |                        |
+      |     +--> textual --> rich ---+
+      |                              |
+      +------------------------------+
+
+
+Jeff Quast is the author of Telix, telnetlib3_, blessed_, and wcwidth_.
+
 Version API
 -----------
 
-This project uses `Semantic Versioning <https://semver.org/>`_ for the Commands and Files storage
-format. This means that all commands and file storages are expected to be backwards-compatible
-unless a major version is released.
+This project uses `Semantic Versioning <https://semver.org/>`_ for scripting commands and the data
+files. This means that all commands and configurations are expected to be backwards-compatible,
+though if necessary to do so, the Major version is incremented and released.
 
-This project *does not* follow semantic visioning of any python functions, classes, modules, and any
-of their signatures or names can be changed at any time.
-
-This project is only a TUI -- the "telix" command will always continue to provide an interface to
-connect to MUDs and BBSs using the same session, rooms, macros, autoreplies, and other data files.
-
-Only in the case that these data files cannot be processed or migrated in a backwards-compatible way,
-or their syntax has changed in a way that is not backwards compatible, then the ``MAJOR`` version
-field will be bumped.
+This project *does not* follow semantic visioning of any python functions, classes, modules, and **any
+of their signatures or names can be changed at any time**. It is not suggested to ``import telix``
+for use in any projects, version contracted is for only the CLI and TUI interfaces.
 
 Architecture
 ------------
-
-telix is a TUI telnet and MUD client layered on top of `telnetlib3
-<https://github.com/jquast/telnetlib3>`_::
-
-    telix  -->  telnetlib3  -->  wcwidth
-      |
-      +--> blessed, textual
 
 **telnetlib3 must never import from telix.** Use `writer.ctx` session context or callback hooks.
 
@@ -48,8 +55,12 @@ Module map::
     ├── client_repl_commands.py Command expansion and backtick dispatch
     ├── client_repl_dialogs.py  Interactive dialogs (confirm, input)
     ├── client_repl_travel.py   Room graph navigation
+    ├── repl_theme.py           Textual theme to REPL palette resolution
     │
-    ├── client_tui.py           Textual app (session manager, room browser)
+    ├── client_tui.py           Re-export hub (backwards compat)
+    ├── client_tui_base.py      TUI foundation: sessions, base editors, app
+    ├── client_tui_editors.py   Macro/autoreply/highlight/bar editors
+    ├── client_tui_dialogs.py   Rooms, caps, tabbed editor, dialogs
     │
     ├── autoreply.py            Pattern-triggered automatic responses
     ├── macros.py               Key-bound macro definitions
@@ -60,14 +71,14 @@ Module map::
     ├── progressbars.py         Progress bar config loading/saving
     ├── gmcp_snapshot.py        GMCP snapshot persistence
     │
-    ├── _paths.py               XDG base directory resolution
-    ├── _util.py                Small internal helpers
+    ├── paths.py                XDG base directory resolution
+    ├── util.py                 Small internal helpers
     └── help/                   Markdown help files loaded at runtime
 
 REPL output pipeline
 --------------------
 
-The REPL reads server data in ``_read_server`` (``client_repl.py``)
+The REPL reads server data in ``read_server`` (``client_repl.py``)
 using ``await telnet_reader.read()``.  Incoming text flows through
 several stages before reaching the terminal:
 
@@ -75,17 +86,17 @@ several stages before reaching the terminal:
    decodes bytes to text.  IAC-only segments produce no data; the
    reader stays blocked.
 
-2. **Output transform** -- ``_transform_output()`` normalises
+2. **Output transform** -- ``transform_output()`` normalises
    line endings and applies the color filter.
 
-3. **Line hold** -- ``_LineHoldBuffer.add(text)`` splits the text
+3. **Line hold** -- ``LineHoldBuffer.add(text)`` splits the text
    at the last ``\n``.  Complete lines go to ``emit_now``; the
    trailing fragment (e.g. a prompt without ``\n``) is held back.
-   ``_schedule_line_hold_flush()`` starts a 150 ms debounce timer
-   (``_LINE_HOLD_TIMEOUT``).
+   ``schedule_line_hold_flush()`` starts a 150 ms debounce timer
+   (``LINE_HOLD_TIMEOUT``).
 
 4. **Prompt signal** -- If the server sends IAC GA or IAC EOR, the
-   ``_on_prompt_signal`` callback sets ``prompt_pending = True``.
+   ``on_prompt_signal`` callback sets ``prompt_pending = True``.
    The main loop flushes held text immediately when it sees a
    pending prompt (``flush_for_prompt``).
 
@@ -119,16 +130,16 @@ The shell callback (``client_shell.py``) drives the outer
 REPL/raw-mode loop:
 
 1. ``telix_client_shell`` is called by telnetlib3 after connection.
-2. ``_want_repl()`` decides the mode (line vs. kludge/raw).
+2. ``want_repl()`` decides the mode (line vs. kludge/raw).
 3. ``repl_event_loop`` sets up the scroll region, registers IAC
-   callbacks, and starts ``_read_server`` + ``_read_input`` as
-   concurrent tasks via ``_run_repl_tasks``.
+   callbacks, and starts ``read_server`` + ``read_input`` as
+   concurrent tasks via ``run_repl_tasks``.
 4. When the server switches to kludge mode or the connection
    closes, the REPL returns and the outer loop re-evaluates.
 
 Data arriving **before** the REPL event loop starts is buffered in
 the telnet reader's internal buffer and consumed by the first
-``read()`` call in ``_read_server``.
+``read()`` call in ``read_server``.
 
 Integration boundary
 --------------------
@@ -149,7 +160,7 @@ telix's ``SessionContext`` also provides ``captures`` (a flat
 the highlight engine and consumed by the ``when`` condition checker and
 the Capture Window (F10).
 
-``TelnetSessionContext`` (defined in ``telnetlib3/_session_context.py``)
+``TelnetSessionContext`` (defined in ``telnetlib3/session_context.py``)
 provides the attributes that ``telnetlib3.client_shell`` uses:
 
 - ``color_filter`` -- object with ``.filter(str) -> str``
@@ -165,7 +176,7 @@ GMCP data flow
 ~~~~~~~~~~~~~~
 
 GMCP (Generic MUD Communication Protocol) data arrives as telnet
-sub-negotiation and is parsed by telnetlib3 into package/data pairs.
+sub-negotiation and is parsed by telnetlib3_ into package/data pairs.
 ``TelnetClient.on_gmcp()`` stores each package in ``ctx.gmcp_data``
 (merging dict updates for the same package key).
 
@@ -205,7 +216,7 @@ TUI editor subprocesses
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Pressing F-keys (F5-F11) launches Textual-based editor screens in a
-**child subprocess** via ``_launch_tui_editor()`` in
+**child subprocess** via ``launch_tui_editor()`` in
 ``client_repl_dialogs.py``.  Key constraints:
 
 - **Never pipe stderr** (``stderr=subprocess.PIPE``).  Textual renders
@@ -216,14 +227,36 @@ Pressing F-keys (F5-F11) launches Textual-based editor screens in a
 - **Error display**.  Textual stores unhandled exceptions in
   ``app._exception`` and queues Rich tracebacks in
   ``app._exit_renderables``.  In non-pilot mode Textual never calls
-  ``_print_error_renderables()`` itself, so ``_EditorApp`` overrides
+  ``print_error_renderables()`` itself, so ``EditorApp`` overrides
   it to write to stdout (not stderr) after the alt screen exits.
-  ``_run_editor_app()`` calls it explicitly on non-zero return codes.
+  ``run_editor_app()`` calls it explicitly on non-zero return codes.
 
 - **Blocking fds**.  The parent's asyncio event loop sets stdin
   non-blocking.  Since stdin/stdout/stderr share the same PTY file
   description, the child inherits non-blocking mode.
-  ``_restore_blocking_fds()`` must run before Textual starts.
+  ``restore_blocking_fds()`` must run before Textual starts.
+
+- **In-band resize (DEC mode 2048)**.  The REPL enables DEC private
+  mode 2048 so the terminal sends resize notifications as escape
+  sequences instead of (or in addition to) SIGWINCH.  Textual also
+  supports this mode and disables it on ``stop_application_mode()``.
+  ``restore_after_subprocess()`` must NOT re-enable mode 2048
+  immediately -- the terminal responds with a resize notification
+  that arrives before the REPL event loop is ready, causing a storm
+  of redundant full-screen repaints.  Instead, the module-level flag
+  ``subprocess_needs_rearm`` is set, and the main event loop calls
+  ``rearm_after_subprocess()`` after the post-action render is
+  complete.  That method flushes stale terminal input
+  (``termios.tcflush``), records the current terminal size (to
+  suppress ``on_resize_repaint``), and only then re-enables mode
+  2048.
+
+- **Traceback display**.  ``run_editor_app()`` wraps the Textual
+  ``app.run()`` call.  On crash it writes ``TERMINAL_CLEANUP`` (which
+  includes cursor-home and clear-screen) and calls ``restore_opost()``
+  to re-enable the terminal's ``OPOST`` flag so ``\n`` maps to
+  ``\r\n`` -- without this, tracebacks render with staircase output
+  because the terminal is still in raw mode.
 
 Developing
 ----------
@@ -264,11 +297,22 @@ You can also set up a `pre-commit <https://pre-commit.com/>`_ hook::
 Style and Static Analysis
 -------------------------
 
+- Do not use single-underscore prefixes on names (functions, classes,
+  constants, methods, or attributes). This project has no public Python
+  API -- all names are internal. Exceptions:
+
+  - Unused variables in unpacking (e.g. ``for _s, _e, name in spans:``)
+  - Property backing attributes (e.g. ``self._enabled`` behind
+    ``@property enabled``)
+  - External library private attributes (e.g. ``widget._label``,
+    ``parser._actions``) which must keep their underscore
+  - Dunder methods (``__init__``, ``__enter__``, etc.)
+
 - do not wrote unicode em-dash, arrows, or similar characters in code or documentation.
 - use tox to run tests, linters, and formatters, to ensure requirements are met exactly.
 - Max line length: 100 characters
 - Sphinx-style reStructuredText docstrings
-- Average test coverage expected (~50%) 
+- Average test coverage expected (~50%)
   - layout, design, and TUI interaction is not tested
 - Write tests first when fixing bugs (TDD).
 - Do not use "section dividers" or markers for code
@@ -284,10 +328,10 @@ Style and Static Analysis
   only enough to provide the same amount of coverage, joining related tests, and using parametrized
   testing where possible to reduce length.
 - After a first draft of a medium to large change and testing has been successful, re-review if the
-  code can be made simpler, to reduce size and complexity, by reducing code duplication, use of        
-  walrus operators and context manager patterns or functional or object oriented design.
-  Ways to reduce so many branches, temporary or local variables, or otherwise high mccabe
-  complexity.                                                           
+  code can be made simpler, to reduce size and complexity, by reducing code
+  duplication, use of walrus operators and context manager patterns or
+  functional or object oriented design. Ways to reduce so many branches,
+  temporary or local variables, or otherwise high mccabe complexity.
 
 Run all linters::
 
@@ -304,3 +348,10 @@ Run individual linters::
 Run all formatters::
 
     tox -e format
+
+.. _telnetlib3: https://github.com/jquast/telnetlib3
+.. _blessed: https://github.com/jquast/blessed
+.. _wcwidth: https://github.com/jquast/wcwidth
+.. _textual: https://github.com/Textualize/textual
+
+

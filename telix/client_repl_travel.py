@@ -5,20 +5,20 @@ import random
 import asyncio
 import logging
 import collections
-from time import monotonic as _monotonic
+from time import monotonic as monotonic
 from typing import TYPE_CHECKING, Optional
 
 # 3rd party
 from telnetlib3.stream_writer import TelnetWriterUnicode
 
 # local
-from .client_repl_commands import _COMMAND_DELAY
+from .client_repl_commands import COMMAND_DELAY
 
 if TYPE_CHECKING:
     from .session_context import SessionContext
 
-_DEFAULT_WALK_LIMIT = 999
-_STANDARD_DIRS = frozenset(
+DEFAULT_WALK_LIMIT = 999
+STANDARD_DIRS = frozenset(
     {
         "north",
         "south",
@@ -34,15 +34,15 @@ _STANDARD_DIRS = frozenset(
         "sw",
     }
 )
-_BOUNCE_THRESHOLD = 3
-_MAX_STUCK_RETRIES = 3
-_STUCK_RETRY_DELAY = 5.0
-# Delay after wait_fn() in settle loops to allow _read_server to process
+BOUNCE_THRESHOLD = 3
+MAX_STUCK_RETRIES = 3
+STUCK_RETRY_DELAY = 5.0
+# Delay after wait_fn() in settle loops to allow read_server to process
 # the prompt text and call on_prompt() before checking autoreply flags.
-_SETTLE_YIELD_DELAY = 0.05
+SETTLE_YIELD_DELAY = 0.05
 
 
-async def _fast_travel(
+async def fast_travel(
     steps: list[tuple[str, str]],
     ctx: "SessionContext",
     log: logging.Logger,
@@ -53,7 +53,7 @@ async def _fast_travel(
     """
     Execute travel by sending movement commands with GA/EOR pacing.
 
-    Uses the same ``_wait_for_prompt`` / ``_echo_command`` functions that
+    Uses the same ``wait_for_prompt`` / ``echo_command`` functions that
     the autoreply engine and manual input use, so commands are paced by
     the server's GA/EOR prompt signal and echoed visibly.
 
@@ -80,11 +80,11 @@ async def _fast_travel(
 
     from .autoreply import AutoreplyEngine
 
-    def _get_engine() -> Optional["AutoreplyEngine"]:
+    def get_engine() -> Optional["AutoreplyEngine"]:
         """Find the active autoreply engine, if any."""
         return ctx.autoreply_engine
 
-    engine = _get_engine()
+    engine = get_engine()
     engine_was_enabled = True
     if noreply and engine is not None:
         engine_was_enabled = engine.enabled
@@ -94,13 +94,13 @@ async def _fast_travel(
 
     from .rooms import RoomGraph
 
-    def _get_graph() -> Optional[RoomGraph]:
+    def get_graph() -> Optional[RoomGraph]:
         graph: Optional[RoomGraph] = ctx.room_graph
         return graph
 
-    def _room_name(num: str) -> str:
+    def room_name(num: str) -> str:
         """Look up a human-readable room name from the session's graph."""
-        graph = _get_graph()
+        graph = get_graph()
         if graph is not None:
             room = graph.rooms.get(num)
             if room is not None:
@@ -110,12 +110,12 @@ async def _fast_travel(
     # Track room IDs the graph already knew about before this travel
     # started, so we can distinguish "ID rotation" (new hash for same
     # room) from "different room with the same name" (cave grids).
-    _pre_existing_rooms: set[str] = set()
-    graph = _get_graph()
+    pre_existing_rooms: set[str] = set()
+    graph = get_graph()
     if graph is not None:
-        _pre_existing_rooms = set(graph.rooms.keys())
+        pre_existing_rooms = set(graph.rooms.keys())
 
-    def _names_match(expected_num: str, actual_num: str) -> bool:
+    def names_match(expected_num: str, actual_num: str) -> bool:
         """
         Check whether two room IDs likely refer to the same physical room.
 
@@ -128,9 +128,9 @@ async def _fast_travel(
            happen to share a name (e.g. a grid of "A cave" rooms).  A
            rotated ID produces a hash the graph has never seen.
         """
-        if actual_num in _pre_existing_rooms:
+        if actual_num in pre_existing_rooms:
             return False
-        graph = _get_graph()
+        graph = get_graph()
         if graph is None:
             return False
         expected = graph.rooms.get(expected_num)
@@ -139,7 +139,7 @@ async def _fast_travel(
             return False
         return expected.name == actual.name and bool(expected.name)
 
-    def _correct_edge(
+    def correct_edge(
         prev_num: str,
         direction: str,
         old_target: str,
@@ -155,7 +155,7 @@ async def _fast_travel(
         cave" but are distinct locations with different IDs).  Now only the step at *step_idx* is
         updated.
         """
-        graph = _get_graph()
+        graph = get_graph()
         if graph is not None:
             prev = graph.rooms.get(prev_num)
             if prev is not None and prev.exits.get(direction) == old_target:
@@ -191,7 +191,7 @@ async def _fast_travel(
             for attempt in range(max_retries + 1):
                 # Delay between steps (and retries) for server rate limits.
                 if step_idx > 0 or attempt > 0:
-                    await asyncio.sleep(_COMMAND_DELAY)
+                    await asyncio.sleep(COMMAND_DELAY)
 
                 if room_changed is not None:
                     room_changed.clear()
@@ -201,10 +201,7 @@ async def _fast_travel(
                 if ctx.discover_active:
                     prefix = f"AUTODISCOVER [{ctx.discover_current}]: "
                 elif ctx.randomwalk_active:
-                    prefix = (
-                        f"RANDOMWALK [{ctx.randomwalk_current}"
-                        f"/{ctx.randomwalk_total}]: "
-                    )
+                    prefix = f"RANDOMWALK [{ctx.randomwalk_current}" f"/{ctx.randomwalk_total}]: "
                 if attempt == 0:
                     log.info("%s [%d/%d] %s", mode, step_idx + 1, len(steps), direction)
                     if echo_fn is not None:
@@ -229,7 +226,7 @@ async def _fast_travel(
                     prompt_ready.clear()
 
                 ctx.active_command = direction
-                ctx.active_command_time = _monotonic()
+                ctx.active_command_time = monotonic()
                 if ctx.cx_dot is not None:
                     ctx.cx_dot.trigger()
                 if ctx.tx_dot is not None:
@@ -239,11 +236,11 @@ async def _fast_travel(
                 if wait_fn is not None:
                     await wait_fn()
 
-                # Yield to let _read_server feed the room output to the
+                # Yield to let read_server feed the room output to the
                 # autoreply engine before we check reply_pending.
                 await asyncio.sleep(0)
 
-                engine = _get_engine()
+                engine = get_engine()
                 cond_cancelled = False
                 if engine is not None:
                     while engine.reply_pending:
@@ -283,9 +280,9 @@ async def _fast_travel(
                             # replies.
                             if wait_fn is not None:
                                 await wait_fn()
-                            # Allow time for _read_server to process text
+                            # Allow time for read_server to process text
                             # and call on_prompt() for cascading matches.
-                            await asyncio.sleep(_SETTLE_YIELD_DELAY)
+                            await asyncio.sleep(SETTLE_YIELD_DELAY)
                             # If neither exclusive nor reply_pending
                             # after the prompt, we've converged.
                             if not engine.exclusive_active and not engine.reply_pending:
@@ -314,16 +311,16 @@ async def _fast_travel(
                     and expected_room
                     and actual
                     and actual != expected_room
-                    and _names_match(expected_room, actual)
+                    and names_match(expected_room, actual)
                 ):
                     log.info(
                         "%s: room ID changed for %s (%s -> %s), correcting",
                         mode,
-                        _room_name(actual),
+                        room_name(actual),
                         expected_room[:8],
                         actual[:8],
                     )
-                    _correct_edge(prev_room, direction, expected_room, actual, step_idx, steps)
+                    correct_edge(prev_room, direction, expected_room, actual, step_idx, steps)
                     expected_room = actual
                     break
                 # Room didn't change -- server likely rejected move (rate limit).
@@ -342,13 +339,13 @@ async def _fast_travel(
                     # all retries).  Temporarily remove it from both the
                     # Room.exits dict and the BFS adjacency cache so
                     # re-routing won't try it again.
-                    graph = _get_graph()
+                    graph = get_graph()
                     if graph is not None:
                         prev = graph.rooms.get(prev_room)
                         if prev is not None and direction in prev.exits:
                             blocked_exits.append((prev_room, direction, prev.exits[direction]))
                             del prev.exits[direction]
-                            adj_exits = graph._adj.get(prev_room)
+                            adj_exits = graph.adj.get(prev_room)
                             if adj_exits is not None:
                                 adj_exits.pop(direction, None)
                             log.info(
@@ -359,7 +356,7 @@ async def _fast_travel(
                             )
                 else:
                     # Update graph edge to reflect actual connection.
-                    graph = _get_graph()
+                    graph = get_graph()
                     if graph is not None:
                         prev = graph.rooms.get(prev_room)
                         if prev is not None:
@@ -386,7 +383,7 @@ async def _fast_travel(
                         reroute_count += 1
                         msg = (
                             f"{mode}: re-routing from "
-                            f"{_room_name(actual)}"
+                            f"{room_name(actual)}"
                             f" ({reroute_count}/{max_reroutes})"
                         )
                         log.info("%s", msg)
@@ -396,8 +393,8 @@ async def _fast_travel(
                         step_idx = 0
                         continue
 
-                expected_name = _room_name(expected_room)
-                actual_name = _room_name(actual)
+                expected_name = room_name(expected_room)
+                actual_name = room_name(actual)
                 msg = (
                     f"{mode} stopped: expected {expected_name} after "
                     f"'{direction}', got {actual_name}"
@@ -412,22 +409,22 @@ async def _fast_travel(
         # for future pathfinding (the block may be transient, e.g. a
         # quest gate that opens later).
         if blocked_exits:
-            graph = _get_graph()
+            graph = get_graph()
             if graph is not None:
                 for room_num, exit_dir, target in blocked_exits:
                     prev = graph.rooms.get(room_num)
                     if prev is not None and exit_dir not in prev.exits:
                         prev.exits[exit_dir] = target
-                    graph._adj.setdefault(room_num, {})[exit_dir] = target
+                    graph.adj.setdefault(room_num, {})[exit_dir] = target
         ctx.active_command = None
         if noreply and engine is not None:
             engine.enabled = engine_was_enabled
 
 
-async def _autodiscover(
+async def autodiscover(
     ctx: "SessionContext",
     log: logging.Logger,
-    limit: int = _DEFAULT_WALK_LIMIT,
+    limit: int = DEFAULT_WALK_LIMIT,
     resume: bool = False,
     strategy: str = "bfs",
     noreply: bool = False,
@@ -528,7 +525,7 @@ async def _autodiscover(
                 if echo_fn is not None:
                     echo_fn(f"AUTODISCOVER [{step_count}]: " f"heading to gateway {gw_room[:8]}")
                 pre_travel = ctx.current_room_num
-                await _fast_travel(steps, ctx, log, destination=gw_room)
+                await fast_travel(steps, ctx, log, destination=gw_room)
                 actual = ctx.current_room_num
                 if actual != gw_room:
                     tried.add((gw_room, direction))
@@ -543,7 +540,7 @@ async def _autodiscover(
                         edge = (pre_travel, fail_dir)
                         if edge not in blocked_edges:
                             blocked_edges[edge] = fail_target
-                            adj_exits = graph._adj.get(pre_travel)
+                            adj_exits = graph.adj.get(pre_travel)
                             if adj_exits is not None:
                                 adj_exits.pop(fail_dir, None)
                             log.info(
@@ -575,9 +572,9 @@ async def _autodiscover(
                 echo_fn(
                     f"AUTODISCOVER [{step_count}]: " f"exploring {direction} from {gw_room[:8]}"
                 )
-            await asyncio.sleep(_COMMAND_DELAY)
+            await asyncio.sleep(COMMAND_DELAY)
             ctx.active_command = direction
-            ctx.active_command_time = _monotonic()
+            ctx.active_command_time = monotonic()
             send = ctx.send_line
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
@@ -600,7 +597,7 @@ async def _autodiscover(
                     pass
                 arrived = ctx.current_room_num != gw_room
             else:
-                for _wait in range(30):
+                for wait in range(30):
                     await asyncio.sleep(0.3)
                     if ctx.current_room_num != gw_room:
                         arrived = True
@@ -652,7 +649,7 @@ async def _autodiscover(
                 if echo_fn is not None:
                     echo_fn("search")
                 ctx.active_command = "search"
-                ctx.active_command_time = _monotonic()
+                ctx.active_command_time = monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, TelnetWriterUnicode):
@@ -667,7 +664,7 @@ async def _autodiscover(
                 if echo_fn is not None:
                     echo_fn("survey")
                 ctx.active_command = "survey"
-                ctx.active_command_time = _monotonic()
+                ctx.active_command_time = monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, TelnetWriterUnicode):
@@ -700,13 +697,13 @@ async def _autodiscover(
         # Restore blocked edges so the graph stays accurate for future
         # pathfinding (the block may be transient, e.g. a level gate).
         for (room_num, exit_dir), target in blocked_edges.items():
-            graph._adj.setdefault(room_num, {})[exit_dir] = target
+            graph.adj.setdefault(room_num, {})[exit_dir] = target
 
 
-async def _randomwalk(
+async def randomwalk(
     ctx: "SessionContext",
     log: logging.Logger,
-    limit: int = _DEFAULT_WALK_LIMIT,
+    limit: int = DEFAULT_WALK_LIMIT,
     resume: bool = False,
     visit_level: int = 2,
     noreply: bool = False,
@@ -743,7 +740,7 @@ async def _randomwalk(
             echo_fn("RANDOMWALK: no room data")
         return
 
-    adj = graph._adj
+    adj = graph.adj
     exits = adj.get(current, {})
     if not exits:
         if echo_fn is not None:
@@ -774,7 +771,7 @@ async def _randomwalk(
         ctx.blocked_exits.clear()
     db_blocked = graph.blocked_rooms()
 
-    def _flood_reachable() -> set[str]:
+    def flood_reachable() -> set[str]:
         """BFS flood from current room, excluding entrance and blocked rooms."""
         result: set[str] = set()
         q: collections.deque[str] = collections.deque([current])
@@ -791,7 +788,7 @@ async def _randomwalk(
                     q.append(dst)
         return result
 
-    reachable = _flood_reachable()
+    reachable = flood_reachable()
 
     ctx.randomwalk_active = True
     expected_total = visit_level * len(reachable) if reachable else limit
@@ -801,11 +798,10 @@ async def _randomwalk(
     if resume and ctx.last_walk_mode == "randomwalk" and ctx.last_walk_visited:
         visited |= ctx.last_walk_visited
 
-    def _count_filled() -> int:
+    def count_filled() -> int:
         """Sum visits across reachable rooms, capped at visit_level per room."""
         if not reachable:
-            return sum(min(int(v), visit_level) for v in walk_counts.values()
-                       if v != float("inf"))
+            return sum(min(int(v), visit_level) for v in walk_counts.values() if v != float("inf"))
         return sum(min(int(walk_counts.get(r, 0)), visit_level) for r in reachable)
 
     try:
@@ -844,7 +840,7 @@ async def _randomwalk(
                     continue
                 if dst in db_blocked:
                     continue
-                penalty = 0.0 if d in _STANDARD_DIRS else 0.1
+                penalty = 0.0 if d in STANDARD_DIRS else 0.1
                 scored.append((walk_counts.get(dst, 0) + penalty, d, dst))
 
             if not scored:
@@ -868,7 +864,7 @@ async def _randomwalk(
                 )
 
             ctx.active_command = direction
-            ctx.active_command_time = _monotonic()
+            ctx.active_command_time = monotonic()
             if wait_fn is not None:
                 await wait_fn()
             if ctx.cx_dot is not None:
@@ -891,7 +887,7 @@ async def _randomwalk(
                     pass
                 arrived = ctx.current_room_num != current
             else:
-                for _tick in range(30):
+                for tick in range(30):
                     await asyncio.sleep(0.3)
                     if ctx.current_room_num != current:
                         arrived = True
@@ -910,7 +906,7 @@ async def _randomwalk(
                 all_blocked = all((current, d) in ctx.blocked_exits for d in adj.get(current, {}))
                 if all_blocked:
                     retry_count += 1
-                    if retry_count > _MAX_STUCK_RETRIES:
+                    if retry_count > MAX_STUCK_RETRIES:
                         if echo_fn is not None:
                             echo_fn(
                                 f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
@@ -923,9 +919,9 @@ async def _randomwalk(
                         echo_fn(
                             f"RANDOMWALK [{ctx.randomwalk_current}/{ctx.randomwalk_total}]: "
                             f"all exits temporarily blocked, retrying "
-                            f"({retry_count}/{_MAX_STUCK_RETRIES})"
+                            f"({retry_count}/{MAX_STUCK_RETRIES})"
                         )
-                    await asyncio.sleep(_STUCK_RETRY_DELAY)
+                    await asyncio.sleep(STUCK_RETRY_DELAY)
                     continue
                 continue
 
@@ -935,13 +931,13 @@ async def _randomwalk(
             actual = ctx.current_room_num
             walk_counts[actual] = walk_counts.get(actual, 0) + 1
             visited.add(actual)
-            ctx.randomwalk_current = _count_filled()
+            ctx.randomwalk_current = count_filled()
 
             if ctx.randomwalk_auto_search:
                 if echo_fn is not None:
                     echo_fn("search")
                 ctx.active_command = "search"
-                ctx.active_command_time = _monotonic()
+                ctx.active_command_time = monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, TelnetWriterUnicode):
@@ -956,7 +952,7 @@ async def _randomwalk(
                 if echo_fn is not None:
                     echo_fn("survey")
                 ctx.active_command = "survey"
-                ctx.active_command_time = _monotonic()
+                ctx.active_command_time = monotonic()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, TelnetWriterUnicode):
@@ -974,7 +970,7 @@ async def _randomwalk(
             # unblocked exits other than the one leading back here.
             if prev_room is not None and actual == prev_room:
                 bounce_count += 1
-                if bounce_count >= _BOUNCE_THRESHOLD:
+                if bounce_count >= BOUNCE_THRESHOLD:
                     other_exits = [
                         d
                         for d, dst in adj.get(current, {}).items()
@@ -1007,12 +1003,12 @@ async def _randomwalk(
                 bounce_count = 0
             prev_room = current
 
-            await asyncio.sleep(_COMMAND_DELAY)
+            await asyncio.sleep(COMMAND_DELAY)
 
             # Re-flood: the room graph's adjacency is updated live by
             # GMCP Room.Info, so newly discovered exits expand the
             # reachable set dynamically.
-            new_reachable = _flood_reachable()
+            new_reachable = flood_reachable()
             if len(new_reachable) > len(reachable):
                 reachable = new_reachable
                 expected_total = visit_level * len(reachable)
@@ -1042,12 +1038,12 @@ async def _randomwalk(
                         await asyncio.sleep(0.05)
                     if ar_fired and wait_fn is not None:
                         await wait_fn()
-                    # Allow enough time for _read_server to process the
-                    # prompt text and call on_prompt() / _match_rules(),
+                    # Allow enough time for read_server to process the
+                    # prompt text and call on_prompt() / match_rules(),
                     # which may set exclusive_active for a cascading match
                     # (e.g. a second rule matching on the response to the
                     # first rule's last command).
-                    await asyncio.sleep(_SETTLE_YIELD_DELAY)
+                    await asyncio.sleep(SETTLE_YIELD_DELAY)
                     if not ar.exclusive_active and not ar.reply_pending:
                         break
                     settle += 1
@@ -1070,7 +1066,7 @@ async def _randomwalk(
         ctx.active_command = None
 
 
-async def _handle_travel_commands(
+async def handle_travel_commands(
     parts: list[str], ctx: "SessionContext", log: logging.Logger
 ) -> list[str]:
     """
@@ -1095,10 +1091,10 @@ async def _handle_travel_commands(
     :param log: Logger.
     :returns: Commands that still need to be sent to the server.
     """
-    from .client_repl_commands import _TRAVEL_RE
+    from .client_repl_commands import TRAVEL_RE
 
     for idx, cmd in enumerate(parts):
-        m = _TRAVEL_RE.match(cmd)
+        m = TRAVEL_RE.match(cmd)
         if not m:
             continue
         verb = m.group(1).lower()
@@ -1132,11 +1128,11 @@ async def _handle_travel_commands(
                 if echo_fn is not None:
                     echo_fn(f"HOME: no path to home room {home_num}")
                 return parts[idx + 1 :]
-            await _fast_travel(path, ctx, log, destination=home_num)
+            await fast_travel(path, ctx, log, destination=home_num)
             return parts[idx + 1 :]
 
         if verb in ("autodiscover", "randomwalk", "resume"):
-            walk_limit = _DEFAULT_WALK_LIMIT
+            walk_limit = DEFAULT_WALK_LIMIT
             walk_visit_level = 2
             auto_search = False
             auto_evaluate = False
@@ -1192,7 +1188,7 @@ async def _handle_travel_commands(
                 )
 
             if verb == "autodiscover":
-                await _autodiscover(
+                await autodiscover(
                     ctx,
                     log,
                     limit=walk_limit,
@@ -1208,7 +1204,7 @@ async def _handle_travel_commands(
                 ctx.randomwalk_auto_search = auto_search
                 ctx.randomwalk_auto_evaluate = auto_evaluate
                 ctx.randomwalk_auto_survey = auto_survey
-                await _randomwalk(
+                await randomwalk(
                     ctx,
                     log,
                     limit=walk_limit,
@@ -1255,7 +1251,7 @@ async def _handle_travel_commands(
             log.warning("no path from %s to %s", current, room_id)
             break
 
-        await _fast_travel(path, ctx, log, destination=room_id, noreply=noreply)
+        await fast_travel(path, ctx, log, destination=room_id, noreply=noreply)
         return parts[idx + 1 :]
 
     return parts

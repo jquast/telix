@@ -5,35 +5,28 @@ import re
 import enum
 import asyncio
 import logging
-from time import monotonic as _monotonic
-from typing import TYPE_CHECKING, Any, Optional, Callable, Awaitable, NamedTuple
+from time import monotonic as monotonic
+from typing import TYPE_CHECKING, Any, Callable, Optional, Awaitable, NamedTuple
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
-    from .session_context import SessionContext, _CommandQueue
+    from .session_context import SessionContext, CommandQueue
 
 # local
-from .client_repl_render import (
-    _ELLIPSIS,
-    _get_term,
-    _wcswidth,
-    _write_hint,
-    _flash_bg_rgb,
-)
+from .client_repl_render import ELLIPSIS, get_term, wcswidth, write_hint, flash_bg_rgb
 
-
-_REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
-_BACKTICK_RE = re.compile(r"`[^`]*`")
+REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
+BACKTICK_RE = re.compile(r"`[^`]*`")
 # NUL-bracketed sentinels for backslash-escaped separators (\; \| \` \\),
 # swapped in before splitting and restored afterward.
-_ESCAPE_RE = re.compile(r"\\([;|`\\])")
-_ESC_MAP = {";": "\x00ES\x00", "|": "\x00EP\x00", "`": "\x00EB\x00", "\\": "\x00EBS\x00"}
-_ESC_RESTORE = {v: k for k, v in _ESC_MAP.items()}
+ESCAPE_RE = re.compile(r"\\([;|`\\])")
+ESC_MAP = {";": "\x00ES\x00", "|": "\x00EP\x00", "`": "\x00EB\x00", "\\": "\x00EBS\x00"}
+ESC_RESTORE = {v: k for k, v in ESC_MAP.items()}
 
-_DELAY_RE = re.compile(r"^`delay\s+(\d+(?:\.\d+)?)(ms|s)`$")
-_WHEN_RE = re.compile(r"^`when\s+(\w+%?)\s*(>=|<=|>|<|=)\s*(\d+)`$", re.IGNORECASE)
-_UNTIL_RE = re.compile(r"^`until(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
-_UNTILS_RE = re.compile(r"^`untils(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
+DELAY_RE = re.compile(r"^`delay\s+(\d+(?:\.\d+)?)(ms|s)`$")
+WHEN_RE = re.compile(r"^`when\s+(\w+%?)\s*(>=|<=|>|<|=)\s*(\d+)`$", re.IGNORECASE)
+UNTIL_RE = re.compile(r"^`until(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
+UNTILS_RE = re.compile(r"^`untils(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
 
 
 class StepResult(enum.Enum):
@@ -46,7 +39,8 @@ class StepResult(enum.Enum):
 
 @dataclass
 class DispatchHooks:
-    """Caller-specific callbacks for :func:`dispatch_one`.
+    """
+    Caller-specific callbacks for :func:`dispatch_one`.
 
     :param ctx: Session context.
     :param log: Logger instance.
@@ -112,19 +106,19 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
     :returns: :class:`ExpandedCommands` with commands and immediate indices.
     """
     # Protect backslash-escaped separators before any splitting.
-    escaped = _ESCAPE_RE.sub(lambda m: _ESC_MAP[m.group(1)], line)
+    escaped = ESCAPE_RE.sub(lambda m: ESC_MAP[m.group(1)], line)
 
     placeholders: list[str] = []
 
-    def _replace_bt(m: re.Match[str]) -> str:
+    def replace_bt(m: re.Match[str]) -> str:
         placeholders.append(m.group(0))
         return f"\x00BT{len(placeholders) - 1}\x00"
 
-    protected = _BACKTICK_RE.sub(_replace_bt, escaped)
+    protected = BACKTICK_RE.sub(replace_bt, escaped)
 
     # Split on ; and | while capturing the separator.
-    _SEP_RE = re.compile(r"([;|])")
-    tokens = _SEP_RE.split(protected)
+    SEP_RE = re.compile(r"([;|])")
+    tokens = SEP_RE.split(protected)
 
     # tokens is alternating [segment, sep, segment, sep, ...].
     # Walk through tracking which separator precedes each segment.
@@ -155,7 +149,7 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
                 immediate_indices.add(cmd_idx)
             continue
 
-        m = _REPEAT_RE.match(stripped)
+        m = REPEAT_RE.match(stripped)
         if m:
             count = min(int(m.group(1)), 200)
             cmd = m.group(2)
@@ -171,7 +165,7 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
 
     # Restore backslash-escaped characters in final commands.
     for i, cmd in enumerate(result):
-        for placeholder, literal in _ESC_RESTORE.items():
+        for placeholder, literal in ESC_RESTORE.items():
             if placeholder in cmd:
                 cmd = cmd.replace(placeholder, literal)
         result[i] = cmd
@@ -192,8 +186,9 @@ def expand_commands(line: str) -> list[str]:
     return expand_commands_ex(line).commands
 
 
-def _get_search_buffer(ctx: "SessionContext") -> Optional[Any]:
-    """Return the :class:`SearchBuffer` for *ctx*, or ``None``.
+def get_search_buffer(ctx: "SessionContext") -> Optional[Any]:
+    """
+    Return the :class:`SearchBuffer` for *ctx*, or ``None``.
 
     Works for both macro execution (where ``ctx.autoreply_engine`` is the
     engine) and autoreply execution (where the engine *is* ``self`` and
@@ -216,7 +211,8 @@ async def dispatch_one(
     hooks: DispatchHooks,
     mask_send: bool = False,
 ) -> StepResult:
-    """Dispatch a single backtick command or plain send.
+    """
+    Dispatch a single backtick command or plain send.
 
     Handles ``delay``, ``when``, ``until``, ``untils``, and plain send
     commands.  Caller keeps its own loop structure.
@@ -231,7 +227,7 @@ async def dispatch_one(
     """
     from .autoreply import check_condition
 
-    dm = _DELAY_RE.match(cmd)
+    dm = DELAY_RE.match(cmd)
     if dm:
         value = float(dm.group(1))
         unit = dm.group(2)
@@ -239,7 +235,7 @@ async def dispatch_one(
         if delay > 0:
             if hooks.on_status is not None:
                 hooks.on_status(f"delay {cmd.strip()}")
-            now = _monotonic()
+            now = monotonic()
             if hooks.on_progress is not None:
                 hooks.on_progress(now, now + delay)
             if hooks.on_activity is not None:
@@ -249,7 +245,7 @@ async def dispatch_one(
                 hooks.on_progress_clear()
         return StepResult.HANDLED
 
-    wm = _WHEN_RE.match(cmd)
+    wm = WHEN_RE.match(cmd)
     if wm:
         vital, op, val = wm.group(1), wm.group(2), wm.group(3)
         if hooks.on_status is not None:
@@ -262,15 +258,15 @@ async def dispatch_one(
             return StepResult.ABORT
         return StepResult.HANDLED
 
-    um = _UNTIL_RE.match(cmd)
+    um = UNTIL_RE.match(cmd)
     if um:
         timeout = float(um.group(1) or "4")
         pattern_str = um.group(2)
         if hooks.on_status is not None:
             hooks.on_status(f"until /{pattern_str}/")
-        buf = hooks.search_buffer or _get_search_buffer(hooks.ctx)
+        buf = hooks.search_buffer or get_search_buffer(hooks.ctx)
         if buf is not None:
-            now = _monotonic()
+            now = monotonic()
             if hooks.on_progress is not None:
                 hooks.on_progress(now, now + timeout)
             if hooks.on_activity is not None:
@@ -286,15 +282,15 @@ async def dispatch_one(
                 return StepResult.ABORT
         return StepResult.HANDLED
 
-    us = _UNTILS_RE.match(cmd)
+    us = UNTILS_RE.match(cmd)
     if us:
         timeout = float(us.group(1) or "4")
         pattern_str = us.group(2)
         if hooks.on_status is not None:
             hooks.on_status(f"untils /{pattern_str}/")
-        buf = hooks.search_buffer or _get_search_buffer(hooks.ctx)
+        buf = hooks.search_buffer or get_search_buffer(hooks.ctx)
         if buf is not None:
-            now = _monotonic()
+            now = monotonic()
             if hooks.on_progress is not None:
                 hooks.on_progress(now, now + timeout)
             if hooks.on_activity is not None:
@@ -325,18 +321,17 @@ async def dispatch_one(
     return StepResult.SENT
 
 
-_TRAVEL_RE = re.compile(
-    r"^`(travel|return"
-    r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$",
-    re.IGNORECASE,
+TRAVEL_RE = re.compile(
+    r"^`(travel|return" r"|autodiscover|randomwalk|resume|home)\s*(.*?)`$", re.IGNORECASE
 )
 
-_COMMAND_DELAY = 0.25
-_MOVE_MAX_RETRIES = 2
+COMMAND_DELAY = 0.25
+MOVE_MAX_RETRIES = 2
 
 
-def _is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
-    """Return ``True`` if *cmd* matches a known exit from the current room.
+def is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
+    """
+    Return ``True`` if *cmd* matches a known exit from the current room.
 
     Falls back to ``True`` when room data is unavailable so that
     movement pacing is used conservatively.
@@ -347,7 +342,7 @@ def _is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
     graph = ctx.room_graph
     if graph is None:
         return True
-    adj = getattr(graph, "_adj", None)
+    adj = getattr(graph, "adj", None)
     if adj is None:
         return True
     exits = adj.get(room_num)
@@ -356,7 +351,7 @@ def _is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
     return cmd in exits
 
 
-def _collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, int]]:
+def collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, int]]:
     """
     Collapse consecutive identical commands into display groups.
 
@@ -380,10 +375,23 @@ def _collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, 
     return runs
 
 
-_ACTIVE_CMD_BASE_FG = "#786050"
+def active_cmd_fg() -> str:
+    """Return the active command foreground color from the palette."""
+    from .repl_theme import get_repl_palette
+    from .client_repl_render import session_key
+
+    return get_repl_palette(session_key)["active_cmd"]
 
 
-def _render_active_command(
+def pending_cmd_rgb() -> tuple[int, int, int]:
+    """Return the pending command RGB color from the palette."""
+    from .repl_theme import hex_to_rgb, get_repl_palette
+    from .client_repl_render import session_key
+
+    return hex_to_rgb(get_repl_palette(session_key)["pending_cmd"])
+
+
+def render_active_command(
     command: str,
     scroll: "Any",
     out: "asyncio.StreamWriter",
@@ -405,30 +413,31 @@ def _render_active_command(
     :param base_bg_sgr: Fallback background SGR when no flash is active.
     :returns: Display width of the rendered command text.
     """
-    blessed_term = _get_term()
+    blessed_term = get_term()
     cols = blessed_term.width
     normal = blessed_term.normal
-    fg_sgr = str(blessed_term.color_hex(_ACTIVE_CMD_BASE_FG))
+    cmd_fg = active_cmd_fg()
+    fg_sgr = str(blessed_term.color_hex(cmd_fg))
 
-    bg_rgb = _flash_bg_rgb(_ACTIVE_CMD_BASE_FG, flash_elapsed)
+    bg_rgb = flash_bg_rgb(cmd_fg, flash_elapsed)
     bg_sgr = str(blessed_term.on_color_rgb(*bg_rgb)) if bg_rgb else base_bg_sgr
 
     hint_w = len(hint) if hint else 0
     avail = cols - hint_w
-    text = command[: avail - 1] if _wcswidth(command) >= avail else command
-    w = _wcswidth(text)
+    text = command[: avail - 1] if wcswidth(command) >= avail else command
+    w = wcswidth(text)
 
     out.write(blessed_term.move_yx(scroll.input_row, 0).encode())
     out.write(f"{fg_sgr}{bg_sgr}{text}{normal}".encode())
     pad = avail - w
     if pad > 0:
         out.write(f"{base_bg_sgr}{' ' * pad}{normal}".encode())
-    _write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
+    write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
     out.write(normal.encode())
     return w
 
 
-def _clear_command_queue(ctx: "SessionContext") -> None:
+def clear_command_queue(ctx: "SessionContext") -> None:
     """Remove the command queue from *ctx* when chained send completes."""
     cq = ctx.command_queue
     if cq is not None:
@@ -436,8 +445,8 @@ def _clear_command_queue(ctx: "SessionContext") -> None:
         ctx.active_command = None
 
 
-def _render_command_queue(
-    queue: "Optional[_CommandQueue]",
+def render_command_queue(
+    queue: "Optional[CommandQueue]",
     scroll: "Any",
     out: "asyncio.StreamWriter",
     flash_elapsed: float = -1.0,
@@ -460,25 +469,26 @@ def _render_command_queue(
     """
     if queue is None:
         return 0
-    blessed_term = _get_term()
+    blessed_term = get_term()
     cols = blessed_term.width
     hint_w = len(hint) if hint else 0
     avail = cols - hint_w
 
-    runs = _collapse_runs(queue.commands, queue.current_idx)
+    runs = collapse_runs(queue.commands, queue.current_idx)
     if not runs:
         return 0
 
-    active_fg = str(blessed_term.color_hex(_ACTIVE_CMD_BASE_FG))
-    bg_rgb = _flash_bg_rgb(_ACTIVE_CMD_BASE_FG, flash_elapsed)
+    cmd_fg = active_cmd_fg()
+    active_fg = str(blessed_term.color_hex(cmd_fg))
+    bg_rgb = flash_bg_rgb(cmd_fg, flash_elapsed)
     active_bg = str(blessed_term.on_color_rgb(*bg_rgb)) if bg_rgb else base_bg_sgr
-    pending_sgr = str(blessed_term.color_rgb(120, 120, 120))
+    pending_sgr = str(blessed_term.color_rgb(*pending_cmd_rgb()))
     normal = blessed_term.normal
 
     # Build fragments: (sgr, text) for each run.
     frags: list[tuple[str, str]] = []
-    for text, start_idx, _end_idx in runs:
-        is_active = start_idx <= queue.current_idx <= _end_idx
+    for text, start_idx, end_idx in runs:
+        is_active = start_idx <= queue.current_idx <= end_idx
         sgr = f"{active_fg}{active_bg}" if is_active else pending_sgr
         frags.append((sgr, text))
 
@@ -486,9 +496,9 @@ def _render_command_queue(
     total_w = 0
     built: list[tuple[str, str]] = []
     for idx, (sgr, text) in enumerate(frags):
-        w = _wcswidth(text) + (1 if idx > 0 else 0)
+        w = wcswidth(text) + (1 if idx > 0 else 0)
         if total_w + w > avail - 1 and built:
-            built.append((pending_sgr, _ELLIPSIS))
+            built.append((pending_sgr, ELLIPSIS))
             total_w += 1
             break
         if idx > 0:
@@ -502,16 +512,16 @@ def _render_command_queue(
     pad = avail - total_w
     if pad > 0:
         out.write(f"{base_bg_sgr}{' ' * pad}{normal}".encode())
-    _write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
+    write_hint(hint, out, blessed_term, progress=progress, bg_sgr=base_bg_sgr)
     out.write(normal.encode())
     return total_w
 
 
-async def _send_chained(
+async def send_chained(
     commands: list[str],
     ctx: "SessionContext",
     log: logging.Logger,
-    queue: "Optional[_CommandQueue]" = None,
+    queue: "Optional[CommandQueue]" = None,
     immediate_set: frozenset[int] = frozenset(),
 ) -> None:
     """
@@ -527,7 +537,7 @@ async def _send_chained(
     When all commands in the list are identical (e.g. ``9e`` expanded to
     nine ``e`` commands), movement retry logic is applied: if the room
     does not change after a command, the same command is retried up to
-    :data:`_MOVE_MAX_RETRIES` times with a delay between attempts.
+    :data:`MOVE_MAX_RETRIES` times with a delay between attempts.
 
     :param commands: List of commands (index 1+ will be sent).
     :param ctx: Session context.
@@ -542,7 +552,7 @@ async def _send_chained(
 
     is_repeated = len(commands) > 1 and len(set(commands)) == 1
 
-    async def _cancellable_sleep(delay: float) -> bool:
+    async def cancellable_sleep(delay: float) -> bool:
         """Sleep for *delay* seconds, returning ``True`` if cancelled."""
         if queue is None:
             await asyncio.sleep(delay)
@@ -554,41 +564,41 @@ async def _send_chained(
             return False
 
     # Learned during this batch: True if cmd caused a room change,
-    # False if it did not.  Unset commands fall back to _is_known_exit.
-    _moves_room: dict[str, bool] = {}
+    # False if it did not.  Unset commands fall back to is_known_exit.
+    moves_room: dict[str, bool] = {}
 
-    for _idx, cmd in enumerate(commands[1:], 1):
+    for idx, cmd in enumerate(commands[1:], 1):
         if queue is not None:
             if queue.cancelled:
                 return
-            queue.current_idx = _idx
+            queue.current_idx = idx
             queue.render()
 
-        dm = _DELAY_RE.match(cmd)
+        dm = DELAY_RE.match(cmd)
         if dm:
             value = float(dm.group(1))
             unit = dm.group(2)
             delay = value / 1000.0 if unit == "ms" else value
             if delay > 0:
-                if await _cancellable_sleep(delay):
+                if await cancellable_sleep(delay):
                     return
             continue
 
         # Detect runs of identical commands (e.g. "9e;6n" expands to
         # e,e,...,n,n,...) -- these need movement pacing even in mixed
         # lists.  A command is "repeated" if it matches the previous one.
-        prev_cmd = commands[_idx - 1] if _idx > 0 else ""
+        prev_cmd = commands[idx - 1] if idx > 0 else ""
         is_run = is_repeated or cmd == prev_cmd
-        use_move_pacing = is_run and _moves_room.get(cmd, _is_known_exit(cmd, ctx))
+        use_move_pacing = is_run and moves_room.get(cmd, is_known_exit(cmd, ctx))
         prev_room = ctx.current_room_num if use_move_pacing else ""
 
         if not use_move_pacing:
             if is_run:
                 # Repeated non-movement command (e.g. "10buy coffee"):
                 # pace with a fixed delay, no GA/EOR wait needed.
-                if await _cancellable_sleep(_COMMAND_DELAY):
+                if await cancellable_sleep(COMMAND_DELAY):
                     return
-            elif _idx not in immediate_set:
+            elif idx not in immediate_set:
                 # Mixed commands: GA/EOR pacing.
                 if prompt_ready is not None:
                     prompt_ready.clear()
@@ -597,7 +607,7 @@ async def _send_chained(
             log.debug("chained command: %r", cmd)
             if echo_fn is not None:
                 echo_fn(cmd)
-            ctx.active_command_time = _monotonic()
+            ctx.active_command_time = monotonic()
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
@@ -610,14 +620,14 @@ async def _send_chained(
             continue
 
         # Repeated commands: delay + room-change pacing with retry.
-        for attempt in range(_MOVE_MAX_RETRIES + 1):
+        for attempt in range(MOVE_MAX_RETRIES + 1):
             if queue is not None and queue.cancelled:
                 return
             # Always delay -- the first repeated command needs spacing
             # from the caller's initial send, and retries need a longer
             # back-off to respect the server's rate limit.
-            delay = _COMMAND_DELAY if attempt == 0 else 1.0
-            if await _cancellable_sleep(delay):
+            delay = COMMAND_DELAY if attempt == 0 else 1.0
+            if await cancellable_sleep(delay):
                 return
             if room_changed is not None:
                 room_changed.clear()
@@ -629,7 +639,7 @@ async def _send_chained(
                     echo_fn(cmd)
             else:
                 log.info("chained retry %d: %r", attempt, cmd)
-            ctx.active_command_time = _monotonic()
+            ctx.active_command_time = monotonic()
             if ctx.cx_dot is not None:
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
@@ -648,7 +658,7 @@ async def _send_chained(
             # while still detecting rate-limit rejections.
             actual = ctx.current_room_num
             if actual != prev_room:
-                _moves_room[cmd] = True
+                moves_room[cmd] = True
                 break
             if room_changed is not None:
                 try:
@@ -657,32 +667,31 @@ async def _send_chained(
                     pass
                 actual = ctx.current_room_num
             if actual != prev_room:
-                _moves_room[cmd] = True
+                moves_room[cmd] = True
                 break
 
             # First attempt didn't change rooms -- this command is
             # not movement (e.g. "buy coffee").  Record the result
             # and fall back to GA/EOR pacing for subsequent repeats.
-            if attempt == 0 and cmd not in _moves_room:
-                _moves_room[cmd] = False
+            if attempt == 0 and cmd not in moves_room:
+                moves_room[cmd] = False
                 log.debug("room unchanged after %r, switching to prompt pacing", cmd)
                 break
 
-            if attempt < _MOVE_MAX_RETRIES:
+            if attempt < MOVE_MAX_RETRIES:
                 log.info(
-                    "room unchanged after %r, retrying (%d/%d)",
-                    cmd, attempt + 1, _MOVE_MAX_RETRIES,
+                    "room unchanged after %r, retrying (%d/%d)", cmd, attempt + 1, MOVE_MAX_RETRIES
                 )
             else:
                 log.warning(
-                    "room unchanged after %r, giving up after %d retries",
-                    cmd, _MOVE_MAX_RETRIES,
+                    "room unchanged after %r, giving up after %d retries", cmd, MOVE_MAX_RETRIES
                 )
                 return
 
 
-def _macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
-    """Send a single command for macro execution.
+def macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
+    """
+    Send a single command for macro execution.
 
     :param ctx: Session context.
     :param log: Logger.
@@ -693,7 +702,7 @@ def _macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
         ctx.active_command = "\u2593" * len(cmd)
     else:
         ctx.active_command = cmd
-    ctx.active_command_time = _monotonic()
+    ctx.active_command_time = monotonic()
     if ctx.cx_dot is not None:
         ctx.cx_dot.trigger()
     if ctx.tx_dot is not None:
@@ -707,7 +716,7 @@ async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.
 
     Expands the text with :func:`expand_commands_ex`, then processes each
     part -- backtick-enclosed travel commands are routed through
-    :func:`_handle_travel_commands`, delay/when/until/untils commands are
+    :func:`handle_travel_commands`, delay/when/until/untils commands are
     dispatched via :func:`dispatch_one`, and plain commands are sent to
     the server with GA/EOR pacing (or immediately if ``|`` separated).
 
@@ -715,7 +724,7 @@ async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.
     :param ctx: Session context.
     :param log: Logger.
     """
-    from .client_repl_travel import _handle_travel_commands
+    from .client_repl_travel import handle_travel_commands
 
     expanded = expand_commands_ex(text)
     parts = list(expanded.commands)
@@ -729,10 +738,10 @@ async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.
         ctx=ctx,
         log=log,
         wait_fn=ctx.wait_for_prompt,
-        send_fn=lambda cmd: _macro_send(ctx, log, cmd),
+        send_fn=lambda cmd: macro_send(ctx, log, cmd),
         echo_fn=ctx.echo_command,
         prompt_ready=ctx.prompt_ready,
-        search_buffer=_get_search_buffer(ctx),
+        search_buffer=get_search_buffer(ctx),
     )
     sent_count = 0
 
@@ -740,8 +749,8 @@ async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.
     while idx < len(parts):
         cmd = parts[idx]
 
-        if _TRAVEL_RE.match(cmd):
-            remainder = await _handle_travel_commands(parts[idx:], ctx, log)
+        if TRAVEL_RE.match(cmd):
+            remainder = await handle_travel_commands(parts[idx:], ctx, log)
             parts = remainder
             immediate_set = frozenset()
             idx = 0

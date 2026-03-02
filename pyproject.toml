@@ -132,6 +132,7 @@ disable = [
     "ungrouped-imports",
     "consider-using-with",
     "consider-using-from-import",
+    "missing-function-docstring",
 ]
 
 [tool.pylint.format]

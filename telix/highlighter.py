@@ -43,8 +43,8 @@ __all__ = (
     "validate_highlight",
 )
 
-_RE_FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL
-_DEFAULT_AUTOREPLY_HIGHLIGHT = "black_on_beige"
+RE_FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL
+DEFAULT_AUTOREPLY_HIGHLIGHT = "black_on_beige"
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def validate_highlight(term: blessed.Terminal, name: str) -> bool:
     return callable(attr)
 
 
-def _parse_entries(entries: list[dict[str, Any]]) -> list[HighlightRule]:
+def parse_entries(entries: list[dict[str, Any]]) -> list[HighlightRule]:
     """Parse a list of highlight entry dicts into :class:`HighlightRule` instances."""
     rules: list[HighlightRule] = []
     for entry in entries:
@@ -142,7 +142,7 @@ def load_highlights(path: str, session_key: str) -> list[HighlightRule]:
         data: dict[str, Any] = json.load(fh)
     session_data: dict[str, Any] = data.get(session_key, {})
     entries: list[dict[str, Any]] = session_data.get("highlights", [])
-    return _parse_entries(entries)
+    return parse_entries(entries)
 
 
 def save_highlights(path: str, rules: list[HighlightRule], session_key: str) -> None:
@@ -185,15 +185,15 @@ def save_highlights(path: str, rules: list[HighlightRule], session_key: str) -> 
         json.dump(data, fh, indent=2, ensure_ascii=False)
 
 
-class _CompiledRuleSet:
+class CompiledRuleSet:
     """
     A single combined regex built from all highlight + autoreply patterns.
 
-    Each source pattern becomes a named group ``_hl0``, ``_hl1``, etc.
+    Each source pattern becomes a named group ``hl0``, ``hl1``, etc.
     A single :meth:`finditer` call replaces N separate passes.
     """
 
-    __slots__ = ("_combined", "_group_map")
+    __slots__ = ("combined", "group_map")
 
     def __init__(
         self,
@@ -203,45 +203,45 @@ class _CompiledRuleSet:
         autoreply_enabled: bool,
     ) -> None:
         parts: list[str] = []
-        self._group_map: list[tuple[str, bool, int]] = []
+        self.group_map: list[tuple[str, bool, int]] = []
 
         if autoreply_enabled:
             for ar in autoreply_rules:
                 if not ar.enabled:
                     continue
-                gname = f"_hl{len(parts)}"
+                gname = f"hl{len(parts)}"
                 parts.append(f"(?P<{gname}>{ar.pattern.pattern})")
-                self._group_map.append((autoreply_highlight, False, -1))
+                self.group_map.append((autoreply_highlight, False, -1))
 
         for rule_i, rule in enumerate(rules):
             if not rule.enabled:
                 continue
-            gname = f"_hl{len(parts)}"
+            gname = f"hl{len(parts)}"
             pat = rule.pattern.pattern
             if rule.case_sensitive:
                 parts.append(f"(?P<{gname}>(?-i:{pat}))")
             else:
                 parts.append(f"(?P<{gname}>{pat})")
-            self._group_map.append((rule.highlight, rule.stop_movement, rule_i))
+            self.group_map.append((rule.highlight, rule.stop_movement, rule_i))
 
-        self._combined: Optional[re.Pattern[str]] = None
+        self.combined: Optional[re.Pattern[str]] = None
         if parts:
             try:
-                self._combined = re.compile("|".join(parts), _RE_FLAGS)
+                self.combined = re.compile("|".join(parts), RE_FLAGS)
             except re.error:
-                self._combined = None
+                self.combined = None
 
     def finditer(self, text: str) -> list[Span]:
         """Return non-overlapping :data:`Span` tuples."""
-        if self._combined is None:
+        if self.combined is None:
             return []
         spans: list[Span] = []
-        for m in self._combined.finditer(text):
+        for m in self.combined.finditer(text):
             gname = m.lastgroup
             if gname is None:
                 continue
-            idx = int(gname[3:])
-            hl, stop, rule_idx = self._group_map[idx]
+            idx = int(gname[2:])
+            hl, stop, rule_idx = self.group_map[idx]
             start, end = m.start(), m.end()
             if spans and start < spans[-1][1]:
                 continue
@@ -271,31 +271,31 @@ class HighlightEngine:
         autoreply_rules: list[AutoreplyRule],
         term: blessed.Terminal,
         ctx: Optional[SessionContext] = None,
-        autoreply_highlight: str = _DEFAULT_AUTOREPLY_HIGHLIGHT,
+        autoreply_highlight: str = DEFAULT_AUTOREPLY_HIGHLIGHT,
         autoreply_enabled: bool = True,
     ) -> None:
         """Initialize engine with highlight and autoreply *rules*."""
-        self._term = term
-        self._ctx = ctx
-        self._rules = list(rules)
+        self.term = term
+        self.ctx = ctx
+        self.rules = list(rules)
         sl_rules = [r for r in rules if not r.multiline]
-        # Map single-line ruleset indices back to full _rules indices.
-        self._sl_indices = [i for i, r in enumerate(rules) if not r.multiline]
-        self._ruleset = _CompiledRuleSet(
+        # Map single-line ruleset indices back to full rules indices.
+        self.sl_indices = [i for i, r in enumerate(rules) if not r.multiline]
+        self.ruleset = CompiledRuleSet(
             sl_rules, autoreply_rules, autoreply_highlight, autoreply_enabled
         )
         self.enabled = True
-        self._highlight_cache: dict[str, str] = {}
+        self.highlight_cache: dict[str, str] = {}
 
-    def _get_highlight_seq(self, name: str) -> str:
+    def get_highlight_seq(self, name: str) -> str:
         """Return the SGR sequence string for a blessed compoundable name."""
-        if name not in self._highlight_cache:
+        if name not in self.highlight_cache:
             try:
-                attr = getattr(self._term, name)
-                self._highlight_cache[name] = str(attr)
+                attr = getattr(self.term, name)
+                self.highlight_cache[name] = str(attr)
             except Exception:
-                self._highlight_cache[name] = ""
-        return self._highlight_cache[name]
+                self.highlight_cache[name] = ""
+        return self.highlight_cache[name]
 
     def process_line(self, line: str) -> tuple[str, bool]:
         """
@@ -312,37 +312,37 @@ class HighlightEngine:
         if not plain:
             return line, False
 
-        spans = self._collect_spans(plain)
+        spans = self.collect_spans(plain)
         if not spans:
             return line, False
 
-        self._extract_captures(spans, plain)
-        stop_notice = self._handle_stop_movement(spans)
-        rebuilt = self._rebuild_line(line, plain, spans)
+        self.extract_captures(spans, plain)
+        stop_notice = self.handle_stop_movement(spans)
+        rebuilt = self.rebuild_line(line, plain, spans)
         if stop_notice:
             rebuilt = rebuilt.rstrip("\r\n") + stop_notice + "\r\n"
         return rebuilt, True
 
-    def _collect_spans(self, plain: str) -> list[Span]:
+    def collect_spans(self, plain: str) -> list[Span]:
         """
         Collect all highlight match spans from enabled rules.
 
-        Delegates to the combined :class:`_CompiledRuleSet` for a single-pass
+        Delegates to the combined :class:`CompiledRuleSet` for a single-pass
         :meth:`finditer` over all patterns.  Remaps ``rule_idx`` from the
-        single-line subset back to the full ``_rules`` list.
+        single-line subset back to the full ``rules`` list.
 
         :returns: List of :data:`Span` tuples sorted by start position,
             with overlaps resolved (first rule wins).
         """
-        spans = self._ruleset.finditer(plain)
-        if not self._sl_indices:
+        spans = self.ruleset.finditer(plain)
+        if not self.sl_indices:
             return spans
         return [
-            (s, e, hl, stop, (self._sl_indices[ri] if ri >= 0 else ri), m)
+            (s, e, hl, stop, (self.sl_indices[ri] if ri >= 0 else ri), m)
             for s, e, hl, stop, ri, m in spans
         ]
 
-    def _extract_captures(self, spans: list[Span], plain: str) -> None:
+    def extract_captures(self, spans: list[Span], plain: str) -> None:
         r"""
         Extract capture data from matched spans into ``ctx.captures`` and ``ctx.capture_log``.
 
@@ -353,18 +353,18 @@ class HighlightEngine:
           (e.g. ``\1``) is resolved against a re-match of the rule's own pattern
           on the matched text, and the integer result is stored in ``ctx.captures``.
         """
-        ctx = self._ctx
+        ctx = self.ctx
         if ctx is None:
             return
         from datetime import datetime, timezone
 
-        _group_ref = re.compile(r"\\(\d+)")
+        group_ref = re.compile(r"\\(\d+)")
         for _s, _e, _hl, _stop, rule_idx, match in spans:
             if rule_idx < 0 or match is None:
                 continue
-            if rule_idx >= len(self._rules):
+            if rule_idx >= len(self.rules):
                 continue
-            rule = self._rules[rule_idx]
+            rule = self.rules[rule_idx]
             if not rule.captured:
                 continue
             # Re-match with the rule's own pattern to get correct group numbers.
@@ -372,8 +372,8 @@ class HighlightEngine:
             rematch = rule.pattern.search(matched_text)
             # Resolve group refs in channel name (e.g. \1 -> "Bob").
             channel = rule.capture_name
-            if rematch is not None and _group_ref.search(channel):
-                channel = _group_ref.sub(lambda m2: rematch.group(int(m2.group(1))) or "", channel)
+            if rematch is not None and group_ref.search(channel):
+                channel = group_ref.sub(lambda m2: rematch.group(int(m2.group(1))) or "", channel)
             entry = {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "line": plain,
@@ -387,7 +387,7 @@ class HighlightEngine:
                 value_tmpl = cap.get("value", "")
                 if not key or not value_tmpl:
                     continue
-                resolved = _group_ref.sub(
+                resolved = group_ref.sub(
                     lambda m2: rematch.group(int(m2.group(1))) or "", value_tmpl
                 )
                 try:
@@ -395,13 +395,13 @@ class HighlightEngine:
                 except (ValueError, TypeError):
                     pass
 
-    def _handle_stop_movement(self, spans: list[Span]) -> Optional[str]:
+    def handle_stop_movement(self, spans: list[Span]) -> Optional[str]:
         """
         Cancel discover/randomwalk tasks if any span has stop_movement.
 
         :returns: Cyan-colored notice string to append, or ``None``.
         """
-        ctx = self._ctx
+        ctx = self.ctx
         if ctx is None:
             return None
         cancelled: list[str] = []
@@ -425,12 +425,12 @@ class HighlightEngine:
             break
         if not cancelled:
             return None
-        cyan = str(self._term.cyan)
-        normal = str(self._term.normal)
+        cyan = str(self.term.cyan)
+        normal = str(self.term.normal)
         modes = ", ".join(cancelled)
         return f" {cyan}[stop: {modes} cancelled]{normal}"
 
-    def _rebuild_line(self, line: str, plain: str, spans: list[Span]) -> str:
+    def rebuild_line(self, line: str, plain: str, spans: list[Span]) -> str:
         """
         Rebuild *line* injecting highlight SGR at matched spans.
 
@@ -460,7 +460,7 @@ class HighlightEngine:
 
                     if not in_highlight and plain_pos >= s_start:
                         saved_sgr = sgr_state
-                        hl_seq = self._get_highlight_seq(hl_name)
+                        hl_seq = self.get_highlight_seq(hl_name)
                         if hl_seq:
                             output.append(hl_seq)
                         in_highlight = True
@@ -477,7 +477,7 @@ class HighlightEngine:
                             s_start, s_end, hl_name, _stop, _ri, _m = spans[span_idx]
                             if plain_pos >= s_start:
                                 saved_sgr = sgr_state
-                                hl_seq = self._get_highlight_seq(hl_name)
+                                hl_seq = self.get_highlight_seq(hl_name)
                                 if hl_seq:
                                     output.append(hl_seq)
                                 in_highlight = True
@@ -494,7 +494,7 @@ class HighlightEngine:
         return "".join(output)
 
     @staticmethod
-    def _normalize_plain(plain: str) -> tuple[str, list[int]]:
+    def normalize_plain(plain: str) -> tuple[str, list[int]]:
         r"""
         Strip ``\r``, return ``(normalized, position_map)``.
 
@@ -520,7 +520,7 @@ class HighlightEngine:
 
         from wcwidth import propagate_sgr
 
-        ml_entries = [(i, r) for i, r in enumerate(self._rules) if r.multiline and r.enabled]
+        ml_entries = [(i, r) for i, r in enumerate(self.rules) if r.multiline and r.enabled]
         if not ml_entries:
             return block, False
 
@@ -528,12 +528,12 @@ class HighlightEngine:
         if not plain:
             return block, False
 
-        normalized, pos_map = self._normalize_plain(plain)
+        normalized, pos_map = self.normalize_plain(plain)
 
         parts: list[str] = []
         group_map: list[tuple[str, bool, int]] = []
         for full_idx, rule in ml_entries:
-            gname = f"_ml{len(parts)}"
+            gname = f"ml{len(parts)}"
             pat = rule.pattern.pattern
             if rule.case_sensitive:
                 parts.append(f"(?P<{gname}>(?-i:{pat}))")
@@ -541,13 +541,13 @@ class HighlightEngine:
                 parts.append(f"(?P<{gname}>{pat})")
             group_map.append((rule.highlight, rule.stop_movement, full_idx))
 
-        combined = re.compile("|".join(parts), _RE_FLAGS)
+        combined = re.compile("|".join(parts), RE_FLAGS)
         spans: list[Span] = []
         for m in combined.finditer(normalized):
             gname = m.lastgroup
             if gname is None:
                 continue
-            idx = int(gname[3:])
+            idx = int(gname[2:])
             hl, stop, rule_idx = group_map[idx]
             n_start, n_end = m.start(), m.end()
             # Remap positions back through the \r-stripped pos_map.
@@ -562,9 +562,9 @@ class HighlightEngine:
         if not spans:
             return block, False
 
-        self._extract_captures(spans, plain)
-        stop_notice = self._handle_stop_movement(spans)
-        rebuilt = self._rebuild_line(block, plain, spans)
+        self.extract_captures(spans, plain)
+        stop_notice = self.handle_stop_movement(spans)
+        rebuilt = self.rebuild_line(block, plain, spans)
         if stop_notice:
             rebuilt = rebuilt.rstrip("\r\n") + stop_notice + "\r\n"
 

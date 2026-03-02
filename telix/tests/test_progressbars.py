@@ -11,8 +11,8 @@ import pytest
 
 # local
 from telix.progressbars import (
-    BarConfig,
     TRAVEL_BAR_NAME,
+    BarConfig,
     bar_color_at,
     load_progressbars,
     save_progressbars,
@@ -132,11 +132,27 @@ def test_round_trip(tmp_path):
     path = str(tmp_path / "pb.json")
     bars = [
         BarConfig(
-            "HP", "Char.Vitals", "hp", "maxhp", True, "theme", "green", "red", "shortest",
+            "HP",
+            "Char.Vitals",
+            "hp",
+            "maxhp",
+            True,
+            "theme",
+            "green",
+            "red",
+            "shortest",
             display_order=0,
         ),
         BarConfig(
-            "MP", "Char.Vitals", "mp", "maxmp", True, "custom", "blue", "gold1", "longest",
+            "MP",
+            "Char.Vitals",
+            "mp",
+            "maxmp",
+            True,
+            "custom",
+            "blue",
+            "gold1",
+            "longest",
             display_order=1,
         ),
     ]
@@ -356,8 +372,11 @@ def test_side_left_omitted_from_json(tmp_path):
 
 def test_load_json_without_side_defaults_left(tmp_path):
     path = str(tmp_path / "pb.json")
-    data = {"m:1": {"bars": [{"name": "HP", "gmcp_package": "V",
-            "value_field": "hp", "max_field": "mhp"}]}}
+    data = {
+        "m:1": {
+            "bars": [{"name": "HP", "gmcp_package": "V", "value_field": "hp", "max_field": "mhp"}]
+        }
+    }
     with open(path, "w") as f:
         json.dump(data, f)
     loaded = load_progressbars(path, "m:1")

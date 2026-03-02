@@ -7,7 +7,6 @@ Telix
    :caption: User Guide
 
    intro
-   session-manager
    user-manual
    files
    contributing

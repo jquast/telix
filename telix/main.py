@@ -5,7 +5,7 @@ import sys
 import asyncio
 
 
-def _reinit() -> None:
+def reinit() -> None:
     """Overwrite sessions.json with the bundled directory."""
     from .directory import directory_to_sessions
     from .client_tui import save_sessions
@@ -23,7 +23,7 @@ def main() -> None:
     directly via telnetlib3's client.
     """
     if "--reinit" in sys.argv[1:]:
-        _reinit()
+        reinit()
         return
 
     has_host = any(not arg.startswith("-") for arg in sys.argv[1:])

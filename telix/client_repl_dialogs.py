@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 # local
-from ._paths import _safe_terminal_size
+from .paths import safe_terminal_size
 
 if TYPE_CHECKING:
     from .session_context import SessionContext
@@ -16,15 +16,15 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # Buffer for MUD data received while a TUI editor subprocess is running.
-# The asyncio _read_server loop continues receiving MUD data during editor
+# The asyncio read_server loop continues receiving MUD data during editor
 # sessions; writing that data to the terminal fills the PTY buffer and
 # deadlocks the editor's Textual WriterThread.  Data is queued here and
 # replayed when the editor exits.
-_editor_active = False
-_editor_buffer: list[bytes] = []
+editor_active = False
+editor_buffer: list[bytes] = []
 
 
-def _get_logfile_path() -> str:
+def get_logfile_path() -> str:
     """Return the path of the first FileHandler on the root logger, or ``""``."""
     for handler in logging.getLogger().handlers:
         if isinstance(handler, logging.FileHandler) and handler.baseFilename:
@@ -32,7 +32,7 @@ def _get_logfile_path() -> str:
     return ""
 
 
-def _confirm_dialog(
+def confirm_dialog(
     title: str, body: str, warning: str = "", replay_buf: Optional[Any] = None
 ) -> bool:
     """
@@ -48,16 +48,16 @@ def _confirm_dialog(
     :param replay_buf: Optional replay buffer for screen repaint.
     :returns: Whether the user confirmed.
     """
-    import json as _json
+    import json as json
     import tempfile
     import subprocess
 
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="confirm-")
     os.close(fd)
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
@@ -72,7 +72,7 @@ def _confirm_dialog(
         logfile,
     ]
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log = logging.getLogger(__name__)
     log.debug(
         "confirm_dialog: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
@@ -85,28 +85,28 @@ def _confirm_dialog(
         sys.__stderr__.isatty(),
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),
-        _safe_terminal_size(),
+        safe_terminal_size(),
     )
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     try:
-        with _blocking_fds():
+        with blocking_fds():
             subprocess.run(cmd, check=False)
     except FileNotFoundError:
         pass
     finally:
-        _editor_active = False
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        restore_after_subprocess(replay_buf)
 
     confirmed = False
     try:
         with open(result_path, "r", encoding="utf-8") as f:
-            data = _json.load(f)
+            data = json.load(f)
         confirmed = bool(data.get("confirmed", False))
     except (OSError, ValueError):
         pass
@@ -119,7 +119,7 @@ def _confirm_dialog(
     return confirmed
 
 
-def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -> Optional[str]:
+def randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -> Optional[str]:
     """
     Show the random walk dialog with visit-level parameter.
 
@@ -131,11 +131,11 @@ def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") 
     :returns: Command string (e.g. ``"`randomwalk 2 autosearch`"``) on
         confirm, or ``None`` on cancel.
     """
-    import json as _json
+    import json as json
     import tempfile
     import subprocess
 
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
     default_visit_level = 2
     default_auto_search = False
@@ -155,7 +155,7 @@ def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") 
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="randomwalk-")
     os.close(fd)
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
@@ -176,46 +176,42 @@ def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") 
         logfile,
     ]
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log = logging.getLogger(__name__)
     log.debug("randomwalk_dialog: launching subprocess")
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     try:
-        with _blocking_fds():
+        with blocking_fds():
             subprocess.run(cmd, check=False)
     except FileNotFoundError:
         pass
     finally:
-        _editor_active = False
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        restore_after_subprocess(replay_buf)
 
     try:
         with open(result_path, "r", encoding="utf-8") as f:
-            data = _json.load(f)
+            data = json.load(f)
         if not data.get("confirmed", False):
             return None
         if session_key:
-            from .rooms import load_prefs as _load_prefs
+            from .rooms import load_prefs as load_prefs
             from .rooms import save_prefs
 
-            save_data = _load_prefs(session_key)
+            save_data = load_prefs(session_key)
             save_data["randomwalk_visit_level"] = int(data.get("visit_level", default_visit_level))
             save_data["randomwalk_auto_search"] = bool(data.get("auto_search", default_auto_search))
             save_data["randomwalk_auto_evaluate"] = bool(
                 data.get("auto_evaluate", default_auto_evaluate)
             )
-            save_data["randomwalk_auto_survey"] = bool(
-                data.get("auto_survey", default_auto_survey)
-            )
-            save_data["randomwalk_autoreplies"] = bool(
-                data.get("autoreplies", default_autoreplies)
-            )
+            save_data["randomwalk_auto_survey"] = bool(data.get("auto_survey", default_auto_survey))
+            save_data["randomwalk_autoreplies"] = bool(data.get("autoreplies", default_autoreplies))
             save_prefs(session_key, save_data)
         return str(data.get("command", f"`randomwalk 999 {default_visit_level}`"))
     except (OSError, ValueError):
@@ -227,7 +223,7 @@ def _randomwalk_dialog(replay_buf: Optional[Any] = None, session_key: str = "") 
             pass
 
 
-def _autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -> Optional[str]:
+def autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = "") -> Optional[str]:
     """
     Show the autodiscover dialog with BFS/DFS strategy selection.
 
@@ -239,11 +235,11 @@ def _autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = ""
     :returns: Command string (e.g. ``"`autodiscover bfs`"``) on
         confirm, or ``None`` on cancel.
     """
-    import json as _json
+    import json as json
     import tempfile
     import subprocess
 
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
     default_strategy = "bfs"
     default_auto_search = False
@@ -265,7 +261,7 @@ def _autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = ""
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="autodiscover-")
     os.close(fd)
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
@@ -286,35 +282,35 @@ def _autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = ""
         logfile,
     ]
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log = logging.getLogger(__name__)
     log.debug("autodiscover_dialog: launching subprocess")
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     try:
-        with _blocking_fds():
+        with blocking_fds():
             subprocess.run(cmd, check=False)
     except FileNotFoundError:
         pass
     finally:
-        _editor_active = False
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        restore_after_subprocess(replay_buf)
 
     try:
         with open(result_path, "r", encoding="utf-8") as f:
-            data = _json.load(f)
+            data = json.load(f)
         if not data.get("confirmed", False):
             return None
         if session_key:
-            from .rooms import load_prefs as _load_prefs
+            from .rooms import load_prefs as load_prefs
             from .rooms import save_prefs
 
-            save_data = _load_prefs(session_key)
+            save_data = load_prefs(session_key)
             save_data["autodiscover_strategy"] = str(data.get("strategy", default_strategy))
             save_data["autodiscover_auto_search"] = bool(
                 data.get("auto_search", default_auto_search)
@@ -339,7 +335,7 @@ def _autodiscover_dialog(replay_buf: Optional[Any] = None, session_key: str = ""
             pass
 
 
-def _strip_md(text: str) -> str:
+def strip_md(text: str) -> str:
     """Strip markdown bold/code markers from text."""
     import re
 
@@ -348,7 +344,7 @@ def _strip_md(text: str) -> str:
     return text.strip()
 
 
-def _render_help_md(has_gmcp: bool = False) -> list[str]:
+def render_help_md(has_gmcp: bool = False) -> list[str]:
     """
     Render keybindings help markdown into plain-text lines.
 
@@ -378,20 +374,20 @@ def _render_help_md(has_gmcp: bool = False) -> list[str]:
         elif stripped.startswith("|") and "---" in stripped:
             continue
         elif stripped.startswith("|"):
-            cells = [_strip_md(c) for c in stripped.split("|")[1:-1]]
+            cells = [strip_md(c) for c in stripped.split("|")[1:-1]]
             if in_header_row:
                 in_header_row = False
                 continue
             if len(cells) >= 2 and cells[0]:
                 lines.append(f"  {cells[0]:<16}{cells[1]}")
         elif stripped and not stripped.startswith("|"):
-            lines.append("  " + _strip_md(stripped))
+            lines.append("  " + strip_md(stripped))
         elif lines and lines[-1] != "":
             lines.append("")
     return lines
 
 
-def _show_help(
+def show_help(
     macro_defs: "Any" = None, replay_buf: Optional[Any] = None, has_gmcp: bool = False
 ) -> None:
     """
@@ -403,9 +399,9 @@ def _show_help(
     """
     import subprocess
 
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
@@ -416,37 +412,38 @@ def _show_help(
     ]
 
     log = logging.getLogger(__name__)
-    global _editor_active  # noqa: PLW0603
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    global editor_active  # noqa: PLW0603
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     try:
-        with _blocking_fds():
+        with blocking_fds():
             subprocess.run(cmd, check=False)
     except FileNotFoundError:
         log.warning("could not launch help viewer subprocess")
     finally:
-        _editor_active = False
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        restore_after_subprocess(replay_buf)
 
 
-def _pause_on_subprocess_error(result: Optional[Any]) -> None:
-    """Pause so the user can read any error output before screen repaint.
+def pause_on_subprocess_error(result: Optional[Any]) -> None:
+    """
+    Pause so the user can read any error output before screen repaint.
 
     When the TUI subprocess exits with a non-zero return code its traceback
-    is already on screen (written by the child's ``_run_editor_app``).
+    is already on screen (written by the child's ``run_editor_app``).
     This moves the cursor below the output and waits for the user to press
-    RETURN before ``_restore_after_subprocess`` clears and repaints.
+    RETURN before ``restore_after_subprocess`` clears and repaints.
     """
     if result is None or result.returncode == 0:
         return
-    from .client_repl import _get_term
+    from .client_repl import get_term
 
-    term = _get_term()
+    term = get_term()
     sys.stdout.write(term.move_yx(term.height - 1, 0))
     sys.stdout.write("\r\nPress RETURN to continue...\r\n")
     sys.stdout.flush()
@@ -456,7 +453,7 @@ def _pause_on_subprocess_error(result: Optional[Any]) -> None:
         pass
 
 
-def _launch_unified_editor(
+def launch_unified_editor(
     initial_tab: str, ctx: "SessionContext", replay_buf: Optional[Any] = None
 ) -> None:
     """
@@ -469,30 +466,28 @@ def _launch_unified_editor(
     :param ctx: Session context with file path and definition attributes.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    import json as _json
+    import json as json
     import tempfile
     import subprocess
 
-    from ._paths import CONFIG_DIR as _config_dir
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
-    from .rooms import (
-        rooms_path as _rooms_path_fn,
-        read_fasttravel,
-        fasttravel_path as _fasttravel_path_fn,
-        current_room_path as _current_room_path_fn,
-    )
+    from .paths import CONFIG_DIR as config_dir
+    from .rooms import rooms_path as rooms_path_fn
+    from .rooms import fasttravel_path as fasttravel_path_fn
+    from .rooms import read_fasttravel
+    from .rooms import current_room_path as current_room_path_fn
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
     session_key = ctx.session_key
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
 
     # -- Gather all pane parameters --
-    highlights_file = ctx.highlights_file or os.path.join(_config_dir, "highlights.json")
-    macros_file = ctx.macros_file or os.path.join(_config_dir, "macros.json")
-    autoreplies_file = ctx.autoreplies_file or os.path.join(_config_dir, "autoreplies.json")
-    progressbars_file = ctx.progressbars_file or os.path.join(_config_dir, "progressbars.json")
-    rooms_file = ctx.rooms_file or _rooms_path_fn(session_key)
-    current_room_file = ctx.current_room_file or _current_room_path_fn(session_key)
-    fasttravel_file = _fasttravel_path_fn(session_key)
+    highlights_file = ctx.highlights_file or os.path.join(config_dir, "highlights.json")
+    macros_file = ctx.macros_file or os.path.join(config_dir, "macros.json")
+    autoreplies_file = ctx.autoreplies_file or os.path.join(config_dir, "autoreplies.json")
+    progressbars_file = ctx.progressbars_file or os.path.join(config_dir, "progressbars.json")
+    rooms_file = ctx.rooms_file or rooms_path_fn(session_key)
+    current_room_file = ctx.current_room_file or current_room_path_fn(session_key)
+    fasttravel_file = fasttravel_path_fn(session_key)
 
     # Flush GMCP snapshot so the bars editor can read it.
     gmcp_snapshot_file = ctx.gmcp_snapshot_file or ""
@@ -500,7 +495,7 @@ def _launch_unified_editor(
         from .gmcp_snapshot import save_gmcp_snapshot
 
         save_gmcp_snapshot(gmcp_snapshot_file, session_key, ctx.gmcp_data)
-        ctx._gmcp_dirty = False
+        ctx.gmcp_dirty = False
 
     # Autoreply select pattern.
     engine = ctx.autoreply_engine
@@ -521,7 +516,7 @@ def _launch_unified_editor(
         fd, capture_file = tempfile.mkstemp(suffix=".json", prefix="captures-")
         os.close(fd)
         with open(capture_file, "w", encoding="utf-8") as fh:
-            _json.dump({"captures": captures, "capture_log": capture_log}, fh)
+            json.dump({"captures": captures, "capture_log": capture_log}, fh)
 
     params = {
         "initial_tab": initial_tab,
@@ -541,43 +536,41 @@ def _launch_unified_editor(
         "capture_file": capture_file,
     }
 
-    params_json = _json.dumps(params)
+    params_json = json.dumps(params)
     cmd = [
         sys.executable,
         "-c",
-        "import sys; from telix.client_tui import unified_editor_main; "
-        "unified_editor_main()",
+        "import sys; from telix.client_tui import unified_editor_main; " "unified_editor_main()",
         params_json,
     ]
 
     log = logging.getLogger(__name__)
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log.debug(
-        "unified_editor: pre-subprocess initial_tab=%s "
-        "TERM=%s COLORTERM=%s terminal_size=%s",
+        "unified_editor: pre-subprocess initial_tab=%s " "TERM=%s COLORTERM=%s terminal_size=%s",
         initial_tab,
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),
-        _safe_terminal_size(),
+        safe_terminal_size(),
     )
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     result = None
     try:
-        with _blocking_fds():
+        with blocking_fds():
             result = subprocess.run(cmd, check=False)
     except FileNotFoundError:
         log.warning("could not launch unified editor subprocess")
     finally:
-        _editor_active = False
-        _pause_on_subprocess_error(result)
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        pause_on_subprocess_error(result)
+        restore_after_subprocess(replay_buf)
         if capture_file:
             try:
                 os.unlink(capture_file)
@@ -585,35 +578,42 @@ def _launch_unified_editor(
                 pass
 
     # Reload all configs that may have been modified.
-    _reload_macros(ctx, macros_file, session_key, log)
-    _reload_highlights(ctx, highlights_file, session_key, log)
-    _reload_autoreplies(ctx, autoreplies_file, session_key, log)
-    _reload_progressbars(ctx, progressbars_file, session_key, log)
+    reload_macros(ctx, macros_file, session_key, log)
+    reload_highlights(ctx, highlights_file, session_key, log)
+    reload_autoreplies(ctx, autoreplies_file, session_key, log)
+    reload_progressbars(ctx, progressbars_file, session_key, log)
+
+    # Rebuild REPL color styles in case the theme was changed.
+    from .repl_theme import invalidate_cache as invalidate_theme_cache
+    from .client_repl_render import make_styles
+
+    invalidate_theme_cache()
+    make_styles()
 
     # Reload room graph.
     room_graph = ctx.room_graph
     if room_graph is not None:
-        room_graph._load_adjacency()
+        room_graph.load_adjacency()
 
     # Handle fast travel.
     steps, noreply = read_fasttravel(fasttravel_file)
     if steps:
-        from .client_repl_travel import _fast_travel
+        from .client_repl_travel import fast_travel
 
         log.debug("travel: scheduling %d steps (noreply=%s)", len(steps), noreply)
-        task = asyncio.ensure_future(_fast_travel(steps, ctx, log, noreply=noreply))
+        task = asyncio.ensure_future(fast_travel(steps, ctx, log, noreply=noreply))
         ctx.travel_task = task
 
-        def _on_done(t: "asyncio.Task[None]") -> None:
+        def on_done(t: "asyncio.Task[None]") -> None:
             if ctx.travel_task is t:
                 ctx.travel_task = None
             if not t.cancelled() and t.exception() is not None:
                 log.warning("fast travel failed: %s", t.exception())
 
-        task.add_done_callback(_on_done)
+        task.add_done_callback(on_done)
 
 
-def _launch_tui_editor(
+def launch_tui_editor(
     editor_type: str, ctx: "SessionContext", replay_buf: Optional[Any] = None
 ) -> None:
     """
@@ -625,20 +625,20 @@ def _launch_tui_editor(
     """
     import subprocess
 
-    from ._paths import CONFIG_DIR as _config_dir
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+    from .paths import CONFIG_DIR as config_dir
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
     session_key = ctx.session_key
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
 
     if editor_type == "macros":
-        path = ctx.macros_file or os.path.join(_config_dir, "macros.json")
-        from .rooms import rooms_path as _rooms_path_fn
-        from .rooms import current_room_path as _current_room_path_fn
+        path = ctx.macros_file or os.path.join(config_dir, "macros.json")
+        from .rooms import rooms_path as rooms_path_fn
+        from .rooms import current_room_path as current_room_path_fn
 
-        rp = ctx.rooms_file or _rooms_path_fn(session_key)
-        crp = ctx.current_room_file or _current_room_path_fn(session_key)
+        rp = ctx.rooms_file or rooms_path_fn(session_key)
+        crp = ctx.current_room_file or current_room_path_fn(session_key)
         cmd = [
             sys.executable,
             "-c",
@@ -653,7 +653,7 @@ def _launch_tui_editor(
             logfile,
         ]
     elif editor_type == "highlights":
-        path = ctx.highlights_file or os.path.join(_config_dir, "highlights.json")
+        path = ctx.highlights_file or os.path.join(config_dir, "highlights.json")
         cmd = [
             sys.executable,
             "-c",
@@ -664,14 +664,14 @@ def _launch_tui_editor(
             logfile,
         ]
     elif editor_type == "progressbars":
-        path = ctx.progressbars_file or os.path.join(_config_dir, "progressbars.json")
+        path = ctx.progressbars_file or os.path.join(config_dir, "progressbars.json")
         snap = ctx.gmcp_snapshot_file or ""
         # Flush GMCP snapshot immediately so the editor subprocess can read it.
         if snap and ctx.gmcp_data:
             from .gmcp_snapshot import save_gmcp_snapshot
 
             save_gmcp_snapshot(snap, session_key, ctx.gmcp_data)
-            ctx._gmcp_dirty = False
+            ctx.gmcp_dirty = False
         cmd = [
             sys.executable,
             "-c",
@@ -684,7 +684,7 @@ def _launch_tui_editor(
             logfile,
         ]
     else:
-        path = ctx.autoreplies_file or os.path.join(_config_dir, "autoreplies.json")
+        path = ctx.autoreplies_file or os.path.join(config_dir, "autoreplies.json")
         engine = ctx.autoreply_engine
         select = getattr(engine, "last_matched_pattern", "") if engine else ""
         cmd = [
@@ -701,7 +701,7 @@ def _launch_tui_editor(
 
     log = logging.getLogger(__name__)
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log.debug(
         "tui_editor: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s editor_type=%s "
@@ -714,37 +714,37 @@ def _launch_tui_editor(
         editor_type,
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),
-        _safe_terminal_size(),
+        safe_terminal_size(),
     )
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     result = None
     try:
-        with _blocking_fds():
+        with blocking_fds():
             result = subprocess.run(cmd, check=False)
     except FileNotFoundError:
         log.warning("could not launch TUI editor subprocess")
     finally:
-        _editor_active = False
-        _pause_on_subprocess_error(result)
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        pause_on_subprocess_error(result)
+        restore_after_subprocess(replay_buf)
 
     if editor_type == "macros":
-        _reload_macros(ctx, path, session_key, log)
+        reload_macros(ctx, path, session_key, log)
     elif editor_type == "highlights":
-        _reload_highlights(ctx, path, session_key, log)
+        reload_highlights(ctx, path, session_key, log)
     elif editor_type == "progressbars":
-        _reload_progressbars(ctx, path, session_key, log)
+        reload_progressbars(ctx, path, session_key, log)
     else:
-        _reload_autoreplies(ctx, path, session_key, log)
+        reload_autoreplies(ctx, path, session_key, log)
 
 
-def _reload_macros(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
+def reload_macros(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload macro definitions from disk and update dispatch."""
     if not os.path.exists(path):
         return
@@ -762,7 +762,7 @@ def _reload_macros(ctx: "SessionContext", path: str, session_key: str, log: logg
         log.warning("failed to reload macros: %s", exc)
 
 
-def _reload_autoreplies(
+def reload_autoreplies(
     ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
 ) -> None:
     """Reload autoreply rules from disk after editing."""
@@ -779,7 +779,7 @@ def _reload_autoreplies(
         log.warning("failed to reload autoreplies: %s", exc)
 
 
-def _reload_progressbars(
+def reload_progressbars(
     ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
 ) -> None:
     """Reload progress bar configs from disk after editing."""
@@ -796,7 +796,7 @@ def _reload_progressbars(
         log.warning("failed to reload progress bars from %s", path)
 
 
-def _reload_highlights(
+def reload_highlights(
     ctx: "SessionContext", path: str, session_key: str, log: logging.Logger
 ) -> None:
     """Reload highlight rules from disk after editing."""
@@ -813,7 +813,7 @@ def _reload_highlights(
         log.warning("failed to reload highlights: %s", exc)
 
 
-def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
+def launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
     """
     Launch the Capture Window TUI in a subprocess.
 
@@ -823,11 +823,11 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
     :param ctx: Session context with chat and capture state.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    import json as _json
+    import json as json
     import tempfile
     import subprocess
 
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
 
     session_key = ctx.session_key
     if not session_key:
@@ -851,9 +851,9 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
         fd, capture_file = tempfile.mkstemp(suffix=".json", prefix="captures-")
         os.close(fd)
         with open(capture_file, "w", encoding="utf-8") as fh:
-            _json.dump({"captures": captures, "capture_log": capture_log}, fh)
+            json.dump({"captures": captures, "capture_log": capture_log}, fh)
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
@@ -870,25 +870,25 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
 
     log = logging.getLogger(__name__)
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log.debug("chat_viewer: launching subprocess")
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     result = None
     try:
-        with _blocking_fds():
+        with blocking_fds():
             result = subprocess.run(cmd, check=False)
     except FileNotFoundError:
         log.warning("could not launch chat viewer subprocess")
     finally:
-        _editor_active = False
-        _pause_on_subprocess_error(result)
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        pause_on_subprocess_error(result)
+        restore_after_subprocess(replay_buf)
         if capture_file:
             try:
                 os.unlink(capture_file)
@@ -896,7 +896,7 @@ def _launch_chat_viewer(ctx: "SessionContext", replay_buf: Optional[Any] = None)
                 pass
 
 
-def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
+def launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None) -> None:
     """
     Launch the room browser TUI in a subprocess.
 
@@ -907,23 +907,23 @@ def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None
     """
     import subprocess
 
-    from .client_repl import _get_term, _blocking_fds, _terminal_cleanup, _restore_after_subprocess
-    from .client_repl_travel import _fast_travel
+    from .client_repl import get_term, blocking_fds, terminal_cleanup, restore_after_subprocess
+    from .client_repl_travel import fast_travel
 
     session_key = ctx.session_key
     if not session_key:
         return
 
-    from .rooms import rooms_path as _rooms_path_fn
-    from .rooms import fasttravel_path as _fasttravel_path_fn
+    from .rooms import rooms_path as rooms_path_fn
+    from .rooms import fasttravel_path as fasttravel_path_fn
     from .rooms import read_fasttravel
-    from .rooms import current_room_path as _current_room_path_fn
+    from .rooms import current_room_path as current_room_path_fn
 
-    rp = ctx.rooms_file or _rooms_path_fn(session_key)
-    crp = ctx.current_room_file or _current_room_path_fn(session_key)
-    ftp = _fasttravel_path_fn(session_key)
+    rp = ctx.rooms_file or rooms_path_fn(session_key)
+    crp = ctx.current_room_file or current_room_path_fn(session_key)
+    ftp = fasttravel_path_fn(session_key)
 
-    logfile = _get_logfile_path()
+    logfile = get_logfile_path()
     cmd = [
         sys.executable,
         "-c",
@@ -939,7 +939,7 @@ def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None
 
     log = logging.getLogger(__name__)
 
-    global _editor_active  # noqa: PLW0603
+    global editor_active  # noqa: PLW0603
     log.debug(
         "room_browser: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s "
@@ -951,40 +951,40 @@ def _launch_room_browser(ctx: "SessionContext", replay_buf: Optional[Any] = None
         sys.__stderr__.isatty(),
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),
-        _safe_terminal_size(),
+        safe_terminal_size(),
     )
-    blessed_term = _get_term()
-    sys.stdout.write(_terminal_cleanup())
+    blessed_term = get_term()
+    sys.stdout.write(terminal_cleanup())
     sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
-    _editor_active = True
+    editor_active = True
     result = None
     try:
-        with _blocking_fds():
+        with blocking_fds():
             result = subprocess.run(cmd, check=False)
     except FileNotFoundError:
         log.warning("could not launch room browser subprocess")
     finally:
-        _editor_active = False
-        _pause_on_subprocess_error(result)
-        _restore_after_subprocess(replay_buf)
+        editor_active = False
+        pause_on_subprocess_error(result)
+        restore_after_subprocess(replay_buf)
 
     room_graph = ctx.room_graph
     if room_graph is not None:
-        room_graph._load_adjacency()
+        room_graph.load_adjacency()
 
     steps, noreply = read_fasttravel(ftp)
     if steps:
         log.debug("travel: scheduling %d steps (noreply=%s)", len(steps), noreply)
-        task = asyncio.ensure_future(_fast_travel(steps, ctx, log, noreply=noreply))
+        task = asyncio.ensure_future(fast_travel(steps, ctx, log, noreply=noreply))
         ctx.travel_task = task
 
-        def _on_done(t: "asyncio.Task[None]") -> None:
+        def on_done(t: "asyncio.Task[None]") -> None:
             if ctx.travel_task is t:
                 ctx.travel_task = None
             if not t.cancelled() and t.exception() is not None:
                 log.warning("fast travel failed: %s", t.exception())
 
-        task.add_done_callback(_on_done)
+        task.add_done_callback(on_done)

@@ -5,12 +5,14 @@ Introduction
 
 A modern telnet client designed especially for BBSs_ and MUDs_.
 
-Built using Python libraries telnetlib3_, blessed_, and textual_.
+
+Built using Python libraries telnetlib3_, blessed_, textual_, and wcwidth_.
 
 .. _BBSs: https://bbs.modem.xyz/introduction.html#what-is-a-bbs
 .. _MUDs: https://muds.modem.xyz/introduction.html#what-is-a-mud
 .. _telnetlib3: https://github.com/jquast/telnetlib3
 .. _blessed: https://github.com/jquast/blessed
+.. _wcwidth: https://github.com/jquast/wcwidth
 .. _textual: https://github.com/Textualize/textual
 
 Features

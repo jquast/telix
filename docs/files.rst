@@ -29,12 +29,15 @@ Common defaults:
 - ``autoreplies.json``
 - ``macros.json``
 - ``highlights.json``
-- ``progressbars.json`` -- progress bar toolbar configuration
+- ``progressbars.json`` - progress bar toolbar configuration
 
 ``$XDG_DATA_HOME/telix/`` contains per-session data using a SHA-256 slug
 of ``host:port``:
 
-- ``history-<hash>``
-- ``rooms-<hash>.db``
-- ``chat-<hash>.json``
-- ``gmcp-<hash>.json`` -- rolling GMCP data snapshot with per-package timestamps
+- ``history-<hash>`` - command history
+- ``rooms-<hash>.db`` - SQLite room graph (GMCP Room.Info)
+- ``chat-<hash>.json`` - GMCP Comm.Channel.Text history
+- ``gmcp-<hash>.json`` - rolling GMCP data snapshot with per-package timestamps
+- ``prefs-<hash>.json`` - per-session runtime preferences
+- ``.current-room-<hash>`` - current room number (shared with TUI subprocesses)
+- ``.fasttravel-<hash>`` - queued fast-travel steps

@@ -15,7 +15,7 @@ import json
 import time
 import asyncio
 import logging
-from time import monotonic as _monotonic
+from time import monotonic as monotonic
 from typing import TYPE_CHECKING, Any, Callable, Optional, Awaitable
 from datetime import datetime, timezone
 from dataclasses import field, dataclass
@@ -23,6 +23,7 @@ from dataclasses import field, dataclass
 # 3rd party
 from wcwidth import strip_sequences
 
+# local
 from .client_repl_render import scramble_password
 
 if TYPE_CHECKING:
@@ -37,26 +38,26 @@ __all__ = (
     "check_condition",
 )
 
-_GROUP_RE = re.compile(r"\\(\d+)")
-_COND_RE = re.compile(r"^(>=|<=|>|<|=)(\d+)$")
-_KILL_RE = re.compile(r"^kill\s+(\S+)", re.IGNORECASE)
+GROUP_RE = re.compile(r"\\(\d+)")
+COND_RE = re.compile(r"^(>=|<=|>|<|=)(\d+)$")
+KILL_RE = re.compile(r"^kill\s+(\S+)", re.IGNORECASE)
 
 # Maps condition key to (current_keys, max_keys) for GMCP Char.Vitals lookup.
-_VITAL_PCT_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+VITAL_PCT_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "HP%": (("hp", "HP"), ("maxhp", "maxHP", "max_hp")),
     "MP%": (("mp", "MP", "mana", "sp", "SP"), ("maxmp", "maxMP", "max_mp", "maxsp", "maxSP")),
 }
 
 # Maps raw-value condition key to GMCP Char.Vitals field names.
-_VITAL_RAW_KEYS: dict[str, tuple[str, ...]] = {
+VITAL_RAW_KEYS: dict[str, tuple[str, ...]] = {
     "HP": ("hp", "HP"),
     "MP": ("mp", "MP", "mana", "sp", "SP"),
 }
 
 
-def _get_vital_raw(key: str, vitals: dict[str, Any]) -> Optional[int]:
+def get_vital_raw(key: str, vitals: dict[str, Any]) -> Optional[int]:
     """Return the raw vital value for *key*, or ``None`` if unavailable."""
-    field_names = _VITAL_RAW_KEYS.get(key)
+    field_names = VITAL_RAW_KEYS.get(key)
     if field_names is None:
         return None
     for k in field_names:
@@ -69,9 +70,9 @@ def _get_vital_raw(key: str, vitals: dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _get_vital_pct(key: str, vitals: dict[str, Any]) -> Optional[int]:
+def get_vital_pct(key: str, vitals: dict[str, Any]) -> Optional[int]:
     """Return the vital percentage (0-100+) for *key*, or ``None`` if unavailable."""
-    spec = _VITAL_PCT_KEYS.get(key)
+    spec = VITAL_PCT_KEYS.get(key)
     if spec is None:
         return None
     cur_keys, max_keys = spec
@@ -97,7 +98,7 @@ def _get_vital_pct(key: str, vitals: dict[str, Any]) -> Optional[int]:
     return int(cur * 100 / mx)
 
 
-def _gmcp_lookup_raw(key: str, gmcp: dict[str, Any]) -> Optional[int]:
+def gmcp_lookup_raw(key: str, gmcp: dict[str, Any]) -> Optional[int]:
     """Look up *key* directly in any GMCP package dict."""
     for pkg_data in gmcp.values():
         if not isinstance(pkg_data, dict):
@@ -111,7 +112,7 @@ def _gmcp_lookup_raw(key: str, gmcp: dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _gmcp_lookup_pct(key: str, gmcp: dict[str, Any]) -> Optional[int]:
+def gmcp_lookup_pct(key: str, gmcp: dict[str, Any]) -> Optional[int]:
     """Look up *key* (without trailing ``%``) as a value/max pair in any GMCP package."""
     base = key[:-1] if key.endswith("%") else key
     for pkg_data in gmcp.values():
@@ -141,7 +142,7 @@ def _gmcp_lookup_pct(key: str, gmcp: dict[str, Any]) -> Optional[int]:
     return None
 
 
-def _compare(value: int, op: str, threshold: int) -> bool:
+def compare(value: int, op: str, threshold: int) -> bool:
     """Evaluate ``value op threshold``."""
     if op == ">":
         return value > threshold
@@ -176,7 +177,7 @@ def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, 
         vitals = v if isinstance(v, dict) else None
     captures: dict[str, int] = getattr(ctx, "captures", {}) if ctx is not None else {}
     for key, expr in when.items():
-        m = _COND_RE.match(expr.strip())
+        m = COND_RE.match(expr.strip())
         if not m:
             continue
         op, threshold = m.group(1), int(m.group(2))
@@ -184,9 +185,9 @@ def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, 
         unit = ""
         if key.endswith("%"):
             if vitals is not None:
-                value = _get_vital_pct(key, vitals)
+                value = get_vital_pct(key, vitals)
             if value is None and gmcp:
-                value = _gmcp_lookup_pct(key, gmcp)
+                value = gmcp_lookup_pct(key, gmcp)
             if value is None and captures:
                 base = key[:-1]
                 cur = captures.get(base)
@@ -196,14 +197,14 @@ def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, 
             unit = "%"
         else:
             if vitals is not None:
-                value = _get_vital_raw(key, vitals)
+                value = get_vital_raw(key, vitals)
             if value is None and gmcp:
-                value = _gmcp_lookup_raw(key, gmcp)
+                value = gmcp_lookup_raw(key, gmcp)
             if value is None and captures:
                 value = captures.get(key)
         if value is None:
             continue
-        if not _compare(value, op, threshold):
+        if not compare(value, op, threshold):
             return False, f"{key}{op}{threshold} (actual {value}{unit})"
     return True, ""
 
@@ -237,7 +238,7 @@ class AutoreplyRule:
     case_sensitive: bool = False
 
 
-def _parse_entries(entries: list[dict[str, str]]) -> list[AutoreplyRule]:
+def parse_entries(entries: list[dict[str, str]]) -> list[AutoreplyRule]:
     """Parse a list of autoreply entry dicts into :class:`AutoreplyRule` instances."""
     rules: list[AutoreplyRule] = []
     for entry in entries:
@@ -292,7 +293,7 @@ def load_autoreplies(path: str, session_key: str) -> list[AutoreplyRule]:
 
     session_data: dict[str, Any] = data.get(session_key, {})
     entries: list[dict[str, str]] = session_data.get("autoreplies", [])
-    return _parse_entries(entries)
+    return parse_entries(entries)
 
 
 def save_autoreplies(path: str, rules: list[AutoreplyRule], session_key: str) -> None:
@@ -325,13 +326,13 @@ def save_autoreplies(path: str, rules: list[AutoreplyRule], session_key: str) ->
             for r in rules
         ]
     }
-    from ._paths import _atomic_write
+    from .paths import atomic_write
 
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    _atomic_write(path, content)
+    atomic_write(path, content)
 
 
-def _extract_group_source(pattern_src: str, group_num: int) -> Optional[str]:
+def extract_group_source(pattern_src: str, group_num: int) -> Optional[str]:
     r"""
     Extract the source text of capture group *group_num* from *pattern_src*.
 
@@ -393,7 +394,7 @@ def _extract_group_source(pattern_src: str, group_num: int) -> Optional[str]:
     return None
 
 
-def _resolve_group_value(captured: str, pattern_src: str, group_num: int, flags: int) -> str:
+def resolve_group_value(captured: str, pattern_src: str, group_num: int, flags: int) -> str:
     r"""
     Resolve the substitution value for a captured group.
 
@@ -414,7 +415,7 @@ def _resolve_group_value(captured: str, pattern_src: str, group_num: int, flags:
     """
     if not flags & re.IGNORECASE:
         return captured
-    group_src = _extract_group_source(pattern_src, group_num)
+    group_src = extract_group_source(pattern_src, group_num)
     if group_src is None:
         return captured
     # Split on top-level '|' only (not inside nested groups)
@@ -433,17 +434,17 @@ def _resolve_group_value(captured: str, pattern_src: str, group_num: int, flags:
             start = i + 1
     alternatives.append(group_src[start:])
     # Check each alternative is a pure literal (no regex metacharacters)
-    _META = set(r"\.^$*+?{}[]|()")
+    META = set(r"\.^$*+?{}[]|()")
     lowered = captured.lower()
     for alt in alternatives:
-        if any(c in _META and (j == 0 or alt[j - 1] != "\\") for j, c in enumerate(alt)):
+        if any(c in META and (j == 0 or alt[j - 1] != "\\") for j, c in enumerate(alt)):
             return captured
         if alt.lower() == lowered:
             return alt
     return captured
 
 
-def _substitute_groups(template: str, match: re.Match[str]) -> str:
+def substitute_groups(template: str, match: re.Match[str]) -> str:
     r"""
     Replace ``\1``, ``\2``, etc. with match group values.
 
@@ -456,7 +457,7 @@ def _substitute_groups(template: str, match: re.Match[str]) -> str:
     """
     pat = match.re
 
-    def _repl(m: re.Match[str]) -> str:
+    def repl(m: re.Match[str]) -> str:
         idx = int(m.group(1))
         try:
             val = match.group(idx)
@@ -464,9 +465,9 @@ def _substitute_groups(template: str, match: re.Match[str]) -> str:
             return m.group(0)
         if val is None:
             return ""
-        return _resolve_group_value(val, pat.pattern, idx, pat.flags)
+        return resolve_group_value(val, pat.pattern, idx, pat.flags)
 
-    return _GROUP_RE.sub(_repl, template)
+    return GROUP_RE.sub(repl, template)
 
 
 class SearchBuffer:
@@ -483,10 +484,10 @@ class SearchBuffer:
         """Initialize SearchBuffer with given line capacity."""
         self._lines: list[str] = []
         self._partial: str = ""
-        self._max_lines = max_lines
-        self._last_match_line: int = 0
-        self._last_match_col: int = 0
-        self._new_text: Optional[asyncio.Event] = None
+        self.max_lines = max_lines
+        self.last_match_line: int = 0
+        self.last_match_col: int = 0
+        self.new_text: Optional[asyncio.Event] = None
 
     @property
     def lines(self) -> list[str]:
@@ -526,8 +527,8 @@ class SearchBuffer:
         if len(parts) == 1:
             # No newline in this chunk -- accumulate partial.
             self._partial = parts[0]
-            if self._partial and self._new_text is not None:
-                self._new_text.set()
+            if self._partial and self.new_text is not None:
+                self.new_text.set()
             return False
 
         # Last element is the new partial (may be empty string).
@@ -543,30 +544,30 @@ class SearchBuffer:
             else:
                 new_lines.append(line)
         self._lines.extend(new_lines)
-        self._cull()
-        if new_lines and self._new_text is not None:
-            self._new_text.set()
+        self.cull()
+        if new_lines and self.new_text is not None:
+            self.new_text.set()
         return True
 
     def get_searchable_text(self) -> str:
         """
         Return text from last match position forward.
 
-        Joins lines from ``_last_match_line`` onward with newlines,
+        Joins lines from ``last_match_line`` onward with newlines,
         including the current partial (incomplete) line so that
         prompts without trailing newlines can be matched.
 
         :returns: Searchable text substring.
         """
-        if self._last_match_line >= len(self._lines) and not self._partial:
+        if self.last_match_line >= len(self._lines) and not self._partial:
             return ""
-        text = "\n".join(self._lines[self._last_match_line :])
+        text = "\n".join(self._lines[self.last_match_line :])
         if self._partial:
             if text:
                 text += "\n" + self._partial
             else:
                 text = self._partial
-        return text[self._last_match_col :]
+        return text[self.last_match_col :]
 
     def advance_match(self, offset_in_searchable: int, length: int) -> None:
         """
@@ -577,41 +578,41 @@ class SearchBuffer:
         :param length: Length of the match.
         """
         # Convert searchable-text offset back to absolute (line, col).
-        abs_offset = self._last_match_col + offset_in_searchable + length
-        for i in range(self._last_match_line, len(self._lines)):
+        abs_offset = self.last_match_col + offset_in_searchable + length
+        for i in range(self.last_match_line, len(self._lines)):
             line_len = len(self._lines[i])
-            if i > self._last_match_line:
+            if i > self.last_match_line:
                 line_len += 1  # account for the \n separator
             if abs_offset <= line_len:
-                self._last_match_line = i
-                self._last_match_col = abs_offset
+                self.last_match_line = i
+                self.last_match_col = abs_offset
                 return
-            abs_offset -= line_len + (1 if i == self._last_match_line else 0)
+            abs_offset -= line_len + (1 if i == self.last_match_line else 0)
 
         # Past the last line -- offset is within the partial.
-        self._last_match_line = len(self._lines)
-        self._last_match_col = abs_offset
+        self.last_match_line = len(self._lines)
+        self.last_match_col = abs_offset
 
     def clear(self) -> None:
         """Reset buffer for a new EOR/GA record, preserving partial line."""
         self._lines.clear()
-        self._last_match_line = 0
-        self._last_match_col = 0
+        self.last_match_line = 0
+        self.last_match_col = 0
 
     def reset_match_position(self) -> None:
         """Reset match position to start so retained text is re-searchable."""
-        self._last_match_line = 0
-        self._last_match_col = 0
+        self.last_match_line = 0
+        self.last_match_col = 0
 
-    def _cull(self) -> None:
+    def cull(self) -> None:
         """Remove oldest lines beyond *max_lines*, adjusting match position."""
-        if len(self._lines) <= self._max_lines:
+        if len(self._lines) <= self.max_lines:
             return
-        excess = len(self._lines) - self._max_lines
+        excess = len(self._lines) - self.max_lines
         self._lines = self._lines[excess:]
-        self._last_match_line = max(0, self._last_match_line - excess)
-        if self._last_match_line == 0 and excess > 0:
-            self._last_match_col = 0
+        self.last_match_line = max(0, self.last_match_line - excess)
+        if self.last_match_line == 0 and excess > 0:
+            self.last_match_col = 0
 
     async def wait_for_pattern(
         self, pattern: re.Pattern[str], timeout: float
@@ -626,9 +627,9 @@ class SearchBuffer:
         :param timeout: Maximum seconds to wait.
         :returns: The match object, or ``None`` on timeout.
         """
-        if self._new_text is None:
-            self._new_text = asyncio.Event()
-        evt = self._new_text
+        if self.new_text is None:
+            self.new_text = asyncio.Event()
+        evt = self.new_text
         deadline = time.monotonic() + timeout
         while True:
             evt.clear()
@@ -654,7 +655,7 @@ class SearchBuffer:
 
 
 @dataclass
-class _ExclusiveState:
+class ExclusiveState:
     """
     Mutable bundle of exclusive-mode state variables.
 
@@ -695,27 +696,27 @@ class AutoreplyEngine:
         wait_fn: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> None:
         """Initialize AutoreplyEngine with rules and I/O handles."""
-        self._rules = rules
-        self._ctx = ctx
-        self._log = log
+        self.rules = rules
+        self.ctx = ctx
+        self.log = log
         self._buffer = SearchBuffer(max_lines=max_lines)
-        self._reply_chain: Optional[asyncio.Task[None]] = None
-        self._insert_fn = insert_fn
-        self._echo_fn = echo_fn
-        self._wait_fn = wait_fn
-        self._excl = _ExclusiveState()
-        self._sent_commands: set[str] = set()
-        self._sent_commands_max: int = int(os.environ.get("TELNETLIB3_SENT_COMMANDS_MAX", "10000"))
-        self._prompt_based = False
+        self.reply_chain: Optional[asyncio.Task[None]] = None
+        self.insert_fn = insert_fn
+        self.echo_fn = echo_fn
+        self.wait_fn = wait_fn
+        self.excl = ExclusiveState()
+        self.sent_commands: set[str] = set()
+        self.sent_commands_max: int = int(os.environ.get("TELNETLIB3_SENT_COMMANDS_MAX", "10000"))
+        self.prompt_based = False
         self._cycle_matched: set[int] = set()
-        self._condition_blocked: set[int] = set()
-        self._condition_retried: bool = False
+        self.condition_blocked: set[int] = set()
+        self.condition_retried: bool = False
         self._enabled = True
         self._last_matched_pattern: str = ""
-        self._condition_failed: Optional[tuple[int, str]] = None
-        self._status: str = ""
-        self._until_start: float = 0.0
-        self._until_deadline: float = 0.0
+        self.condition_failed: Optional[tuple[int, str]] = None
+        self.status: str = ""
+        self.until_start: float = 0.0
+        self.until_deadline: float = 0.0
 
     def pop_condition_failed(self) -> Optional[tuple[int, str]]:
         """
@@ -724,8 +725,8 @@ class AutoreplyEngine:
         :returns: ``(rule_index_1based, description)`` if last match failed
             a condition, otherwise ``None``.
         """
-        val = self._condition_failed
-        self._condition_failed = None
+        val = self.condition_failed
+        self.condition_failed = None
         return val
 
     @property
@@ -736,12 +737,12 @@ class AutoreplyEngine:
     @property
     def exclusive_active(self) -> bool:
         """``True`` when an exclusive rule is suppressing normal matching."""
-        return self._excl.active
+        return self.excl.active
 
     @property
     def exclusive_rule_index(self) -> int:
         """1-based index of the active exclusive rule, or 0 if none."""
-        return self._excl.rule_index
+        return self.excl.rule_index
 
     @property
     def enabled(self) -> bool:
@@ -755,7 +756,7 @@ class AutoreplyEngine:
     @property
     def reply_pending(self) -> bool:
         """``True`` when a reply chain is still executing."""
-        return self._reply_chain is not None and not self._reply_chain.done()
+        return self.reply_chain is not None and not self.reply_chain.done()
 
     @property
     def cycle_matched(self) -> bool:
@@ -770,19 +771,19 @@ class AutoreplyEngine:
     @property
     def status_text(self) -> str:
         """Short description of current activity, or ``""``."""
-        return self._status
+        return self.status
 
     @property
     def until_progress(self) -> Optional[float]:
         """Fraction of until/untils timeout elapsed, 0.0-1.0, or ``None``."""
-        if self._until_deadline <= self._until_start:
+        if self.until_deadline <= self.until_start:
             return None
-        now = _monotonic()
-        if now >= self._until_deadline:
+        now = monotonic()
+        if now >= self.until_deadline:
             return 1.0
-        if now <= self._until_start:
+        if now <= self.until_start:
             return 0.0
-        return (now - self._until_start) / (self._until_deadline - self._until_start)
+        return (now - self.until_start) / (self.until_deadline - self.until_start)
 
     def feed(self, text: str) -> None:
         """
@@ -795,10 +796,10 @@ class AutoreplyEngine:
         """
         if not self._enabled:
             return
-        self._buffer.add_text(text, self._sent_commands)
+        self._buffer.add_text(text, self.sent_commands)
 
-        if self._excl.active:
-            self._match_always_rules()
+        if self.excl.active:
+            self.match_always_rules()
             return
 
         searchable = self._buffer.get_searchable_text()
@@ -809,13 +810,13 @@ class AutoreplyEngine:
         # matching until on_prompt() so that replies are never fired
         # mid-output.  Rules with immediate=True still fire here so
         # that asynchronous MUD events (no trailing GA/EOR) are caught.
-        if self._prompt_based:
-            self._match_rules(immediate_only=True)
+        if self.prompt_based:
+            self.match_rules(immediate_only=True)
             return
 
-        self._match_rules()
+        self.match_rules()
 
-    def _match_rules(self, immediate_only: bool = False) -> None:
+    def match_rules(self, immediate_only: bool = False) -> None:
         """
         Run rule matching on buffered text.
 
@@ -830,7 +831,7 @@ class AutoreplyEngine:
             return
 
         log_prefix = "immediate rule" if immediate_only else "rule"
-        max_iterations = len(self._rules) * 2
+        max_iterations = len(self.rules) * 2
         found = True
         while found and max_iterations > 0:
             found = False
@@ -838,55 +839,55 @@ class AutoreplyEngine:
             searchable = self._buffer.get_searchable_text()
             if not searchable:
                 break
-            for rule_idx, rule in enumerate(self._rules):
+            for rule_idx, rule in enumerate(self.rules):
                 if not rule.enabled:
                     continue
                 if immediate_only and not rule.immediate:
                     continue
                 if rule_idx in self._cycle_matched:
-                    if immediate_only or self._prompt_based:
+                    if immediate_only or self.prompt_based:
                         continue
-                if rule_idx in self._condition_blocked:
+                if rule_idx in self.condition_blocked:
                     continue
                 match = rule.pattern.search(searchable)
                 if match:
                     self._last_matched_pattern = rule.pattern.pattern
                     if rule.when:
-                        ok, desc = check_condition(rule.when, self._ctx)
+                        ok, desc = check_condition(rule.when, self.ctx)
                         if not ok:
-                            self._log.info(
+                            self.log.info(
                                 "autoreply: %s #%d skipped, condition failed: %s",
                                 log_prefix,
                                 rule_idx + 1,
                                 desc,
                             )
-                            self._condition_failed = (rule_idx + 1, desc)
-                            self._condition_blocked.add(rule_idx)
+                            self.condition_failed = (rule_idx + 1, desc)
+                            self.condition_blocked.add(rule_idx)
                             found = True
                             break
                     self._cycle_matched.add(rule_idx)
                     self._buffer.advance_match(match.start(), len(match.group(0)))
                     rule.last_fired = datetime.now(timezone.utc).isoformat()
-                    if hasattr(self._ctx, "mark_autoreplies_dirty"):
-                        self._ctx.mark_autoreplies_dirty()
-                    reply = _substitute_groups(rule.reply, match)
-                    self._queue_reply(reply)
+                    if hasattr(self.ctx, "mark_autoreplies_dirty"):
+                        self.ctx.mark_autoreplies_dirty()
+                    reply = substitute_groups(rule.reply, match)
+                    self.queue_reply(reply)
                     if not immediate_only:
-                        self._excl.active = True
-                        self._excl.rule_index = rule_idx + 1
+                        self.excl.active = True
+                        self.excl.rule_index = rule_idx + 1
                         return
                     found = True
                     break
 
-    def _match_always_rules(self) -> None:
+    def match_always_rules(self) -> None:
         """Check rules with ``always=True`` even during exclusive suppression."""
         searchable = self._buffer.get_searchable_text()
         if not searchable:
             return
-        for rule_idx, rule in enumerate(self._rules):
+        for rule_idx, rule in enumerate(self.rules):
             if not rule.enabled or not rule.always:
                 continue
-            if self._prompt_based and rule_idx in self._cycle_matched:
+            if self.prompt_based and rule_idx in self._cycle_matched:
                 continue
             match = rule.pattern.search(searchable)
             if match:
@@ -894,48 +895,48 @@ class AutoreplyEngine:
                 self._cycle_matched.add(rule_idx)
                 self._buffer.advance_match(match.start(), len(match.group(0)))
                 rule.last_fired = datetime.now(timezone.utc).isoformat()
-                if hasattr(self._ctx, "mark_autoreplies_dirty"):
-                    self._ctx.mark_autoreplies_dirty()
-                reply = _substitute_groups(rule.reply, match)
-                self._queue_reply(reply)
+                if hasattr(self.ctx, "mark_autoreplies_dirty"):
+                    self.ctx.mark_autoreplies_dirty()
+                reply = substitute_groups(rule.reply, match)
+                self.queue_reply(reply)
 
-    def _queue_reply(self, reply_text: str) -> None:
+    def queue_reply(self, reply_text: str) -> None:
         """
         Queue a reply, chaining after any pending reply task.
 
         :param reply_text: Fully substituted reply string.
         """
-        prev = self._reply_chain
+        prev = self.reply_chain
 
-        async def _chained() -> None:
+        async def chained() -> None:
             if prev is not None and not prev.done():
                 await prev
-            await self._execute_reply(reply_text)
+            await self.execute_reply(reply_text)
 
-        task = asyncio.ensure_future(_chained())
-        task.add_done_callback(self._on_reply_done)
-        self._reply_chain = task
+        task = asyncio.ensure_future(chained())
+        task.add_done_callback(self.on_reply_done)
+        self.reply_chain = task
 
-    def _on_reply_done(self, _task: "asyncio.Task[None]") -> None:
+    def on_reply_done(self, task: "asyncio.Task[None]") -> None:
         """Clear exclusive state when the reply chain completes."""
-        if self._reply_chain is not None and self._reply_chain.done():
-            self._excl.clear()
-            self._status = ""
+        if self.reply_chain is not None and self.reply_chain.done():
+            self.excl.clear()
+            self.status = ""
 
-    def _set_status(self, text: str) -> None:
+    def set_status(self, text: str) -> None:
         """Set the engine's status string."""
-        self._status = text
+        self.status = text
 
-    def _set_progress(self, start: float, deadline: float) -> None:
+    def set_progress(self, start: float, deadline: float) -> None:
         """Set the until/delay progress window."""
-        self._until_start = start
-        self._until_deadline = deadline
+        self.until_start = start
+        self.until_deadline = deadline
 
-    def _clear_progress(self) -> None:
+    def clear_progress(self) -> None:
         """Clear the until/delay progress window."""
-        self._until_start = self._until_deadline = 0.0
+        self.until_start = self.until_deadline = 0.0
 
-    async def _execute_reply(self, reply_text: str) -> None:
+    async def execute_reply(self, reply_text: str) -> None:
         r"""
         Execute a single reply as a command language sequence.
 
@@ -946,23 +947,26 @@ class AutoreplyEngine:
         :param reply_text: Fully substituted reply string.
         """
         from .client_repl_commands import (
-            StepResult, DispatchHooks, dispatch_one, expand_commands_ex,
+            StepResult,
+            DispatchHooks,
+            dispatch_one,
+            expand_commands_ex,
         )
 
         expanded = expand_commands_ex(reply_text)
-        writer = self._ctx.writer
+        writer = self.ctx.writer
         mask_send = writer is not None and getattr(writer, "will_echo", False)
-        activity_cb = getattr(self._ctx, "on_autoreply_activity", None)
+        activity_cb = getattr(self.ctx, "on_autoreply_activity", None)
 
         hooks = DispatchHooks(
-            ctx=self._ctx,
-            log=self._log,
-            wait_fn=self._wait_fn,
-            send_fn=self._send_command,
+            ctx=self.ctx,
+            log=self.log,
+            wait_fn=self.wait_fn,
+            send_fn=self.send_command,
             echo_fn=None,
-            on_status=self._set_status,
-            on_progress=self._set_progress,
-            on_progress_clear=self._clear_progress,
+            on_status=self.set_status,
+            on_progress=self.set_progress,
+            on_progress_clear=self.clear_progress,
             on_activity=activity_cb,
             prompt_ready=None,
             search_buffer=self._buffer,
@@ -970,16 +974,15 @@ class AutoreplyEngine:
         sent_count = 0
         for idx, cmd in enumerate(expanded.commands):
             result = await dispatch_one(
-                cmd, idx, sent_count, expanded.immediate_set, hooks,
-                mask_send=mask_send,
+                cmd, idx, sent_count, expanded.immediate_set, hooks, mask_send=mask_send
             )
             if result is StepResult.ABORT:
                 return
             if result is StepResult.SENT:
                 sent_count += 1
-        self._status = ""
+        self.status = ""
 
-    def _send_command(self, cmd: str) -> None:
+    def send_command(self, cmd: str) -> None:
         """
         Send a single command line to the server.
 
@@ -987,33 +990,33 @@ class AutoreplyEngine:
         """
         if not cmd or not cmd.strip():
             return
-        if self._ctx.randomwalk_auto_evaluate and self._ctx.randomwalk_active:
-            m = _KILL_RE.match(cmd)
+        if self.ctx.randomwalk_auto_evaluate and self.ctx.randomwalk_active:
+            m = KILL_RE.match(cmd)
             if m:
                 consider_cmd = f"consider {m.group(1)}"
-                self._log.info("autoreply: injecting %r before %r", consider_cmd, cmd)
-                if self._echo_fn is not None:
-                    self._echo_fn(consider_cmd)
-                assert self._ctx.writer is not None
-                self._ctx.writer.write(consider_cmd + "\r\n")  # type: ignore[arg-type]
-        self._log.info("autoreply: sending %r", cmd)
-        self._sent_commands.add(cmd.strip())
-        if len(self._sent_commands) > self._sent_commands_max:
-            self._sent_commands.clear()
-        if self._echo_fn is not None:
-            self._echo_fn(cmd)
-        writer = self._ctx.writer
+                self.log.info("autoreply: injecting %r before %r", consider_cmd, cmd)
+                if self.echo_fn is not None:
+                    self.echo_fn(consider_cmd)
+                assert self.ctx.writer is not None
+                self.ctx.writer.write(consider_cmd + "\r\n")  # type: ignore[arg-type]
+        self.log.info("autoreply: sending %r", cmd)
+        self.sent_commands.add(cmd.strip())
+        if len(self.sent_commands) > self.sent_commands_max:
+            self.sent_commands.clear()
+        if self.echo_fn is not None:
+            self.echo_fn(cmd)
+        writer = self.ctx.writer
         if writer is not None and getattr(writer, "will_echo", False):
-            self._ctx.active_command = scramble_password()
+            self.ctx.active_command = scramble_password()
         else:
-            self._ctx.active_command = cmd
-        self._ctx.active_command_time = _monotonic()
-        if self._ctx.cx_dot is not None:
-            self._ctx.cx_dot.trigger()
-        if self._ctx.tx_dot is not None:
-            self._ctx.tx_dot.trigger()
-        assert self._ctx.writer is not None
-        self._ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
+            self.ctx.active_command = cmd
+        self.ctx.active_command_time = monotonic()
+        if self.ctx.cx_dot is not None:
+            self.ctx.cx_dot.trigger()
+        if self.ctx.tx_dot is not None:
+            self.ctx.tx_dot.trigger()
+        assert self.ctx.writer is not None
+        self.ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
 
     def on_prompt(self) -> None:
         """
@@ -1025,13 +1028,13 @@ class AutoreplyEngine:
         Each EOR/GA resets the per-cycle deduplication set so that
         rules can match again in the next prompt cycle.
         """
-        self._prompt_based = True
+        self.prompt_based = True
         if not self._enabled:
             return
         # Match on accumulated buffer before clearing -- this is where
         # deferred matches from feed() actually fire.
-        if not self._excl.active:
-            self._match_rules()
+        if not self.excl.active:
+            self.match_rules()
         # When rules matched text but their ``when`` condition failed
         # (e.g. HP too low), preserve the buffer so the text can be
         # retried on the next prompt cycle when conditions may have
@@ -1039,14 +1042,14 @@ class AutoreplyEngine:
         # are re-eligible; rules that already fired keep their
         # _cycle_matched entry so they don't re-trigger on retained
         # text.  After one retry, clear normally to prevent loops.
-        if self._condition_blocked and not self._condition_retried:
-            self._condition_retried = True
-            self._cycle_matched -= self._condition_blocked
-            self._condition_blocked.clear()
+        if self.condition_blocked and not self.condition_retried:
+            self.condition_retried = True
+            self._cycle_matched -= self.condition_blocked
+            self.condition_blocked.clear()
             self._buffer.reset_match_position()
         else:
-            self._condition_blocked.clear()
-            self._condition_retried = False
+            self.condition_blocked.clear()
+            self.condition_retried = False
             self._cycle_matched.clear()
             self._buffer.clear()
 
@@ -1064,12 +1067,12 @@ class AutoreplyEngine:
 
     def cancel(self) -> None:
         """Cancel any pending reply chain and clear exclusive state."""
-        if self._reply_chain is not None and not self._reply_chain.done():
-            self._reply_chain.cancel()
-            self._reply_chain = None
-        self._excl.clear()
-        self._status = ""
-        self._until_start = self._until_deadline = 0.0
-        self._condition_blocked.clear()
-        self._condition_retried = False
-        self._sent_commands.clear()
+        if self.reply_chain is not None and not self.reply_chain.done():
+            self.reply_chain.cancel()
+            self.reply_chain = None
+        self.excl.clear()
+        self.status = ""
+        self.until_start = self.until_deadline = 0.0
+        self.condition_blocked.clear()
+        self.condition_retried = False
+        self.sent_commands.clear()

@@ -20,9 +20,9 @@ from collections import deque
 from dataclasses import field, dataclass
 
 # local
-from ._paths import _atomic_write
+from .paths import atomic_write
 
-_EXIT_DIR_RE = re.compile(
+EXIT_DIR_RE = re.compile(
     r"\s*"
     r"(?:\{[^}]*\}\s*)?"
     r"\[(?:[nswe]|n[ew]|s[ew]|[a-z]+)"
@@ -37,7 +37,7 @@ def strip_exit_dirs(name: str) -> str:
 
     Also handles optional ``{SPICE}``-style tags before the bracket list.
     """
-    return _EXIT_DIR_RE.sub("", name)
+    return EXIT_DIR_RE.sub("", name)
 
 
 @dataclass
@@ -73,25 +73,25 @@ class RoomStore:
             os.makedirs(dir_path, exist_ok=True)
         mode = "ro" if read_only else "rwc"
         uri = f"file:{db_path}?mode={mode}"
-        self._conn = sqlite3.connect(uri, uri=True)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute("PRAGMA temp_store=MEMORY")
-        self._conn.execute("PRAGMA cache_size=-4000")  # 4 MB
-        self._conn.execute("PRAGMA mmap_size=8388608")  # 8 MB
+        self.conn = sqlite3.connect(uri, uri=True)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA temp_store=MEMORY")
+        self.conn.execute("PRAGMA cache_size=-4000")  # 4 MB
+        self.conn.execute("PRAGMA mmap_size=8388608")  # 8 MB
         if not read_only:
-            self._create_tables()
+            self.create_tables()
             if session_key:
-                self._conn.execute(
+                self.conn.execute(
                     "INSERT OR REPLACE INTO meta VALUES ('session_key', ?)", (session_key,)
                 )
-                self._conn.commit()
-        self._adj: dict[str, dict[str, str]] = {}
-        self._load_adjacency()
+                self.conn.commit()
+        self.adj: dict[str, dict[str, str]] = {}
+        self.load_adjacency()
 
-    def _create_tables(self) -> None:
+    def create_tables(self) -> None:
         """Create schema tables if they do not exist."""
-        self._conn.executescript("""
+        self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS room (
                 num TEXT PRIMARY KEY,
                 name TEXT NOT NULL DEFAULT '',
@@ -114,31 +114,31 @@ class RoomStore:
         """)
         for col in ("blocked", "home", "marked"):
             try:
-                self._conn.execute(f"ALTER TABLE room ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+                self.conn.execute(f"ALTER TABLE room ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
-        self._conn.execute("INSERT OR IGNORE INTO meta VALUES ('version', '1')")
-        self._conn.commit()
+        self.conn.execute("INSERT OR IGNORE INTO meta VALUES ('version', '1')")
+        self.conn.commit()
 
-    def _load_adjacency(self) -> None:
+    def load_adjacency(self) -> None:
         """Load full adjacency graph into memory for BFS."""
-        self._adj.clear()
+        self.adj.clear()
         try:
-            for src, direction, dst in self._conn.execute(
+            for src, direction, dst in self.conn.execute(
                 "SELECT src_num, direction, dst_num FROM exit"
             ):
-                self._adj.setdefault(src, {})[direction] = dst
+                self.adj.setdefault(src, {})[direction] = dst
         except sqlite3.OperationalError:
             pass
 
     def close(self) -> None:
         """Close the database connection."""
-        self._conn.close()
+        self.conn.close()
 
-    def _row_to_room(self, row: tuple[Any, ...]) -> Room:
+    def row_to_room(self, row: tuple[Any, ...]) -> Room:
         """Convert a SELECT row to a :class:`Room`."""
         num = row[0]
-        exits = dict(self._adj.get(num, {}))
+        exits = dict(self.adj.get(num, {}))
         return Room(
             num=num,
             name=row[1],
@@ -153,7 +153,7 @@ class RoomStore:
             marked=bool(row[9]),
         )
 
-    _ROOM_COLS = (
+    ROOM_COLS = (
         "num, name, area, environment, bookmarked, visit_count, last_visited,"
         " blocked, home, marked"
     )
@@ -166,8 +166,8 @@ class RoomStore:
         Not cached.
         """
         result: dict[str, Room] = {}
-        for row in self._conn.execute(f"SELECT {self._ROOM_COLS} FROM room"):
-            room = self._row_to_room(row)
+        for row in self.conn.execute(f"SELECT {self.ROOM_COLS} FROM room"):
+            room = self.row_to_room(row)
             result[room.num] = room
         return result
 
@@ -182,7 +182,7 @@ class RoomStore:
         :class:`Room` objects, which avoids copying exit dicts for every
         room.
         """
-        rows = self._conn.execute(
+        rows = self.conn.execute(
             "SELECT r.num, r.name, r.area, COUNT(e.direction),"
             " r.bookmarked, r.last_visited, r.blocked, r.home, r.marked"
             " FROM room r LEFT JOIN exit e ON r.num = e.src_num"
@@ -195,7 +195,7 @@ class RoomStore:
 
     def room_area(self, num: str) -> str:
         """Return the area of a single room, or ``""`` if not found."""
-        row = self._conn.execute("SELECT area FROM room WHERE num = ?", (num,)).fetchone()
+        row = self.conn.execute("SELECT area FROM room WHERE num = ?", (num,)).fetchone()
         return row[0] if row else ""
 
     def get_room(self, num: str) -> Optional[Room]:
@@ -205,16 +205,16 @@ class RoomStore:
         :param num: Room number.
         :returns: :class:`Room` or ``None`` if not found.
         """
-        row = self._conn.execute(
-            f"SELECT {self._ROOM_COLS} FROM room WHERE num = ?", (num,)
+        row = self.conn.execute(
+            f"SELECT {self.ROOM_COLS} FROM room WHERE num = ?", (num,)
         ).fetchone()
         if row is None:
             return None
-        return self._row_to_room(row)
+        return self.row_to_room(row)
 
-    def _has_room(self, num: str) -> bool:
+    def has_room(self, num: str) -> bool:
         """Return ``True`` if room *num* exists in the database."""
-        row = self._conn.execute("SELECT 1 FROM room WHERE num = ?", (num,)).fetchone()
+        row = self.conn.execute("SELECT 1 FROM room WHERE num = ?", (num,)).fetchone()
         return row is not None
 
     def update_room(self, info: dict[str, Any]) -> None:
@@ -235,7 +235,7 @@ class RoomStore:
         environment = str(info.get("environment", ""))
         now = datetime.now(timezone.utc).isoformat()
 
-        self._conn.execute(
+        self.conn.execute(
             "INSERT INTO room"
             " (num, name, area, environment, visit_count, last_visited)"
             " VALUES (?, ?, ?, ?, 1, ?)"
@@ -246,16 +246,16 @@ class RoomStore:
             " last_visited=excluded.last_visited",
             (num, name, area, environment, now),
         )
-        self._conn.execute("DELETE FROM exit WHERE src_num = ?", (num,))
+        self.conn.execute("DELETE FROM exit WHERE src_num = ?", (num,))
         if exits:
-            self._conn.executemany(
+            self.conn.executemany(
                 "INSERT INTO exit (src_num, direction, dst_num) VALUES (?, ?, ?)",
                 [(num, d, dst) for d, dst in exits.items()],
             )
-        self._conn.commit()
-        self._adj[num] = exits
+        self.conn.commit()
+        self.adj[num] = exits
 
-    _MARKER_COLS = ("bookmarked", "blocked", "home", "marked")
+    MARKER_COLS = ("bookmarked", "blocked", "home", "marked")
 
     def set_marker(self, num: str, marker: str) -> bool:
         """
@@ -272,25 +272,23 @@ class RoomStore:
             ``"marked"``.
         :returns: New state of *marker*, or ``False`` if room not found.
         """
-        if marker not in self._MARKER_COLS:
+        if marker not in self.MARKER_COLS:
             raise ValueError(f"unknown marker: {marker!r}")
-        row = self._conn.execute(
-            f"SELECT {marker}, area FROM room WHERE num = ?", (num,)
-        ).fetchone()
+        row = self.conn.execute(f"SELECT {marker}, area FROM room WHERE num = ?", (num,)).fetchone()
         if row is None:
             return False
         new_state = not bool(row[0])
-        self._conn.execute(
+        self.conn.execute(
             "UPDATE room SET bookmarked=0, blocked=0, home=0, marked=0 WHERE num = ?", (num,)
         )
         if new_state:
-            self._conn.execute(f"UPDATE room SET {marker} = 1 WHERE num = ?", (num,))
+            self.conn.execute(f"UPDATE room SET {marker} = 1 WHERE num = ?", (num,))
             if marker == "home":
                 area = row[1]
-                self._conn.execute(
+                self.conn.execute(
                     "UPDATE room SET home = 0 WHERE area = ? AND num != ?", (area, num)
                 )
-        self._conn.commit()
+        self.conn.commit()
         return new_state
 
     def toggle_bookmark(self, num: str) -> bool:
@@ -316,7 +314,7 @@ class RoomStore:
         :param area: Area name.
         :returns: Room number string, or ``None`` if no home is set.
         """
-        row = self._conn.execute(
+        row = self.conn.execute(
             "SELECT num FROM room WHERE area = ? AND home = 1", (area,)
         ).fetchone()
         return row[0] if row else None
@@ -324,12 +322,12 @@ class RoomStore:
     def blocked_rooms(self) -> frozenset[str]:
         """Return frozenset of all blocked room numbers."""
         return frozenset(
-            row[0] for row in self._conn.execute("SELECT num FROM room WHERE blocked = 1")
+            row[0] for row in self.conn.execute("SELECT num FROM room WHERE blocked = 1")
         )
 
-    def _room_nums(self) -> frozenset[str]:
+    def room_nums(self) -> frozenset[str]:
         """Return the set of all room numbers in the database."""
-        return frozenset(row[0] for row in self._conn.execute("SELECT num FROM room"))
+        return frozenset(row[0] for row in self.conn.execute("SELECT num FROM room"))
 
     def bfs_distances(self, src: str, blocked: frozenset[str] = frozenset()) -> dict[str, int]:
         """
@@ -339,7 +337,7 @@ class RoomStore:
         :param blocked: Room numbers to treat as impassable.
         :returns: ``{room_num: distance}`` for all reachable rooms.
         """
-        known = self._room_nums()
+        known = self.room_nums()
         if src not in known:
             return {}
         distances: dict[str, int] = {src: 0}
@@ -347,7 +345,7 @@ class RoomStore:
         while queue:
             current = queue.popleft()
             d = distances[current]
-            for target in self._adj.get(current, {}).values():
+            for target in self.adj.get(current, {}).values():
                 if target not in distances and target in known and target not in blocked:
                     distances[target] = d + 1
                     queue.append(target)
@@ -364,7 +362,7 @@ class RoomStore:
         """
         if src == dst:
             return []
-        if not self._has_room(src):
+        if not self.has_room(src):
             return None
 
         visited: set[str] = {src}
@@ -372,10 +370,10 @@ class RoomStore:
 
         while queue:
             current, path = queue.popleft()
-            for direction, target in self._adj.get(current, {}).items():
+            for direction, target in self.adj.get(current, {}).items():
                 if target == dst:
                     return path + [direction]
-                if target not in visited and self._has_room(target) and target not in blocked:
+                if target not in visited and self.has_room(target) and target not in blocked:
                     visited.add(target)
                     queue.append((target, path + [direction]))
 
@@ -392,7 +390,7 @@ class RoomStore:
         """
         if src == dst:
             return []
-        if not self._has_room(src):
+        if not self.has_room(src):
             return None
 
         visited: set[str] = {src}
@@ -400,10 +398,10 @@ class RoomStore:
 
         while queue:
             current, path = queue.popleft()
-            for direction, target in self._adj.get(current, {}).items():
+            for direction, target in self.adj.get(current, {}).items():
                 if target == dst:
                     return path + [(direction, target)]
-                if target not in visited and self._has_room(target) and target not in blocked:
+                if target not in visited and self.has_room(target) and target not in blocked:
                     visited.add(target)
                     queue.append((target, path + [(direction, target)]))
 
@@ -417,17 +415,17 @@ class RoomStore:
         :param limit: Maximum results to return.
         :returns: List of matching rooms, excluding *num* itself.
         """
-        row = self._conn.execute("SELECT name FROM room WHERE num = ?", (num,)).fetchone()
+        row = self.conn.execute("SELECT name FROM room WHERE num = ?", (num,)).fetchone()
         if row is None or not row[0]:
             return []
         target_name = row[0]
-        rows = self._conn.execute(
-            f"SELECT {self._ROOM_COLS}"
+        rows = self.conn.execute(
+            f"SELECT {self.ROOM_COLS}"
             " FROM room WHERE name = ? AND num != ?"
             " ORDER BY last_visited ASC LIMIT ?",
             (target_name, num, limit),
         ).fetchall()
-        return [self._row_to_room(r) for r in rows]
+        return [self.row_to_room(r) for r in rows]
 
     def find_branches(
         self,
@@ -447,7 +445,7 @@ class RoomStore:
         :returns: ``[(gateway_room_num, direction, target_num), ...]``
             sorted by BFS distance from *src*.
         """
-        if not self._has_room(src):
+        if not self.has_room(src):
             return []
 
         visited: set[str] = {src}
@@ -456,10 +454,10 @@ class RoomStore:
 
         while queue:
             current, dist = queue.popleft()
-            for direction, target in self._adj.get(current, {}).items():
+            for direction, target in self.adj.get(current, {}).items():
                 if target in blocked:
                     continue
-                target_vc = self._conn.execute(
+                target_vc = self.conn.execute(
                     "SELECT visit_count FROM room WHERE num = ?", (target,)
                 ).fetchone()
                 if target_vc is None or target_vc[0] == 0:
@@ -468,8 +466,8 @@ class RoomStore:
                     visited.add(target)
                     queue.append((target, dist + 1))
 
-        _reverse = strategy == "dfs"
-        branches.sort(key=lambda b: b[0], reverse=_reverse)
+        reverse = strategy == "dfs"
+        branches.sort(key=lambda b: b[0], reverse=reverse)
         # Shuffle branches within each distance tier so autodiscover
         # does not deterministically prefer one direction.
         shuffled: list[tuple[int, str, str, str]] = []
@@ -493,14 +491,14 @@ class RoomStore:
         :returns: Matching rooms sorted bookmarked-first, then by name.
         """
         q = f"%{query}%"
-        rows = self._conn.execute(
-            f"SELECT {self._ROOM_COLS}"
+        rows = self.conn.execute(
+            f"SELECT {self.ROOM_COLS}"
             " FROM room WHERE name LIKE ? COLLATE NOCASE"
             " OR area LIKE ? COLLATE NOCASE"
             " OR num LIKE ? COLLATE NOCASE",
             (q, q, q),
         ).fetchall()
-        results = [self._row_to_room(r) for r in rows]
+        results = [self.row_to_room(r) for r in rows]
         results.sort(key=lambda r: (not r.bookmarked, r.name.lower()))
         return results
 
@@ -508,38 +506,38 @@ class RoomStore:
 RoomGraph = RoomStore
 
 
-def _xdg_data_dir() -> str:
+def xdg_data_dir() -> str:
     """Return XDG data directory for telix."""
-    from ._paths import DATA_DIR
+    from .paths import DATA_DIR
 
     return DATA_DIR
 
 
-def _session_file_path(prefix: str, session_key: str, ext: str = "") -> str:
+def session_file_path(prefix: str, session_key: str, ext: str = "") -> str:
     """Return a per-session file path under the XDG data directory."""
-    from ._paths import safe_session_slug
+    from .paths import safe_session_slug
 
-    return os.path.join(_xdg_data_dir(), f"{prefix}{safe_session_slug(session_key)}{ext}")
+    return os.path.join(xdg_data_dir(), f"{prefix}{safe_session_slug(session_key)}{ext}")
 
 
 def rooms_path(session_key: str) -> str:
     """Return path to room graph SQLite DB for *session_key* (``host:port``)."""
-    return _session_file_path("rooms-", session_key, ".db")
+    return session_file_path("rooms-", session_key, ".db")
 
 
 def current_room_path(session_key: str) -> str:
     """Return path to current room number file for *session_key*."""
-    return _session_file_path(".current-room-", session_key)
+    return session_file_path(".current-room-", session_key)
 
 
 def fasttravel_path(session_key: str) -> str:
     """Return path to fast travel command file for *session_key*."""
-    return _session_file_path(".fasttravel-", session_key)
+    return session_file_path(".fasttravel-", session_key)
 
 
 def prefs_path(session_key: str) -> str:
     """Return path to preferences JSON for *session_key* (``host:port``)."""
-    return _session_file_path("prefs-", session_key, ".json")
+    return session_file_path("prefs-", session_key, ".json")
 
 
 def load_prefs(session_key: str) -> dict[str, bool | str]:
@@ -574,7 +572,7 @@ def save_prefs(session_key: str, prefs: dict[str, bool | str]) -> None:
     :param prefs: Dict of preference values (booleans and strings).
     """
     path = prefs_path(session_key)
-    _atomic_write(path, json.dumps(prefs, separators=(",", ":")))
+    atomic_write(path, json.dumps(prefs, separators=(",", ":")))
 
 
 def write_current_room(path: str, room_num: str) -> None:
@@ -584,7 +582,7 @@ def write_current_room(path: str, room_num: str) -> None:
     :param path: File path.
     :param room_num: Current room number string.
     """
-    _atomic_write(path, room_num)
+    atomic_write(path, room_num)
 
 
 def read_current_room(path: str) -> str:
@@ -610,7 +608,7 @@ def write_fasttravel(path: str, steps: list[tuple[str, str]], noreply: bool = Fa
     :param noreply: If ``True``, disable autoreplies during travel.
     """
     data = {"steps": steps, "noreply": noreply}
-    _atomic_write(path, json.dumps(data))
+    atomic_write(path, json.dumps(data))
 
 
 def read_fasttravel(path: str) -> tuple[list[tuple[str, str]], bool]:

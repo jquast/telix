@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
     from .session_context import SessionContext
 
+# local
+from .repl_theme import hex_to_rgb, get_repl_palette
+
 log = logging.getLogger(__name__)
 
 WARM_UP = 0.025  # 25 ms ramp from idle to peak
@@ -21,26 +24,60 @@ HOLD = 0.025  # 25 ms hold at peak
 GLOW_DOWN = 0.250  # 250 ms ramp from peak back to idle
 DURATION = WARM_UP + HOLD + GLOW_DOWN  # 300 ms total
 
-IDLE_RGB = (26, 0, 0)  # matches toolbar bg on_color_rgb(26,0,0)
-IDLE_AR_RGB = (26, 18, 0)  # matches autoreply toolbar bg
-PEAK_GREEN = (40, 200, 60)  # Rx (receive)
-PEAK_RED = (220, 40, 30)  # Tx (transmit)
-PEAK_YELLOW = (230, 190, 30)  # Cx (compute / command)
+# Session key injected by the REPL to scope palette lookups.
+session_key: str = ""
+
+
+def set_session_key(key: str) -> None:
+    """Set the session key used for palette lookups."""
+    global session_key  # noqa: PLW0603
+    session_key = key
+
+
+def pal(key: str) -> str:
+    """Return ``#rrggbb`` hex string for palette *key*."""
+    return get_repl_palette(session_key)[key]
+
+
+def idle_rgb() -> Tuple[int, int, int]:
+    """Normal input-line background as ``(r, g, b)``."""
+    return hex_to_rgb(pal("input_bg"))
+
+
+def idle_ar_rgb() -> Tuple[int, int, int]:
+    """Autoreply input-line background as ``(r, g, b)``."""
+    return hex_to_rgb(pal("input_ar_bg"))
+
+
+def peak_green() -> Tuple[int, int, int]:
+    """Rx (receive) peak color."""
+    return hex_to_rgb(pal("success"))
+
+
+def peak_red() -> Tuple[int, int, int]:
+    """Tx (transmit) peak color."""
+    return hex_to_rgb(pal("error"))
+
+
+def peak_yellow() -> Tuple[int, int, int]:
+    """Cx (compute) peak color."""
+    return hex_to_rgb(pal("warning"))
+
 
 #: 6-bit pattern -> Unicode sextant character (index 0-63).
 SEXTANT: list[str] = [" "] * 64
 SEXTANT[63] = "\u2588"  # FULL BLOCK
-for _b in range(1, 63):
-    _u = sum((1 << i) for i in range(6) if _b & (1 << (5 - i)))
-    SEXTANT[_b] = (
+for b in range(1, 63):
+    u = sum((1 << i) for i in range(6) if b & (1 << (5 - i)))
+    SEXTANT[b] = (
         "\u258c"
-        if _u == 21
-        else "\u2590" if _u == 42 else chr(0x1FB00 + _u - 1 - sum(1 for x in (21, 42) if x < _u))
+        if u == 21
+        else "\u2590" if u == 42 else chr(0x1FB00 + u - 1 - sum(1 for x in (21, 42) if x < u))
     )
-del _b, _u
+del b, u
 
 #: Non-space sextant characters for password scrambling.
-_SEXTANT_VISIBLE = SEXTANT[1:]
+SEXTANT_VISIBLE = SEXTANT[1:]
 
 
 SCRAMBLE_LEN = 17
@@ -48,7 +85,7 @@ SCRAMBLE_LEN = 17
 
 def scramble_password(length: int = SCRAMBLE_LEN) -> str:
     """Return *length* random sextant block characters."""
-    return "".join(random.choice(_SEXTANT_VISIBLE) for _ in range(length))
+    return "".join(random.choice(SEXTANT_VISIBLE) for _ in range(length))
 
 
 def editor_cursor_col(editor: "blessed.line_editor.LineEditor") -> int:
@@ -72,7 +109,7 @@ PHASES = ((0, 1), (1, 2), (0, 2))
 STOPLIGHT_WIDTH = 1
 
 
-def _activity_hint(engine: Any, cols: int = 0) -> str:
+def activity_hint(engine: Any, cols: int = 0) -> str:
     """
     Build a short autoreply status hint from *engine*.
 
@@ -97,11 +134,11 @@ def _activity_hint(engine: Any, cols: int = 0) -> str:
     if cols > 0:
         max_w = cols // 2
         if len(hint) > max_w > 1:
-            hint = hint[: max_w - 1] + _ELLIPSIS
+            hint = hint[: max_w - 1] + ELLIPSIS
     return hint
 
 
-def _until_progress(engine: Any) -> Optional[float]:
+def until_progress(engine: Any) -> Optional[float]:
     """
     Return the until timer progress fraction, or ``None``.
 
@@ -112,7 +149,7 @@ def _until_progress(engine: Any) -> Optional[float]:
     return getattr(engine, "until_progress", None)
 
 
-def _write_hint(
+def write_hint(
     hint: str,
     out: "asyncio.StreamWriter",
     bt: "blessed.Terminal",
@@ -133,7 +170,8 @@ def _write_hint(
     """
     if not hint:
         return
-    dim = str(bt.color_rgb(60, 40, 40))
+    sug = hex_to_rgb(pal("input_suggestion"))
+    dim = str(bt.color_rgb(*sug))
     normal = bt.normal
     if progress is not None:
         split = int(len(hint) * progress + 0.5)
@@ -164,26 +202,26 @@ class ActivityDot:
     :param peak_rgb: Peak glow color as ``(r, g, b)`` tuple.
     """
 
-    __slots__ = ("_trigger_time", "_phase_offset", "_peak_rgb")
+    __slots__ = ("trigger_time", "phase_offset", "peak_rgb")
 
-    def __init__(self, peak_rgb: Tuple[int, int, int] = PEAK_RED) -> None:
+    def __init__(self, peak_rgb: Optional[Tuple[int, int, int]] = None) -> None:
         """Initialize activity dot with given peak color."""
-        self._trigger_time: float = 0.0
-        self._phase_offset: float = 0.0
-        self._peak_rgb = peak_rgb
+        self.trigger_time: float = 0.0
+        self.phase_offset: float = 0.0
+        self.peak_rgb = peak_rgb if peak_rgb is not None else peak_red()
 
     def trigger(self) -> None:
         """Signal that activity occurred (bytes sent/received, etc.)."""
         now = time.monotonic()
-        elapsed = now - self._trigger_time + self._phase_offset
+        elapsed = now - self.trigger_time + self.phase_offset
         if WARM_UP <= elapsed < DURATION:
-            intensity = self._intensity_at(elapsed)
-            self._phase_offset = intensity * WARM_UP
+            intensity = self.intensity_at(elapsed)
+            self.phase_offset = intensity * WARM_UP
         else:
-            self._phase_offset = 0.0
-        self._trigger_time = now
+            self.phase_offset = 0.0
+        self.trigger_time = now
 
-    def _intensity_at(self, elapsed: float) -> float:
+    def intensity_at(self, elapsed: float) -> float:
         """Return 0.0 (idle) to 1.0 (peak) for the given elapsed time."""
         if elapsed < 0.0 or elapsed >= DURATION:
             return 0.0
@@ -195,23 +233,23 @@ class ActivityDot:
 
     def intensity(self) -> float:
         """Return current intensity 0.0..1.0."""
-        elapsed = time.monotonic() - self._trigger_time + self._phase_offset
-        return self._intensity_at(elapsed)
+        elapsed = time.monotonic() - self.trigger_time + self.phase_offset
+        return self.intensity_at(elapsed)
 
     def is_animating(self) -> bool:
         """Return ``True`` if the dot is still in an animation phase."""
-        elapsed = time.monotonic() - self._trigger_time + self._phase_offset
+        elapsed = time.monotonic() - self.trigger_time + self.phase_offset
         return 0.0 < elapsed < DURATION
 
     def color(self, autoreply_bg: bool = False) -> Tuple[int, int, int]:
         """Return interpolated ``(r, g, b)`` for the current frame."""
-        idle = IDLE_AR_RGB if autoreply_bg else IDLE_RGB
+        idle = idle_ar_rgb() if autoreply_bg else idle_rgb()
         t = self.intensity()
         if t <= 0.0:
             return idle
         if t >= 1.0:
-            return self._peak_rgb
-        return lerp_rgb(idle, self._peak_rgb, t)
+            return self.peak_rgb
+        return lerp_rgb(idle, self.peak_rgb, t)
 
 
 class Stoplight:
@@ -223,23 +261,23 @@ class Stoplight:
     and its foreground color.
     """
 
-    __slots__ = ("tx", "cx", "rx", "_frame", "_last_result")
+    __slots__ = ("tx", "cx", "rx", "frame_count", "last_result")
 
     def __init__(self, tx: ActivityDot, cx: ActivityDot, rx: ActivityDot) -> None:
         """Initialize stoplight with three activity dots."""
         self.tx = tx
         self.cx = cx
         self.rx = rx
-        self._frame: int = 0
-        self._last_result: Tuple[str, Tuple[int, int, int]] = (" ", IDLE_RGB)
+        self.frame_count: int = 0
+        self.last_result: Tuple[str, Tuple[int, int, int]] = (" ", idle_rgb())
 
     @classmethod
     def create(cls) -> "Stoplight":
         """Create a stoplight with the standard color configuration."""
         return cls(
-            tx=ActivityDot(peak_rgb=PEAK_RED),
-            cx=ActivityDot(peak_rgb=PEAK_YELLOW),
-            rx=ActivityDot(peak_rgb=PEAK_GREEN),
+            tx=ActivityDot(peak_rgb=peak_red()),
+            cx=ActivityDot(peak_rgb=peak_yellow()),
+            rx=ActivityDot(peak_rgb=peak_green()),
         )
 
     def is_animating(self) -> bool:
@@ -255,8 +293,8 @@ class Stoplight:
         ar = autoreply_bg
         dots = (self.tx, self.cx, self.rx)
 
-        f = self._frame
-        self._frame = f + 1
+        f = self.frame_count
+        self.frame_count = f + 1
 
         # Phase rotation: which 2 of 3 lights are active.
         phase = (f // 4) % 3
@@ -269,27 +307,27 @@ class Stoplight:
         if intensity > 0.01:
             bits = SEXTANT_BITS[li][col]
             rgb = dots[li].color(ar)
-            self._last_result = SEXTANT[bits], rgb
-            return self._last_result
+            self.last_result = SEXTANT[bits], rgb
+            return self.last_result
 
         # This light is idle -- show the other active light instead.
         other = b_idx if li == a_idx else a_idx
         if dots[other].intensity() > 0.01:
             bits = SEXTANT_BITS[other][col]
             rgb = dots[other].color(ar)
-            self._last_result = SEXTANT[bits], rgb
-            return self._last_result
+            self.last_result = SEXTANT[bits], rgb
+            return self.last_result
 
-        idle = IDLE_AR_RGB if ar else IDLE_RGB
-        self._last_result = " ", idle
-        return self._last_result
+        idle = idle_ar_rgb() if ar else idle_rgb()
+        self.last_result = " ", idle
+        return self.last_result
 
 
-def _get_term() -> "blessed.Terminal":
+def get_term() -> "blessed.Terminal":
     """Return the module-level blessed Terminal singleton."""
-    from .client_repl import _get_term as _gt
+    from .client_repl import get_term as gt
 
-    return _gt()
+    return gt()
 
 
 # DECTCEM cursor visibility.
@@ -304,7 +342,7 @@ CURSOR_STEADY_UNDERLINE: str = "\x1b[4 q"  # DECSCUSR 4
 CURSOR_BLINKING_BAR: str = "\x1b[5 q"  # DECSCUSR 5
 CURSOR_STEADY_BAR: str = "\x1b[6 q"  # DECSCUSR 6
 CURSOR_DEFAULT: str = "\x1b[0 q"  # DECSCUSR 0 -- terminal default
-_CURSOR_STYLES: dict[str, str] = {
+CURSOR_STYLES: dict[str, str] = {
     "blinking_bar": CURSOR_BLINKING_BAR,
     "steady_bar": CURSOR_STEADY_BAR,
     "blinking_block": CURSOR_BLINKING_BLOCK,
@@ -312,68 +350,79 @@ _CURSOR_STYLES: dict[str, str] = {
     "blinking_underline": CURSOR_BLINKING_UNDERLINE,
     "steady_underline": CURSOR_STEADY_UNDERLINE,
 }
-_DEFAULT_CURSOR_STYLE = "steady_block"
+DEFAULT_CURSOR_STYLE = "steady_block"
 
-# Cursor color: RGB inverse of the input-line background.
-# Normal bg (26,0,0) -> inverse (229,255,255); autoreply bg (26,18,0) -> (229,237,255).
-# Cursor color via OSC 12 (xterm/kitty/foot/iTerm2).  Uses X11 rgb: format.
-_NORMAL_BG_RGB = (26, 0, 0)
-_AUTOREPLY_BG_RGB = (26, 18, 0)
-CURSOR_COLOR_RGB = (255 - _NORMAL_BG_RGB[0], 255 - _NORMAL_BG_RGB[1], 255 - _NORMAL_BG_RGB[2])
-_CURSOR_AR_RGB = (
-    255 - _AUTOREPLY_BG_RGB[0],
-    255 - _AUTOREPLY_BG_RGB[1],
-    255 - _AUTOREPLY_BG_RGB[2],
-)
-CURSOR_COLOR_OSC: str = (
-    f"\x1b]12;rgb:{CURSOR_COLOR_RGB[0]:02x}/{CURSOR_COLOR_RGB[1]:02x}"
-    f"/{CURSOR_COLOR_RGB[2]:02x}\x07"
-)
-_CURSOR_AR_OSC: str = (
-    f"\x1b]12;rgb:{_CURSOR_AR_RGB[0]:02x}/{_CURSOR_AR_RGB[1]:02x}" f"/{_CURSOR_AR_RGB[2]:02x}\x07"
-)
 CURSOR_COLOR_RESET_OSC: str = "\x1b]112\x07"  # OSC 112 -- reset to default
 
+
+def cursor_color_rgb() -> Tuple[int, int, int]:
+    """Cursor color from the theme palette."""
+    return hex_to_rgb(pal("cursor_color"))
+
+
+def cursor_ar_rgb() -> Tuple[int, int, int]:
+    """Autoreply cursor color from the theme palette."""
+    return hex_to_rgb(pal("cursor_ar_color"))
+
+
+def cursor_osc() -> str:
+    """OSC 12 escape to set cursor color for the normal background."""
+    r, g, b = cursor_color_rgb()
+    return f"\x1b]12;rgb:{r:02x}/{g:02x}/{b:02x}\x07"
+
+
+def cursor_ar_osc() -> str:
+    """OSC 12 escape to set cursor color for the autoreply background."""
+    r, g, b = cursor_ar_rgb()
+    return f"\x1b]12;rgb:{r:02x}/{g:02x}/{b:02x}\x07"
+
+
 # Default ellipsis for overflow indicator (used as fallback).
-_ELLIPSIS = "\u2026"
+ELLIPSIS = "\u2026"
 
 # SGR style dicts keyed to LineEditor constructor / attribute names.
-# Built lazily via _make_styles() so blessed color_rgb auto-downgrades
+# Built lazily via make_styles() so blessed color_rgb auto-downgrades
 # on terminals that lack truecolor support.
-_STYLE_NORMAL: dict[str, str] = {}
-_STYLE_AUTOREPLY: dict[str, str] = {}
+STYLE_NORMAL: dict[str, str] = {}
+STYLE_AUTOREPLY: dict[str, str] = {}
 
 
-def _make_styles() -> None:
-    """Populate style dicts using blessed color API."""
-    blessed_term = _get_term()
-    cr, cg, cb = CURSOR_COLOR_RGB
+def make_styles() -> None:
+    """Populate style dicts using blessed color API and the active palette."""
+    blessed_term = get_term()
+    cr, cg, cb = cursor_color_rgb()
     cursor_fg = blessed_term.color_rgb(cr, cg, cb)
-    ar_cr, ar_cg, ar_cb = _CURSOR_AR_RGB
+    ar_cr, ar_cg, ar_cb = cursor_ar_rgb()
     cursor_ar_fg = blessed_term.color_rgb(ar_cr, ar_cg, ar_cb)
-    _STYLE_NORMAL.clear()
-    _STYLE_NORMAL.update(
+    n_bg = idle_rgb()
+    ar_bg = idle_ar_rgb()
+    txt = hex_to_rgb(pal("input_text"))
+    sug = hex_to_rgb(pal("input_suggestion"))
+    ar_txt = hex_to_rgb(pal("input_ar_text"))
+    ar_sug = hex_to_rgb(pal("input_ar_suggestion"))
+    STYLE_NORMAL.clear()
+    STYLE_NORMAL.update(
         {
-            "text_sgr": blessed_term.color_rgb(255, 239, 213),
-            "suggestion_sgr": blessed_term.color_rgb(60, 40, 40),
-            "bg_sgr": blessed_term.on_color_rgb(26, 0, 0),
+            "text_sgr": blessed_term.color_rgb(*txt),
+            "suggestion_sgr": blessed_term.color_rgb(*sug),
+            "bg_sgr": blessed_term.on_color_rgb(*n_bg),
             "ellipsis_sgr": blessed_term.color_rgb(190, 190, 190),
-            "cursor_sgr": cursor_fg + blessed_term.on_color_rgb(26, 0, 0),
+            "cursor_sgr": cursor_fg + blessed_term.on_color_rgb(*n_bg),
         }
     )
-    _STYLE_AUTOREPLY.clear()
-    _STYLE_AUTOREPLY.update(
+    STYLE_AUTOREPLY.clear()
+    STYLE_AUTOREPLY.update(
         {
-            "text_sgr": blessed_term.color_rgb(184, 134, 11),
-            "suggestion_sgr": blessed_term.color_rgb(80, 60, 0),
-            "bg_sgr": blessed_term.on_color_rgb(26, 18, 0),
-            "ellipsis_sgr": blessed_term.color_rgb(80, 60, 0),
-            "cursor_sgr": cursor_ar_fg + blessed_term.on_color_rgb(26, 18, 0),
+            "text_sgr": blessed_term.color_rgb(*ar_txt),
+            "suggestion_sgr": blessed_term.color_rgb(*ar_sug),
+            "bg_sgr": blessed_term.on_color_rgb(*ar_bg),
+            "ellipsis_sgr": blessed_term.color_rgb(*ar_sug),
+            "cursor_sgr": cursor_ar_fg + blessed_term.on_color_rgb(*ar_bg),
         }
     )
 
 
-def _hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
+def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     """Convert HSV (h in [0,360), s/v in [0,1]) to (r, g, b) in [0,255]."""
     import colorsys
 
@@ -381,7 +430,7 @@ def _hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def _rgb_to_hsv(r: int, g: int, b: int) -> Tuple[float, float, float]:
+def rgb_to_hsv(r: int, g: int, b: int) -> Tuple[float, float, float]:
     """Convert (r, g, b) in [0,255] to HSV (h in [0,360), s/v in [0,1])."""
     import colorsys
 
@@ -389,7 +438,7 @@ def _rgb_to_hsv(r: int, g: int, b: int) -> Tuple[float, float, float]:
     return (h * 360.0, s, v)
 
 
-def _lerp_hsv(
+def lerp_hsv(
     hsv1: Tuple[float, float, float], hsv2: Tuple[float, float, float], t: float
 ) -> Tuple[float, float, float]:
     """Linearly interpolate between two HSV colors using shortest-arc hue."""
@@ -403,16 +452,16 @@ def _lerp_hsv(
 
 
 # Width of the inner progress bar (between the sextant caps).
-_BAR_WIDTH = 20
+BAR_WIDTH = 20
 
-_FLASH_RAMP_UP = 0.100  # 100ms linear ramp original -> inverse
-_FLASH_HOLD = 0.200  # 200ms freeze at inverse
-_FLASH_RAMP_DOWN = 0.350  # 350ms linear ramp inverse -> original
-_FLASH_DURATION = 0.650  # total: ramp_up + hold + ramp_down = 650ms
-_FLASH_INTERVAL = 0.033  # ~33ms between frames (~30fps)
+FLASH_RAMP_UP = 0.100  # 100ms linear ramp original -> inverse
+FLASH_HOLD = 0.200  # 200ms freeze at inverse
+FLASH_RAMP_DOWN = 0.350  # 350ms linear ramp inverse -> original
+FLASH_DURATION = 0.650  # total: ramp_up + hold + ramp_down = 650ms
+FLASH_INTERVAL = 0.033  # ~33ms between frames (~30fps)
 
 
-def _flash_color(base_hex: str, elapsed: float) -> str:
+def flash_color(base_hex: str, elapsed: float) -> str:
     """
     Compute the flash-animated color for *base_hex* at *elapsed* seconds.
 
@@ -420,27 +469,27 @@ def _flash_color(base_hex: str, elapsed: float) -> str:
     :param elapsed: Seconds since flash started; negative means no flash.
     :returns: Interpolated ``#rrggbb`` hex color.
     """
-    if elapsed < 0.0 or elapsed >= _FLASH_DURATION:
+    if elapsed < 0.0 or elapsed >= FLASH_DURATION:
         return base_hex
     r = int(base_hex[1:3], 16)
     g = int(base_hex[3:5], 16)
     b = int(base_hex[5:7], 16)
-    hsv_orig = _rgb_to_hsv(r, g, b)
+    hsv_orig = rgb_to_hsv(r, g, b)
     # Flash toward white (same hue, zero saturation, full brightness)
     # to avoid hue-interpolation artifacts (e.g. green→magenta goes through cyan).
     hsv_inv = (hsv_orig[0], 0.0, 1.0)
-    if elapsed < _FLASH_RAMP_UP:
-        t = elapsed / _FLASH_RAMP_UP
-    elif elapsed < _FLASH_RAMP_UP + _FLASH_HOLD:
+    if elapsed < FLASH_RAMP_UP:
+        t = elapsed / FLASH_RAMP_UP
+    elif elapsed < FLASH_RAMP_UP + FLASH_HOLD:
         t = 1.0
     else:
-        t = (_FLASH_DURATION - elapsed) / _FLASH_RAMP_DOWN
-    h, s, v = _lerp_hsv(hsv_orig, hsv_inv, t)
-    cr, cg, cb = _hsv_to_rgb(h, s, v)
+        t = (FLASH_DURATION - elapsed) / FLASH_RAMP_DOWN
+    h, s, v = lerp_hsv(hsv_orig, hsv_inv, t)
+    cr, cg, cb = hsv_to_rgb(h, s, v)
     return f"#{cr:02x}{cg:02x}{cb:02x}"
 
 
-def _flash_bg_rgb(base_hex: str, elapsed: float) -> tuple[int, int, int] | None:
+def flash_bg_rgb(base_hex: str, elapsed: float) -> tuple[int, int, int] | None:
     """
     Return the inverse-RGB background ``(r, g, b)`` for a flash frame.
 
@@ -450,22 +499,22 @@ def _flash_bg_rgb(base_hex: str, elapsed: float) -> tuple[int, int, int] | None:
 
     :returns: ``(r, g, b)`` tuple or ``None`` when outside the flash window.
     """
-    if elapsed < 0.0 or elapsed >= _FLASH_DURATION:
+    if elapsed < 0.0 or elapsed >= FLASH_DURATION:
         return None
     r = int(base_hex[1:3], 16)
     g = int(base_hex[3:5], 16)
     b = int(base_hex[5:7], 16)
     inv_r, inv_g, inv_b = 255 - r, 255 - g, 255 - b
-    if elapsed < _FLASH_RAMP_UP:
-        t = elapsed / _FLASH_RAMP_UP
-    elif elapsed < _FLASH_RAMP_UP + _FLASH_HOLD:
+    if elapsed < FLASH_RAMP_UP:
+        t = elapsed / FLASH_RAMP_UP
+    elif elapsed < FLASH_RAMP_UP + FLASH_HOLD:
         t = 1.0
     else:
-        t = (_FLASH_DURATION - elapsed) / _FLASH_RAMP_DOWN
+        t = (FLASH_DURATION - elapsed) / FLASH_RAMP_DOWN
     return (int(inv_r * t), int(inv_g * t), int(inv_b * t))
 
 
-def _fmt_value(n: int) -> str:
+def fmt_value(n: int) -> str:
     """
     Format a numeric value with k/m suffixes for compact display.
 
@@ -481,7 +530,7 @@ def _fmt_value(n: int) -> str:
     return str(n)
 
 
-def _vital_color(fraction: float, kind: str) -> str:
+def vital_color(fraction: float, kind: str) -> str:
     """
     Return an RGB hex color for a vitals bar.
 
@@ -512,11 +561,11 @@ def _vital_color(fraction: float, kind: str) -> str:
         t = max(0.0, (fraction - 0.33) / 0.67)
         hue = 45.0 + t * 195.0
         sat, val = 0.7, 0.8
-    r, g, b = _hsv_to_rgb(hue, sat, val)
+    r, g, b = hsv_to_rgb(hue, sat, val)
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _wcswidth(text: str) -> int:
+def wcswidth(text: str) -> int:
     """Return display width of *text*, handling wide chars."""
     from wcwidth import wcswidth
 
@@ -524,44 +573,48 @@ def _wcswidth(text: str) -> int:
     return w if w >= 0 else len(text)
 
 
-_Stoplight = Stoplight
-_MODEM_WIDTH = STOPLIGHT_WIDTH
+MODEM_WIDTH = STOPLIGHT_WIDTH
 
 
-_BAR_CAP_LEFT = "\U0001fb38"  # 🬸 Block Sextant-2345
-_BAR_CAP_RIGHT = "\U0001fb1b"  # 🬛 Block Sextant-1345
-_DMZ_CHAR = "\u2581"  # ▁ Lower One Eighth Block
+BAR_CAP_LEFT = "\U0001fb38"  # 🬸 Block Sextant-2345
+BAR_CAP_RIGHT = "\U0001fb1b"  # 🬛 Block Sextant-1345
+DMZ_CHAR = "\u2581"  # ▁ Lower One Eighth Block
 
 
-def _dmz_line(cols: int, active: bool = False) -> str:
+def dmz_line(cols: int, active: bool = False) -> str:
     """
     Return a styled DMZ divider line of *cols* width.
 
     :param cols: Terminal width.
     :param active: Use gold color when autoreply/wander/discover is active.
     """
-    blessed_term = _get_term()
-    color = blessed_term.color_rgb(184, 134, 11) if active else blessed_term.color_rgb(50, 10, 10)
-    return str(color) + (_DMZ_CHAR * cols) + str(blessed_term.normal)
+    blessed_term = get_term()
+    rgb = hex_to_rgb(pal("dmz_active") if active else pal("dmz_inactive"))
+    color = blessed_term.color_rgb(*rgb)
+    return str(color) + (DMZ_CHAR * cols) + str(blessed_term.normal)
 
 
-def _segmented(text: str) -> str:
+def segmented(text: str) -> str:
     """Return *text* unchanged (plain ASCII digits)."""
     return text
 
 
-def _sgr_fg(hexcolor: str) -> str:
+def sgr_fg(hexcolor: str) -> str:
     """SGR foreground from ``#rrggbb`` hex via blessed (auto-downconverts)."""
-    return str(_get_term().color_hex(hexcolor))
+    return str(get_term().color_hex(hexcolor))
 
 
-def _sgr_bg(hexcolor: str) -> str:
+def sgr_bg(hexcolor: str) -> str:
     """SGR background from ``#rrggbb`` hex via blessed (auto-downconverts)."""
-    return str(_get_term().on_color_hex(hexcolor))
+    return str(get_term().on_color_hex(hexcolor))
 
 
-def _vital_bar(
-    current: Any, maximum: Any, width: int, kind: str, flash_elapsed: float = -1.0,
+def vital_bar(
+    current: Any,
+    maximum: Any,
+    width: int,
+    kind: str,
+    flash_elapsed: float = -1.0,
     color_override: Optional[str] = None,
     text_fill_color: Optional[str] = None,
     text_empty_color: Optional[str] = None,
@@ -598,21 +651,22 @@ def _vital_bar(
     pct = int(round(frac * 100))
     kind_lower = kind.lower()
 
-    bar_color = color_override if color_override else _vital_color(frac, kind_lower)
-    fg_fill = text_fill_color or "#101010"
-    fg_empty = text_empty_color or "#666666"
-    if 0.0 <= flash_elapsed < _FLASH_DURATION:
-        fill_bg = _flash_color(bar_color, flash_elapsed)
-        empty_bg = _flash_color("#2a2a2a", flash_elapsed)
-        filled_sgr = _sgr_fg(fg_fill) + _sgr_bg(fill_bg)
-        empty_sgr = _sgr_fg(fg_empty) + _sgr_bg(empty_bg)
+    bar_color = color_override if color_override else vital_color(frac, kind_lower)
+    fg_fill = text_fill_color or pal("bar_text_fill")
+    fg_empty = text_empty_color or pal("bar_text_empty")
+    empty_bg_hex = pal("bar_empty_bg")
+    if 0.0 <= flash_elapsed < FLASH_DURATION:
+        fill_bg = flash_color(bar_color, flash_elapsed)
+        empty_bg = flash_color(empty_bg_hex, flash_elapsed)
+        filled_sgr = sgr_fg(fg_fill) + sgr_bg(fill_bg)
+        empty_sgr = sgr_fg(fg_empty) + sgr_bg(empty_bg)
     else:
         fill_bg = bar_color
-        empty_bg = "#2a2a2a"
-        filled_sgr = _sgr_fg(fg_fill) + _sgr_bg(bar_color)
-        empty_sgr = _sgr_fg(fg_empty) + _sgr_bg("#2a2a2a")
+        empty_bg = empty_bg_hex
+        filled_sgr = sgr_fg(fg_fill) + sgr_bg(bar_color)
+        empty_sgr = sgr_fg(fg_empty) + sgr_bg(empty_bg_hex)
 
-    _builtin_suffix = {
+    builtin_suffix = {
         "hp": " hp",
         "mp": " mp",
         "xp": " xp",
@@ -620,12 +674,12 @@ def _vital_bar(
         "randomwalk": " random walk",
         "discover": " discover",
     }
-    suffix = _builtin_suffix.get(kind_lower, f" {kind}" if kind else "")
+    suffix = builtin_suffix.get(kind_lower, f" {kind}" if kind else "")
     if mx > 0:
-        left_part = _segmented(f"{_fmt_value(cur)}/{_fmt_value(mx)}")
-        right_part = _segmented(f"{pct}%") + suffix
+        left_part = segmented(f"{fmt_value(cur)}/{fmt_value(mx)}")
+        right_part = segmented(f"{pct}%") + suffix
     else:
-        left_part = _segmented(f"{_fmt_value(cur)}")
+        left_part = segmented(f"{fmt_value(cur)}")
         right_part = suffix.lstrip()
 
     # Left-align values, right-align pct+suffix, gap in the middle
@@ -642,25 +696,25 @@ def _vital_bar(
     right_color = fill_bg if filled >= width else empty_bg
 
     return [
-        (_sgr_fg(left_color), _BAR_CAP_LEFT),
+        (sgr_fg(left_color), BAR_CAP_LEFT),
         (filled_sgr, filled_text),
         (empty_sgr, empty_text),
-        (_sgr_fg(right_color), _BAR_CAP_RIGHT),
+        (sgr_fg(right_color), BAR_CAP_RIGHT),
     ]
 
 
-def _center_truncate(text: str, avail: int) -> str:
+def center_truncate(text: str, avail: int) -> str:
     """Truncate *text* to fit *avail* display columns."""
     if avail <= 0:
         return ""
-    w = _wcswidth(text)
+    w = wcswidth(text)
     if w <= avail:
         return text
     # Truncate character by character.
     result = []
     total = 0
     for ch in text:
-        cw = _wcswidth(ch)
+        cw = wcswidth(ch)
         if total + cw + 1 > avail:
             break
         result.append(ch)
@@ -668,7 +722,7 @@ def _center_truncate(text: str, avail: int) -> str:
     return "".join(result) + "\u2026"
 
 
-class _ToolbarSlot(NamedTuple):
+class ToolbarSlot(NamedTuple):
     """A single toolbar item with layout metadata."""
 
     priority: int
@@ -682,20 +736,20 @@ class _ToolbarSlot(NamedTuple):
     grow_params: Optional[Tuple[Any, ...]] = None
 
 
-_SEPARATOR_WIDTH = 3
-_BAR_GAP_WIDTH = 1
+SEPARATOR_WIDTH = 3
+BAR_GAP_WIDTH = 1
 
 
-def _layout_toolbar(
-    slots: List["_ToolbarSlot"], cols: int
-) -> Tuple[List["_ToolbarSlot"], List["_ToolbarSlot"]]:
+def layout_toolbar(
+    slots: List["ToolbarSlot"], cols: int
+) -> Tuple[List["ToolbarSlot"], List["ToolbarSlot"]]:
     """
     Fit toolbar slots into *cols* columns by priority.
 
     :returns: ``(left_slots, right_slots)`` ordered by ``display_order``.
     """
-    left: List[_ToolbarSlot] = []
-    right: List[_ToolbarSlot] = []
+    left: List[ToolbarSlot] = []
+    right: List[ToolbarSlot] = []
     left_used = 0
     right_used = 0
     has_left = False
@@ -703,7 +757,7 @@ def _layout_toolbar(
 
     for slot in sorted(slots, key=lambda s: s.priority):
         sep = (
-            _SEPARATOR_WIDTH
+            SEPARATOR_WIDTH
             if ((slot.side == "left" and has_left) or (slot.side == "right" and has_right))
             else 0
         )
@@ -722,8 +776,8 @@ def _layout_toolbar(
         elif slot.min_width > 0 and slot.min_width < slot.width:
             fit = avail - sep
             if fit >= slot.min_width:
-                trimmed_text = _center_truncate(slot.label, fit)
-                trimmed_w = _wcswidth(trimmed_text)
+                trimmed_text = center_truncate(slot.label, fit)
+                trimmed_w = wcswidth(trimmed_text)
                 trimmed_frags = [(slot.fragments[0][0], trimmed_text)]
                 trimmed = slot._replace(width=trimmed_w, fragments=trimmed_frags)
                 if slot.side == "left":
@@ -740,49 +794,49 @@ def _layout_toolbar(
     return (left, right)
 
 
-def _left_sep_widths(left: List["_ToolbarSlot"]) -> List[int]:
+def left_sep_widths(left: List["ToolbarSlot"]) -> List[int]:
     """
     Return per-gap separator widths for left slots.
 
-    Adjacent growable (vital-bar) slots use ``_BAR_GAP_WIDTH``; all other
-    gaps use ``_SEPARATOR_WIDTH``.
+    Adjacent growable (vital-bar) slots use ``BAR_GAP_WIDTH``; all other
+    gaps use ``SEPARATOR_WIDTH``.
     """
     gaps: List[int] = []
     for i in range(1, len(left)):
         if left[i - 1].growable and left[i].growable:
-            gaps.append(_BAR_GAP_WIDTH)
+            gaps.append(BAR_GAP_WIDTH)
         else:
-            gaps.append(_SEPARATOR_WIDTH)
+            gaps.append(SEPARATOR_WIDTH)
     return gaps
 
 
-def _fill_toolbar(
-    left: List["_ToolbarSlot"], right: List["_ToolbarSlot"], cols: int
-) -> Tuple[List["_ToolbarSlot"], List["_ToolbarSlot"], int]:
+def fill_toolbar(
+    left: List["ToolbarSlot"], right: List["ToolbarSlot"], cols: int
+) -> Tuple[List["ToolbarSlot"], List["ToolbarSlot"], int]:
     """
     Distribute extra horizontal space across growable slots and separators.
 
     :returns: ``(left_slots, right_slots, sep_width)`` with expanded bars.
     """
-    left_gaps = _left_sep_widths(left)
+    left_gaps = left_sep_widths(left)
     n_right_seps = max(0, len(right) - 1)
     used = sum(s.width for s in left) + sum(s.width for s in right)
-    used += sum(left_gaps) + n_right_seps * _SEPARATOR_WIDTH
+    used += sum(left_gaps) + n_right_seps * SEPARATOR_WIDTH
     min_pad = 1 if left and right else 0
     extra = cols - used - min_pad
 
     growable = [s for s in left + right if s.growable and s.grow_params is not None]
     if not growable or extra <= 0:
-        return (left, right, _SEPARATOR_WIDTH)
+        return (left, right, SEPARATOR_WIDTH)
 
     n_expandable_seps = n_right_seps
     if n_expandable_seps > 0:
         sep_bonus = extra // 4
         per_sep = sep_bonus // n_expandable_seps
-        sep_width = _SEPARATOR_WIDTH + per_sep
+        sep_width = SEPARATOR_WIDTH + per_sep
         remaining = extra - per_sep * n_expandable_seps
     else:
-        sep_width = _SEPARATOR_WIDTH
+        sep_width = SEPARATOR_WIDTH
         remaining = extra
 
     per_bar = remaining // len(growable)
@@ -791,7 +845,7 @@ def _fill_toolbar(
     grow_set = set(id(s) for s in growable)
     grow_idx = 0
 
-    def _expand(slot: _ToolbarSlot) -> _ToolbarSlot:
+    def expand(slot: ToolbarSlot) -> ToolbarSlot:
         nonlocal grow_idx
         if id(slot) not in grow_set:
             return slot
@@ -807,24 +861,29 @@ def _fill_toolbar(
             t_fill = params[5] if len(params) > 5 else None
             t_empty = params[6] if len(params) > 6 else None
             inner = slot.width - 2 + bonus
-            frags = _vital_bar(
-                raw, maxval, inner, kind,
-                flash_elapsed=flash_elapsed, color_override=c_override,
-                text_fill_color=t_fill, text_empty_color=t_empty,
+            frags = vital_bar(
+                raw,
+                maxval,
+                inner,
+                kind,
+                flash_elapsed=flash_elapsed,
+                color_override=c_override,
+                text_fill_color=t_fill,
+                text_empty_color=t_empty,
             )
-            new_w = sum(_wcswidth(t) for _, t in frags)
+            new_w = sum(wcswidth(t) for _, t in frags)
             return slot._replace(width=new_w, fragments=frags)
         if len(params) == 1:
             full_text = params[0]
             new_w = slot.width + bonus
-            trimmed = _center_truncate(full_text, new_w)
-            trimmed_w = _wcswidth(trimmed)
+            trimmed = center_truncate(full_text, new_w)
+            trimmed_w = wcswidth(trimmed)
             sgr = slot.fragments[0][0] if slot.fragments else ""
             return slot._replace(width=trimmed_w, fragments=[(sgr, trimmed)])
         return slot
 
-    new_left = [_expand(s) for s in left]
-    new_right = [_expand(s) for s in right]
+    new_left = [expand(s) for s in left]
+    new_right = [expand(s) for s in right]
     return (new_left, new_right, sep_width)
 
 
@@ -852,7 +911,7 @@ class VitalTracker:
             self.flash_time = now
         self.last_value = val
         elapsed = now - self.flash_time
-        return elapsed if elapsed < _FLASH_DURATION else -1.0
+        return elapsed if elapsed < FLASH_DURATION else -1.0
 
 
 class XPTracker(VitalTracker):
@@ -860,7 +919,7 @@ class XPTracker(VitalTracker):
 
     __slots__ = ("history",)
 
-    _HISTORY_WINDOW: float = 300.0
+    HISTORY_WINDOW: float = 300.0
 
     def __init__(self) -> None:
         """Initialize XP tracker with empty history deque."""
@@ -880,12 +939,12 @@ class XPTracker(VitalTracker):
             self.history.append((now, val))
         self.last_value = val
 
-        cutoff = now - self._HISTORY_WINDOW
+        cutoff = now - self.HISTORY_WINDOW
         while self.history and self.history[0][0] < cutoff:
             self.history.popleft()
 
         elapsed = now - self.flash_time
-        return elapsed if elapsed < _FLASH_DURATION else -1.0
+        return elapsed if elapsed < FLASH_DURATION else -1.0
 
     def eta_fragments(self, maxxp: Any, now: float) -> Optional[List[Tuple[str, str]]]:
         """
@@ -909,18 +968,18 @@ class XPTracker(VitalTracker):
         eta_sec = remaining / rate_per_sec
         eta_hr = eta_sec / 3600.0
         if eta_hr >= 1.0:
-            eta_text = _segmented(f"ETA {eta_hr:.1f}h")
+            eta_text = segmented(f"ETA {eta_hr:.1f}h")
         else:
             eta_min = int(eta_sec / 60.0)
-            eta_text = _segmented(f"ETA {eta_min}m")
-        return [(_sgr_fg("#888888"), eta_text)]
+            eta_text = segmented(f"ETA {eta_min}m")
+        return [(sgr_fg(pal("warning")), eta_text)]
 
 
 class ToolbarRenderer:
     """
     Encapsulates GMCP vitals toolbar state and rendering.
 
-    Replaces the former ``_render_toolbar`` function and its ``toolbar_state``
+    Replaces the former ``render_toolbar`` function and its ``toolbar_state``
     dict with typed attributes and small focused methods.
     """
 
@@ -939,62 +998,63 @@ class ToolbarRenderer:
         self.stoplight = stoplight
         self.rprompt_text = rprompt_text
         self.flash_active: bool = False
-        self._has_gmcp: bool = False
-        self._eta_refresh_active: bool = False
-        self._until_progress_active: bool = False
-        self._last_progress_col: int = -1
-        self._last_progress_hint: str = ""
-        self._last_hint_split: Optional[Tuple[str, int]] = None
-        self._last_eta_text: str = ""
-        self._cached_eta_frags: Optional[List[Tuple[str, str]]] = None
+        self.has_gmcp: bool = False
+        self.eta_refresh_active: bool = False
+        self.until_progress_active: bool = False
+        self.last_progress_col: int = -1
+        self.last_progress_hint: str = ""
+        self.last_hint_split: Optional[Tuple[str, int]] = None
+        self.last_eta_text: str = ""
+        self.cached_eta_frags: Optional[List[Tuple[str, str]]] = None
         self.hp = VitalTracker()
         self.mp = VitalTracker()
         self.xp = XPTracker()
-        self._bar_trackers: dict[str, VitalTracker] = {}
-        self._cursor_show_handle: Optional[asyncio.TimerHandle] = None
-        self._cursor_hidden: bool = False
+        self.bar_trackers: dict[str, VitalTracker] = {}
+        self.cursor_show_handle: Optional[asyncio.TimerHandle] = None
+        self.cursor_hidden: bool = False
 
-    _CURSOR_SHOW_DELAY = 0.05
+    CURSOR_SHOW_DELAY = 0.05
 
-    def _is_autoreply_bg(self, engine: Any) -> bool:
+    def is_autoreply_bg(self, engine: Any) -> bool:
         """Return whether the input row should use the autoreply background."""
         ar = engine is not None and (engine.exclusive_active or engine.reply_pending)
         return self.ctx.discover_active or self.ctx.randomwalk_active or ar
 
     def hide_cursor(self) -> None:
         """Hide the terminal cursor, canceling any pending debounced show."""
-        if self._cursor_show_handle is not None:
-            self._cursor_show_handle.cancel()
-            self._cursor_show_handle = None
-        if not self._cursor_hidden:
+        if self.cursor_show_handle is not None:
+            self.cursor_show_handle.cancel()
+            self.cursor_show_handle = None
+        if not self.cursor_hidden:
             self.out.write(CURSOR_HIDE.encode())
-            self._cursor_hidden = True
+            self.cursor_hidden = True
 
     def show_cursor(self) -> None:
         """Show the terminal cursor immediately, canceling any pending show."""
-        if self._cursor_show_handle is not None:
-            self._cursor_show_handle.cancel()
-            self._cursor_show_handle = None
-        self._cursor_hidden = False
+        if self.cursor_show_handle is not None:
+            self.cursor_show_handle.cancel()
+            self.cursor_show_handle = None
+        self.cursor_hidden = False
         self.out.write(CURSOR_SHOW.encode())
 
     def schedule_cursor_show(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Schedule the terminal cursor to be shown after a short delay.
+        """
+        Schedule the terminal cursor to be shown after a short delay.
 
         If ``hide_cursor`` is called before the timer fires, the show is
         suppressed.  A later ``schedule_cursor_show`` will try again.
         """
-        if self._cursor_show_handle is not None:
-            self._cursor_show_handle.cancel()
+        if self.cursor_show_handle is not None:
+            self.cursor_show_handle.cancel()
 
-        def _do_show() -> None:
-            self._cursor_show_handle = None
+        def do_show() -> None:
+            self.cursor_show_handle = None
             if self.stoplight is not None and self.stoplight.is_animating():
                 return
-            self._cursor_hidden = False
+            self.cursor_hidden = False
             self.out.write(CURSOR_SHOW.encode())
 
-        self._cursor_show_handle = loop.call_later(self._CURSOR_SHOW_DELAY, _do_show)
+        self.cursor_show_handle = loop.call_later(self.CURSOR_SHOW_DELAY, do_show)
 
     def render(self, autoreply_engine: Any) -> bool:
         """
@@ -1003,7 +1063,7 @@ class ToolbarRenderer:
         :returns: ``True`` if a flash is active and the caller should
             schedule a re-render.
         """
-        if not self._ensure_gmcp_ready():
+        if not self.ensure_gmcp_ready():
             return False
         self.ctx.mark_gmcp_dirty()
 
@@ -1013,51 +1073,49 @@ class ToolbarRenderer:
         randomwalk_active = self.ctx.randomwalk_active
 
         now = time.monotonic()
-        slots, needs_reflash = self._build_slots(
+        slots, needs_reflash = self.build_slots(
             engine, ar_active, discover_active, randomwalk_active, now
         )
-        return self._paint(
-            slots, self._is_autoreply_bg(engine), needs_reflash
-        )
+        return self.paint(slots, self.is_autoreply_bg(engine), needs_reflash)
 
-    def _ensure_gmcp_ready(self) -> bool:
+    def ensure_gmcp_ready(self) -> bool:
         """Initialize toolbar on first GMCP data; return ``False`` if no data yet."""
-        from .client_repl import _RESERVE_WITH_TOOLBAR
+        from .client_repl import RESERVE_WITH_TOOLBAR
 
         gmcp_data: Optional[dict[str, Any]] = self.ctx.gmcp_data or None
-        if not self._has_gmcp:
+        if not self.has_gmcp:
             if not gmcp_data:
                 return False
-            self._has_gmcp = True
-            self.scroll.grow_reserve(_RESERVE_WITH_TOOLBAR)
+            self.has_gmcp = True
+            self.scroll.grow_reserve(RESERVE_WITH_TOOLBAR)
             if self.ctx.on_gmcp_ready is not None:
                 self.ctx.on_gmcp_ready()
                 self.ctx.on_gmcp_ready = None
         return True
 
-    def _build_slots(
+    def build_slots(
         self,
         engine: Any,
         ar_active: bool,
         discover_active: bool,
         randomwalk_active: bool,
         now: float,
-    ) -> Tuple[List[_ToolbarSlot], bool]:
+    ) -> Tuple[List[ToolbarSlot], bool]:
         """Build all toolbar slots and return ``(slots, needs_reflash)``."""
-        slots: List[_ToolbarSlot] = []
+        slots: List[ToolbarSlot] = []
         needs_reflash = False
         gmcp_data: Optional[dict[str, Any]] = self.ctx.gmcp_data or None
 
         if gmcp_data:
             status = gmcp_data.get("Char.Status")
             if isinstance(status, dict):
-                self._status_slots(status, slots)
+                self.status_slots(status, slots)
 
             bar_configs = self.ctx.progressbar_configs
             if bar_configs:
-                needs_reflash = self._config_driven_bars(gmcp_data, bar_configs, now, slots)
+                needs_reflash = self.config_driven_bars(gmcp_data, bar_configs, now, slots)
             else:
-                needs_reflash = self._default_bars(gmcp_data, now, slots)
+                needs_reflash = self.default_bars(gmcp_data, now, slots)
 
             room_info = gmcp_data.get("Room.Info", gmcp_data.get("Room.Name"))
             if isinstance(room_info, dict):
@@ -1072,23 +1130,21 @@ class ToolbarRenderer:
         if self.ctx.chat_unread > 0:
             badge = f"F10-Chat:{self.ctx.chat_unread}"
             slots.append(
-                _ToolbarSlot(
+                ToolbarSlot(
                     priority=3,
                     display_order=8,
-                    width=_wcswidth(badge),
-                    fragments=[(_sgr_fg("#ffff00"), badge)],
+                    width=wcswidth(badge),
+                    fragments=[(sgr_fg(pal("primary")), badge)],
                     side="left",
                     min_width=0,
                     label="",
                 )
             )
 
-        self._right_slot(engine, ar_active, discover_active, randomwalk_active, slots)
+        self.right_slot(engine, ar_active, discover_active, randomwalk_active, slots)
         return slots, needs_reflash
 
-    def _default_bars(
-        self, gmcp_data: dict[str, Any], now: float, slots: List[_ToolbarSlot]
-    ) -> bool:
+    def default_bars(self, gmcp_data: dict[str, Any], now: float, slots: List[ToolbarSlot]) -> bool:
         """Build HP/MP/XP bars using hardcoded aliases (backward compat)."""
         needs_reflash = False
         vitals = gmcp_data.get("Char.Vitals")
@@ -1096,7 +1152,7 @@ class ToolbarRenderer:
             hp = vitals.get("hp", vitals.get("HP"))
             maxhp = vitals.get("maxhp", vitals.get("maxHP", vitals.get("max_hp")))
             if hp is not None:
-                if self._vital_slot(self.hp, hp, maxhp, _BAR_WIDTH, "hp", 1, 2, now, slots):
+                if self.vital_slot(self.hp, hp, maxhp, BAR_WIDTH, "hp", 1, 2, now, slots):
                     needs_reflash = True
             mp = vitals.get(
                 "mp", vitals.get("MP", vitals.get("mana", vitals.get("sp", vitals.get("SP"))))
@@ -1106,7 +1162,7 @@ class ToolbarRenderer:
                 vitals.get("maxMP", vitals.get("max_mp", vitals.get("maxsp", vitals.get("maxSP")))),
             )
             if mp is not None:
-                if self._vital_slot(self.mp, mp, maxmp, _BAR_WIDTH, "mp", 4, 3, now, slots):
+                if self.vital_slot(self.mp, mp, maxmp, BAR_WIDTH, "mp", 4, 3, now, slots):
                     needs_reflash = True
         status = gmcp_data.get("Char.Status")
         if isinstance(status, dict):
@@ -1115,17 +1171,17 @@ class ToolbarRenderer:
                 "maxxp", status.get("maxXP", status.get("max_xp", status.get("maxexp")))
             )
             if xp_raw is not None:
-                if self._vital_slot(self.xp, xp_raw, maxxp, _BAR_WIDTH, "xp", 5, 4, now, slots):
+                if self.vital_slot(self.xp, xp_raw, maxxp, BAR_WIDTH, "xp", 5, 4, now, slots):
                     needs_reflash = True
-                self._xp_eta_slot(maxxp, now, slots)
+                self.xp_eta_slot(maxxp, now, slots)
         return needs_reflash
 
-    def _config_driven_bars(
+    def config_driven_bars(
         self,
         gmcp_data: dict[str, Any],
         bar_configs: list[Any],
         now: float,
-        slots: List[_ToolbarSlot],
+        slots: List[ToolbarSlot],
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
         from .progressbars import bar_color_at, resolve_text_color_hex
@@ -1143,10 +1199,10 @@ class ToolbarRenderer:
             if raw is None:
                 continue
             maxval = pkg_data.get(cfg.max_field)
-            tracker = self._bar_trackers.get(cfg.name)
+            tracker = self.bar_trackers.get(cfg.name)
             if tracker is None:
                 tracker = VitalTracker()
-                self._bar_trackers[cfg.name] = tracker
+                self.bar_trackers[cfg.name] = tracker
             kind = cfg.name
             priority = i + 1
             order = cfg.display_order if cfg.display_order else i + 2
@@ -1161,26 +1217,35 @@ class ToolbarRenderer:
             color = bar_color_at(frac, cfg)
             text_fill = resolve_text_color_hex(cfg.text_color_fill)
             text_empty = resolve_text_color_hex(cfg.text_color_empty)
-            if self._vital_slot(
-                tracker, raw, maxval, _BAR_WIDTH, kind, priority, order, now, slots,
+            if self.vital_slot(
+                tracker,
+                raw,
+                maxval,
+                BAR_WIDTH,
+                kind,
+                priority,
+                order,
+                now,
+                slots,
                 color_override=color,
-                text_fill_color=text_fill, text_empty_color=text_empty,
+                text_fill_color=text_fill,
+                text_empty_color=text_empty,
                 side=side,
             ):
                 needs_reflash = True
         return needs_reflash
 
-    def _status_slots(self, status: dict[str, Any], slots: List[_ToolbarSlot]) -> None:
+    def status_slots(self, status: dict[str, Any], slots: List[ToolbarSlot]) -> None:
         """Add Level and Money slots from ``Char.Status``."""
         level = status.get("level")
         if level is not None:
-            lv_text = _segmented(f"Lv.{level}")
+            lv_text = segmented(f"Lv.{level}")
             slots.append(
-                _ToolbarSlot(
+                ToolbarSlot(
                     priority=7,
                     display_order=0,
-                    width=_wcswidth(lv_text),
-                    fragments=[(_sgr_fg("#aaaaaa"), lv_text)],
+                    width=wcswidth(lv_text),
+                    fragments=[(sgr_fg(pal("secondary")), lv_text)],
                     side="left",
                     min_width=0,
                     label="",
@@ -1190,15 +1255,15 @@ class ToolbarRenderer:
         if money is not None:
             try:
                 money_int = int(money)
-                money_str = _segmented(f"${money_int:,}")
+                money_str = segmented(f"${money_int:,}")
             except (TypeError, ValueError):
-                money_str = _segmented(f"${money}")
+                money_str = segmented(f"${money}")
             slots.append(
-                _ToolbarSlot(
+                ToolbarSlot(
                     priority=6,
                     display_order=1,
-                    width=_wcswidth(money_str),
-                    fragments=[(_sgr_fg("#aaaaaa"), money_str)],
+                    width=wcswidth(money_str),
+                    fragments=[(sgr_fg(pal("secondary")), money_str)],
                     side="left",
                     min_width=0,
                     label="",
@@ -1206,7 +1271,7 @@ class ToolbarRenderer:
             )
 
     @staticmethod
-    def _vital_slot(
+    def vital_slot(
         tracker: VitalTracker,
         raw: Any,
         maxval: Any,
@@ -1215,7 +1280,7 @@ class ToolbarRenderer:
         priority: int,
         order: int,
         now: float,
-        slots: List[_ToolbarSlot],
+        slots: List[ToolbarSlot],
         color_override: Optional[str] = None,
         text_fill_color: Optional[str] = None,
         text_empty_color: Optional[str] = None,
@@ -1228,14 +1293,19 @@ class ToolbarRenderer:
         """
         flash_elapsed = tracker.update(raw, now)
         needs_reflash = flash_elapsed >= 0.0
-        frags = _vital_bar(
-            raw, maxval, width, kind,
-            flash_elapsed=flash_elapsed, color_override=color_override,
-            text_fill_color=text_fill_color, text_empty_color=text_empty_color,
+        frags = vital_bar(
+            raw,
+            maxval,
+            width,
+            kind,
+            flash_elapsed=flash_elapsed,
+            color_override=color_override,
+            text_fill_color=text_fill_color,
+            text_empty_color=text_empty_color,
         )
-        frags_w = sum(_wcswidth(t) for _, t in frags)
+        frags_w = sum(wcswidth(t) for _, t in frags)
         slots.append(
-            _ToolbarSlot(
+            ToolbarSlot(
                 priority=priority,
                 display_order=order,
                 width=frags_w,
@@ -1245,30 +1315,35 @@ class ToolbarRenderer:
                 label="",
                 growable=True,
                 grow_params=(
-                    raw, maxval, kind, flash_elapsed, color_override,
-                    text_fill_color, text_empty_color,
+                    raw,
+                    maxval,
+                    kind,
+                    flash_elapsed,
+                    color_override,
+                    text_fill_color,
+                    text_empty_color,
                 ),
             )
         )
         return needs_reflash
 
-    def _xp_eta_slot(self, maxxp: Any, now: float, slots: List[_ToolbarSlot]) -> None:
+    def xp_eta_slot(self, maxxp: Any, now: float, slots: List[ToolbarSlot]) -> None:
         """
         Append an ETA slot from cached fragments.
 
         ETA is recomputed only by the 1-second ``schedule_eta_refresh`` timer
         to avoid jittery numbers on every line of server output.
         """
-        if self._cached_eta_frags is None:
-            self._cached_eta_frags = self.xp.eta_fragments(maxxp, now)
-        eta_frags = self._cached_eta_frags
+        if self.cached_eta_frags is None:
+            self.cached_eta_frags = self.xp.eta_fragments(maxxp, now)
+        eta_frags = self.cached_eta_frags
         if eta_frags is not None:
             eta_text = eta_frags[0][1]
             slots.append(
-                _ToolbarSlot(
+                ToolbarSlot(
                     priority=8,
                     display_order=5,
-                    width=_wcswidth(eta_text),
+                    width=wcswidth(eta_text),
                     fragments=eta_frags,
                     side="left",
                     min_width=0,
@@ -1276,31 +1351,29 @@ class ToolbarRenderer:
                 )
             )
 
-    def _right_slot(
+    def right_slot(
         self,
         engine: Any,
         ar_active: bool,
         discover_active: bool,
         randomwalk_active: bool,
-        slots: List[_ToolbarSlot],
+        slots: List[ToolbarSlot],
     ) -> None:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:
-            self._travel_bar_slot(
-                self.ctx.randomwalk_current, self.ctx.randomwalk_total,
-                24, "randomwalk", slots,
+            self.travel_bar_slot(
+                self.ctx.randomwalk_current, self.ctx.randomwalk_total, 24, "randomwalk", slots
             )
         elif discover_active:
-            self._travel_bar_slot(
-                self.ctx.discover_current, self.ctx.discover_total,
-                20, "discover", slots,
+            self.travel_bar_slot(
+                self.ctx.discover_current, self.ctx.discover_total, 20, "discover", slots
             )
         elif ar_active:
             idx = getattr(engine, "exclusive_rule_index", None)
             ar_label = f"Autoreply #{idx}" if idx is not None else "Autoreply"
             ar_text = " " + ar_label
             slots.append(
-                _ToolbarSlot(
+                ToolbarSlot(
                     priority=3,
                     display_order=10,
                     width=len(ar_text),
@@ -1314,13 +1387,13 @@ class ToolbarRenderer:
             loc_text = self.rprompt_text
             if loc_text:
                 full_text = " " + loc_text
-                full_w = _wcswidth(full_text)
+                full_w = wcswidth(full_text)
                 slots.append(
-                    _ToolbarSlot(
+                    ToolbarSlot(
                         priority=2,
                         display_order=10,
                         width=full_w,
-                        fragments=[(_sgr_fg("#dddddd"), full_text)],
+                        fragments=[(sgr_fg(pal("foreground")), full_text)],
                         side="right",
                         min_width=5,
                         label=full_text,
@@ -1329,14 +1402,14 @@ class ToolbarRenderer:
                     )
                 )
 
-    def _travel_bar_slot(
-        self, cur: Any, tot: Any, width: int, kind: str, slots: List[_ToolbarSlot]
+    def travel_bar_slot(
+        self, cur: Any, tot: Any, width: int, kind: str, slots: List[ToolbarSlot]
     ) -> None:
         """Append a travel progress bar slot, using config colors when available."""
         from .progressbars import TRAVEL_BAR_NAME, bar_color_at, resolve_text_color_hex
 
         travel_cfg = None
-        for cfg in (self.ctx.progressbar_configs or []):
+        for cfg in self.ctx.progressbar_configs or []:
             if cfg.name == TRAVEL_BAR_NAME or (cfg.name and not cfg.gmcp_package):
                 travel_cfg = cfg
                 break
@@ -1357,14 +1430,18 @@ class ToolbarRenderer:
             text_empty = resolve_text_color_hex(travel_cfg.text_color_empty)
             side = getattr(travel_cfg, "side", "right")
 
-        mode_frags = _vital_bar(
-            cur, tot, width, kind,
+        mode_frags = vital_bar(
+            cur,
+            tot,
+            width,
+            kind,
             color_override=color_override,
-            text_fill_color=text_fill, text_empty_color=text_empty,
+            text_fill_color=text_fill,
+            text_empty_color=text_empty,
         )
-        mode_w = sum(_wcswidth(t) for _, t in mode_frags)
+        mode_w = sum(wcswidth(t) for _, t in mode_frags)
         slots.append(
-            _ToolbarSlot(
+            ToolbarSlot(
                 priority=3,
                 display_order=10,
                 width=mode_w,
@@ -1373,50 +1450,51 @@ class ToolbarRenderer:
                 min_width=0,
                 label="",
                 growable=True,
-                grow_params=(cur, tot, kind, -1.0, color_override,
-                             text_fill, text_empty),
+                grow_params=(cur, tot, kind, -1.0, color_override, text_fill, text_empty),
             )
         )
 
-    def _paint(self, slots: List[_ToolbarSlot], is_autoreply_bg: bool, needs_reflash: bool) -> bool:
+    def paint(self, slots: List[ToolbarSlot], is_autoreply_bg: bool, needs_reflash: bool) -> bool:
         """Write ANSI sequences for the toolbar row."""
-        blessed_term = _get_term()
+        blessed_term = get_term()
         cols = blessed_term.width
-        left_slots, right_slots = _layout_toolbar(slots, cols)
-        left_slots, right_slots, sep_width = _fill_toolbar(left_slots, right_slots, cols)
+        left_slots, right_slots = layout_toolbar(slots, cols)
+        left_slots, right_slots, sep_width = fill_toolbar(left_slots, right_slots, cols)
         sep_str = " " * sep_width
 
         toolbar_row = self.scroll.input_row + 1
         self.out.write(blessed_term.move_yx(toolbar_row, 0).encode())
 
         if is_autoreply_bg:
-            bg_sgr = blessed_term.on_color_rgb(26, 18, 0) + blessed_term.color_rgb(184, 134, 11)
+            ar_bg = idle_ar_rgb()
+            ar_fg = hex_to_rgb(pal("input_ar_text"))
+            bg_sgr = blessed_term.on_color_rgb(*ar_bg) + blessed_term.color_rgb(*ar_fg)
         else:
-            bg_sgr = blessed_term.on_color_rgb(26, 0, 0)
+            bg_sgr = blessed_term.on_color_rgb(*idle_rgb())
         self.out.write(bg_sgr.encode())
 
         left_total = 0
         for i, slot in enumerate(left_slots):
             if i > 0:
                 prev_growable = left_slots[i - 1].growable
-                gap = _BAR_GAP_WIDTH if prev_growable and slot.growable else sep_width
+                gap = BAR_GAP_WIDTH if prev_growable and slot.growable else sep_width
                 self.out.write((" " * gap).encode())
                 left_total += gap
             for sgr, text in slot.fragments:
                 self.out.write(f"{sgr}{text}".encode())
                 self.out.write(bg_sgr.encode())
-                left_total += _wcswidth(text)
+                left_total += wcswidth(text)
 
         right_total = 0
         for i, slot in enumerate(right_slots):
             if i > 0:
                 right_total += sep_width
-            right_total += sum(_wcswidth(t) for _, t in slot.fragments)
+            right_total += sum(wcswidth(t) for _, t in slot.fragments)
 
         pad = max(1, cols - left_total - right_total)
         self.out.write((" " * pad).encode())
 
-        right_sgr = _sgr_fg("#dddddd") if not is_autoreply_bg else ""
+        right_sgr = sgr_fg(pal("foreground")) if not is_autoreply_bg else ""
         for i, slot in enumerate(right_slots):
             if i > 0:
                 self.out.write(sep_str.encode())
@@ -1453,10 +1531,10 @@ class ToolbarRenderer:
         """
         if self.stoplight is None or not self.stoplight.is_animating():
             return False
-        ch, (r, g, b) = self.stoplight._last_result
+        ch, (r, g, b) = self.stoplight.last_result
         if ch == " ":
             return False
-        cbg = _AUTOREPLY_BG_RGB if is_autoreply_bg else _NORMAL_BG_RGB
+        cbg = idle_ar_rgb() if is_autoreply_bg else idle_rgb()
         bg = bt.on_color_rgb(*cbg)
         self.out.write(bt.move_yx(row, col).encode())
         self.out.write(f"{bg}{bt.color_rgb(r, g, b)}{ch}{bt.normal}".encode())
@@ -1466,15 +1544,16 @@ class ToolbarRenderer:
     def restore_cursor(
         self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool
     ) -> None:
-        """Show the cursor at *row*, *col*, using the stoplight glyph if animating.
+        """
+        Show the cursor at *row*, *col*, using the stoplight glyph if animating.
 
-        Picks the appropriate style and OSC color for normal or autoreply
-        background, then makes the terminal cursor visible.
+        Picks the appropriate style and OSC color for normal or autoreply background, then makes the
+        terminal cursor visible.
         """
         if self.cursor_light(bt, row, col, is_autoreply_bg):
             return
-        style = _STYLE_AUTOREPLY if is_autoreply_bg else _STYLE_NORMAL
-        osc = _CURSOR_AR_OSC if is_autoreply_bg else CURSOR_COLOR_OSC
+        style = STYLE_AUTOREPLY if is_autoreply_bg else STYLE_NORMAL
+        osc = cursor_ar_osc() if is_autoreply_bg else cursor_osc()
         self.out.write(bt.move_yx(row, col).encode())
         self.out.write(osc.encode())
         self.out.write(style["cursor_sgr"].encode())
@@ -1490,30 +1569,27 @@ class ToolbarRenderer:
     ) -> None:
         """Schedule repeating flash animation frames via ``loop.call_later``."""
 
-        def _tick() -> None:
+        def tick() -> None:
             self.hide_cursor()
             still = self.render(autoreply_engine)
             input_row = self.scroll.input_row
             engine = autoreply_engine
-            is_ar_bg = self._is_autoreply_bg(engine)
+            is_ar_bg = self.is_autoreply_bg(engine)
 
             cq = self.ctx.command_queue
             ac = self.ctx.active_command
-            from time import monotonic as _mono
+            from time import monotonic as mono
 
-            ac_elapsed = _mono() - self.ctx.active_command_time
-            show_cmd = cq is not None or (ac is not None and ac_elapsed < _FLASH_DURATION)
+            ac_elapsed = mono() - self.ctx.active_command_time
+            show_cmd = cq is not None or (ac is not None and ac_elapsed < FLASH_DURATION)
             if show_cmd:
-                from .client_repl_commands import _render_command_queue, _render_active_command
+                from .client_repl_commands import render_command_queue, render_active_command
 
-                hint = _activity_hint(engine, bt.width)
-                prog = _until_progress(engine)
-                bg = (
-                    _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg
-                    else _STYLE_NORMAL["bg_sgr"]
-                )
+                hint = activity_hint(engine, bt.width)
+                prog = until_progress(engine)
+                bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
                 if cq is not None:
-                    cursor_col = _render_command_queue(
+                    cursor_col = render_command_queue(
                         cq,
                         self.scroll,
                         self.out,
@@ -1523,7 +1599,7 @@ class ToolbarRenderer:
                         base_bg_sgr=bg,
                     )
                 else:
-                    cursor_col = _render_active_command(
+                    cursor_col = render_active_command(
                         ac,
                         self.scroll,
                         self.out,
@@ -1534,49 +1610,46 @@ class ToolbarRenderer:
                     )
                 if prog is not None:
                     still = True
-                if ac_elapsed < _FLASH_DURATION:
+                if ac_elapsed < FLASH_DURATION:
                     still = True
                 drew = self.cursor_light(bt, input_row, cursor_col, is_ar_bg)
                 if not drew:
                     self.out.write(bt.move_yx(input_row, cursor_col).encode())
                     self.show_cursor()
             else:
-                hint = _activity_hint(engine, bt.width)
+                hint = activity_hint(engine, bt.width)
                 hint_w = len(hint) if hint else 0
                 edit_w = max(2, bt.width - hint_w)
                 if not still:
                     self.out.write(editor.render(bt, input_row, edit_w).encode())
                 prog = None
                 if hint:
-                    prog = _until_progress(engine)
+                    prog = until_progress(engine)
                     split = int(len(hint) * prog + 0.5) if prog is not None else -1
                     hint_split = (hint, split)
-                    if hint_split != self._last_hint_split:
-                        self._last_hint_split = hint_split
+                    if hint_split != self.last_hint_split:
+                        self.last_hint_split = hint_split
                         col = bt.width - hint_w
-                        bg = (
-                            _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg
-                            else _STYLE_NORMAL["bg_sgr"]
-                        )
+                        bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
                         self.out.write(bt.move_yx(input_row, col).encode())
-                        _write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
+                        write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
                     if prog is not None:
                         still = True
                 else:
-                    self._last_hint_split = None
+                    self.last_hint_split = None
                 if prog is None:
                     cursor_col = editor_cursor_col(editor)
                     self.restore_cursor(bt, input_row, cursor_col, is_ar_bg)
 
             if still:
-                loop.call_later(_FLASH_INTERVAL, _tick)
+                loop.call_later(FLASH_INTERVAL, tick)
             else:
                 self.flash_active = False
-                self._last_hint_split = None
+                self.last_hint_split = None
 
-        loop.call_later(_FLASH_INTERVAL, _tick)
+        loop.call_later(FLASH_INTERVAL, tick)
 
-    _ETA_REFRESH_INTERVAL = 1.0
+    ETA_REFRESH_INTERVAL = 1.0
 
     def schedule_eta_refresh(
         self,
@@ -1591,13 +1664,13 @@ class ToolbarRenderer:
         Only redraws the toolbar when the ETA text has changed since the last render, to avoid
         unnecessary flicker.
         """
-        if self._eta_refresh_active:
+        if self.eta_refresh_active:
             return
-        self._eta_refresh_active = True
+        self.eta_refresh_active = True
 
-        def _eta_tick() -> None:
-            if not self._has_gmcp:
-                self._eta_refresh_active = False
+        def eta_tick() -> None:
+            if not self.has_gmcp:
+                self.eta_refresh_active = False
                 return
             gmcp_data = self.ctx.gmcp_data or {}
             status = gmcp_data.get("Char.Vitals", gmcp_data.get("Char.Status", {}))
@@ -1609,10 +1682,10 @@ class ToolbarRenderer:
                 maxxp = None
             now = time.monotonic()
             frags = self.xp.eta_fragments(maxxp, now)
-            self._cached_eta_frags = frags
+            self.cached_eta_frags = frags
             eta_text = frags[0][1] if frags else ""
-            if eta_text != self._last_eta_text:
-                self._last_eta_text = eta_text
+            if eta_text != self.last_eta_text:
+                self.last_eta_text = eta_text
                 self.hide_cursor()
                 self.render(autoreply_engine)
                 has_command = (
@@ -1622,13 +1695,13 @@ class ToolbarRenderer:
                     cursor_col = editor_cursor_col(editor)
                     input_row = self.scroll.input_row
                     engine = autoreply_engine
-                    is_ar_bg = self._is_autoreply_bg(engine)
+                    is_ar_bg = self.is_autoreply_bg(engine)
                     self.restore_cursor(bt, input_row, cursor_col, is_ar_bg)
-            loop.call_later(self._ETA_REFRESH_INTERVAL, _eta_tick)
+            loop.call_later(self.ETA_REFRESH_INTERVAL, eta_tick)
 
-        loop.call_later(self._ETA_REFRESH_INTERVAL, _eta_tick)
+        loop.call_later(self.ETA_REFRESH_INTERVAL, eta_tick)
 
-    _PROGRESS_REFRESH_INTERVAL = 0.1
+    PROGRESS_REFRESH_INTERVAL = 0.1
 
     def schedule_until_progress(
         self,
@@ -1643,42 +1716,42 @@ class ToolbarRenderer:
         Only redraws when the integer progress-bar split column changes, to avoid unnecessary
         flicker.
         """
-        if self._until_progress_active:
+        if self.until_progress_active:
             return
-        self._until_progress_active = True
-        self._last_progress_col = -1
+        self.until_progress_active = True
+        self.last_progress_col = -1
 
-        def _progress_tick() -> None:
+        def progress_tick() -> None:
             engine = autoreply_engine
-            prog = _until_progress(engine)
+            prog = until_progress(engine)
             if prog is None:
-                self._until_progress_active = False
-                self._last_progress_col = -1
-                self._last_progress_hint = ""
+                self.until_progress_active = False
+                self.last_progress_col = -1
+                self.last_progress_hint = ""
                 self.schedule_cursor_show(loop)
                 return
-            hint = _activity_hint(engine, bt.width)
+            hint = activity_hint(engine, bt.width)
             if not hint:
-                self._until_progress_active = False
-                self._last_progress_hint = ""
+                self.until_progress_active = False
+                self.last_progress_hint = ""
                 self.schedule_cursor_show(loop)
                 return
             split = int(len(hint) * prog + 0.5)
-            if split == self._last_progress_col and hint == self._last_progress_hint:
-                loop.call_later(self._PROGRESS_REFRESH_INTERVAL, _progress_tick)
+            if split == self.last_progress_col and hint == self.last_progress_hint:
+                loop.call_later(self.PROGRESS_REFRESH_INTERVAL, progress_tick)
                 return
-            self._last_progress_col = split
-            self._last_progress_hint = hint
+            self.last_progress_col = split
+            self.last_progress_hint = hint
             hint_w = len(hint)
             col = bt.width - hint_w
             if col < 2:
-                loop.call_later(self._PROGRESS_REFRESH_INTERVAL, _progress_tick)
+                loop.call_later(self.PROGRESS_REFRESH_INTERVAL, progress_tick)
                 return
-            is_ar_bg = self._is_autoreply_bg(engine)
-            bg = _STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else _STYLE_NORMAL["bg_sgr"]
+            is_ar_bg = self.is_autoreply_bg(engine)
+            bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
             self.hide_cursor()
             self.out.write(bt.move_yx(self.scroll.input_row, col).encode())
-            _write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
+            write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg)
             if self.ctx.cx_dot is not None:
                 self.ctx.cx_dot.trigger()
             cursor_col = editor_cursor_col(editor)
@@ -1686,6 +1759,6 @@ class ToolbarRenderer:
             if not self.flash_active:
                 self.flash_active = True
                 self.schedule_flash(loop, autoreply_engine, editor, bt)
-            loop.call_later(self._PROGRESS_REFRESH_INTERVAL, _progress_tick)
+            loop.call_later(self.PROGRESS_REFRESH_INTERVAL, progress_tick)
 
-        loop.call_later(self._PROGRESS_REFRESH_INTERVAL, _progress_tick)
+        loop.call_later(self.PROGRESS_REFRESH_INTERVAL, progress_tick)

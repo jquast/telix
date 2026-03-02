@@ -16,15 +16,15 @@ import pytest
 from telix.autoreply import (
     SearchBuffer,
     AutoreplyRule,
+    ExclusiveState,
     AutoreplyEngine,
-    _compare,
-    _ExclusiveState,
+    compare,
     check_condition,
     load_autoreplies,
     save_autoreplies,
-    _substitute_groups,
-    _resolve_group_value,
-    _extract_group_source,
+    substitute_groups,
+    resolve_group_value,
+    extract_group_source,
 )
 
 
@@ -86,21 +86,21 @@ def test_search_buffer_cull_old_lines():
 def test_search_buffer_cull_adjusts_match_position():
     buf = SearchBuffer(max_lines=3)
     buf.add_text("a\nb\n")
-    buf._last_match_line = 1
-    buf._last_match_col = 0
+    buf.last_match_line = 1
+    buf.last_match_col = 0
     buf.add_text("c\nd\ne\n")
-    assert buf._last_match_line >= 0
+    assert buf.last_match_line >= 0
     assert len(buf.lines) == 3
 
 
 def test_search_buffer_cull_preserves_nonzero_match_line():
     buf = SearchBuffer(max_lines=3)
     buf.add_text("a\nb\nc\nd\n")
-    buf._last_match_line = 3
-    buf._last_match_col = 1
+    buf.last_match_line = 3
+    buf.last_match_col = 1
     buf.add_text("e\n")
-    assert buf._last_match_line == 2
-    assert buf._last_match_col == 1
+    assert buf.last_match_line == 2
+    assert buf.last_match_col == 1
 
 
 @pytest.mark.parametrize(
@@ -118,8 +118,8 @@ def test_search_buffer_searchable_text(text, match_line, match_col, expected):
     buf = SearchBuffer(max_lines=100)
     buf.add_text(text)
     if match_line is not None:
-        buf._last_match_line = match_line
-        buf._last_match_col = match_col
+        buf.last_match_line = match_line
+        buf.last_match_col = match_col
     assert buf.get_searchable_text() == expected
 
 
@@ -134,7 +134,7 @@ def test_search_buffer_advance_match():
     assert "world" not in remaining
 
 
-_SK = "test.host:23"
+SK = "test.host:23"
 
 
 def test_load_autoreplies_valid(tmp_path):
@@ -142,7 +142,7 @@ def test_load_autoreplies_valid(tmp_path):
     fp.write_text(
         json.dumps(
             {
-                _SK: {
+                SK: {
                     "autoreplies": [
                         {"pattern": r"\d+ gold", "reply": "get gold;"},
                         {"pattern": r"(\w+) attacks", "reply": "kill \\1;"},
@@ -151,7 +151,7 @@ def test_load_autoreplies_valid(tmp_path):
             }
         )
     )
-    rules = load_autoreplies(str(fp), _SK)
+    rules = load_autoreplies(str(fp), SK)
     assert len(rules) == 2
     assert rules[0].pattern.pattern == r"\d+ gold"
     assert rules[0].reply == "get gold;"
@@ -160,14 +160,14 @@ def test_load_autoreplies_valid(tmp_path):
 
 def test_load_autoreplies_missing_file():
     with pytest.raises(FileNotFoundError):
-        load_autoreplies("/nonexistent/path.json", _SK)
+        load_autoreplies("/nonexistent/path.json", SK)
 
 
 def test_load_autoreplies_invalid_regex(tmp_path):
     fp = tmp_path / "bad.json"
-    fp.write_text(json.dumps({_SK: {"autoreplies": [{"pattern": "[invalid", "reply": "x"}]}}))
+    fp.write_text(json.dumps({SK: {"autoreplies": [{"pattern": "[invalid", "reply": "x"}]}}))
     with pytest.raises(ValueError, match="Invalid autoreply pattern"):
-        load_autoreplies(str(fp), _SK)
+        load_autoreplies(str(fp), SK)
 
 
 def test_load_autoreplies_empty_pattern_skipped(tmp_path):
@@ -175,7 +175,7 @@ def test_load_autoreplies_empty_pattern_skipped(tmp_path):
     fp.write_text(
         json.dumps(
             {
-                _SK: {
+                SK: {
                     "autoreplies": [
                         {"pattern": "", "reply": "x"},
                         {"pattern": "valid", "reply": "y"},
@@ -184,20 +184,20 @@ def test_load_autoreplies_empty_pattern_skipped(tmp_path):
             }
         )
     )
-    rules = load_autoreplies(str(fp), _SK)
+    rules = load_autoreplies(str(fp), SK)
     assert len(rules) == 1
 
 
 def test_load_autoreplies_empty_list(tmp_path):
     fp = tmp_path / "empty.json"
-    fp.write_text(json.dumps({_SK: {"autoreplies": []}}))
-    assert not load_autoreplies(str(fp), _SK)
+    fp.write_text(json.dumps({SK: {"autoreplies": []}}))
+    assert not load_autoreplies(str(fp), SK)
 
 
 def test_load_autoreplies_no_session(tmp_path):
     fp = tmp_path / "autoreplies.json"
     fp.write_text(json.dumps({"other:23": {"autoreplies": [{"pattern": "x", "reply": "y"}]}}))
-    assert not load_autoreplies(str(fp), _SK)
+    assert not load_autoreplies(str(fp), SK)
 
 
 def test_save_autoreplies_roundtrip(tmp_path):
@@ -208,8 +208,8 @@ def test_save_autoreplies_roundtrip(tmp_path):
             pattern=re.compile(r"(\w+) attacks", re.MULTILINE | re.DOTALL), reply="kill \\1;"
         ),
     ]
-    save_autoreplies(str(fp), original, _SK)
-    loaded = load_autoreplies(str(fp), _SK)
+    save_autoreplies(str(fp), original, SK)
+    loaded = load_autoreplies(str(fp), SK)
     assert len(loaded) == len(original)
     for orig, restored in zip(original, loaded):
         assert orig.pattern.pattern == restored.pattern.pattern
@@ -228,15 +228,15 @@ def test_save_autoreplies_preserves_other_sessions(tmp_path):
 
 def test_save_autoreplies_empty(tmp_path):
     fp = tmp_path / "autoreplies.json"
-    save_autoreplies(str(fp), [], _SK)
-    assert not load_autoreplies(str(fp), _SK)
+    save_autoreplies(str(fp), [], SK)
+    assert not load_autoreplies(str(fp), SK)
 
 
 def test_save_autoreplies_unicode(tmp_path):
     fp = tmp_path / "autoreplies.json"
     rules = [AutoreplyRule(pattern=re.compile("héllo"), reply="bonjour;")]
-    save_autoreplies(str(fp), rules, _SK)
-    loaded = load_autoreplies(str(fp), _SK)
+    save_autoreplies(str(fp), rules, SK)
+    loaded = load_autoreplies(str(fp), SK)
     assert loaded[0].pattern.pattern == "héllo"
     assert loaded[0].reply == "bonjour;"
 
@@ -244,50 +244,50 @@ def test_save_autoreplies_unicode(tmp_path):
 def test_substitute_groups_single():
     m = re.search(r"(\w+) gold", "50 gold coins")
     assert m is not None
-    assert _substitute_groups("take \\1 gold", m) == "take 50 gold"
+    assert substitute_groups("take \\1 gold", m) == "take 50 gold"
 
 
 def test_substitute_groups_multiple():
     m = re.search(r"(\w+) (\w+)", "hello world")
     assert m is not None
-    assert _substitute_groups("\\2 \\1", m) == "world hello"
+    assert substitute_groups("\\2 \\1", m) == "world hello"
 
 
 def test_substitute_groups_none():
     m = re.search(r"hello", "hello world")
     assert m is not None
-    assert _substitute_groups("say hello", m) == "say hello"
+    assert substitute_groups("say hello", m) == "say hello"
 
 
 def test_substitute_groups_invalid_index():
     m = re.search(r"(\w+)", "hello")
     assert m is not None
-    assert _substitute_groups("\\1 \\5", m) == "hello \\5"
+    assert substitute_groups("\\1 \\5", m) == "hello \\5"
 
 
 def test_extract_group_source_simple():
-    assert _extract_group_source(r"(amplifier|enhancer|shield)", 1) == "amplifier|enhancer|shield"
+    assert extract_group_source(r"(amplifier|enhancer|shield)", 1) == "amplifier|enhancer|shield"
 
 
 def test_extract_group_source_second_group():
-    assert _extract_group_source(r"(foo)(bar|baz)", 2) == "bar|baz"
+    assert extract_group_source(r"(foo)(bar|baz)", 2) == "bar|baz"
 
 
 def test_extract_group_source_non_capturing_skipped():
-    assert _extract_group_source(r"(?:prefix)(real)", 1) == "real"
+    assert extract_group_source(r"(?:prefix)(real)", 1) == "real"
 
 
 def test_extract_group_source_named_group():
-    assert _extract_group_source(r"(?P<item>sword|axe)", 1) == "sword|axe"
+    assert extract_group_source(r"(?P<item>sword|axe)", 1) == "sword|axe"
 
 
 def test_extract_group_source_out_of_range():
-    assert _extract_group_source(r"(foo)", 2) is None
+    assert extract_group_source(r"(foo)", 2) is None
 
 
 def test_extract_group_source_nested():
-    assert _extract_group_source(r"((inner)outer)", 1) == "(inner)outer"
-    assert _extract_group_source(r"((inner)outer)", 2) == "inner"
+    assert extract_group_source(r"((inner)outer)", 1) == "(inner)outer"
+    assert extract_group_source(r"((inner)outer)", 2) == "inner"
 
 
 @pytest.mark.parametrize(
@@ -301,39 +301,39 @@ def test_extract_group_source_nested():
 )
 def test_resolve_group_value_case_insensitive_alternation(captured, expected):
     pat_src = r"^A level \d+.*(amplifier|enhancer|shield)"
-    assert _resolve_group_value(captured, pat_src, 1, re.IGNORECASE) == expected
+    assert resolve_group_value(captured, pat_src, 1, re.IGNORECASE) == expected
 
 
 def test_resolve_group_value_case_sensitive_passthrough():
     pat_src = r"(amplifier|enhancer|shield)"
-    assert _resolve_group_value("Shield", pat_src, 1, 0) == "Shield"
+    assert resolve_group_value("Shield", pat_src, 1, 0) == "Shield"
 
 
 def test_resolve_group_value_non_literal_fallback():
     pat_src = r"level (\d+)"
-    assert _resolve_group_value("42", pat_src, 1, re.IGNORECASE) == "42"
+    assert resolve_group_value("42", pat_src, 1, re.IGNORECASE) == "42"
 
 
 def test_substitute_groups_case_insensitive_pattern():
     pat = re.compile(r"^A level \d+.*(amplifier|enhancer|shield)", re.IGNORECASE)
     m = pat.search("A level 5 Fine Shield")
     assert m is not None
-    assert _substitute_groups("get \\1;gl", m) == "get shield;gl"
+    assert substitute_groups("get \\1;gl", m) == "get shield;gl"
 
 
 def test_substitute_groups_case_sensitive_unchanged():
     pat = re.compile(r".*(Shield|Sword)")
     m = pat.search("a Fine Shield here")
     assert m is not None
-    assert _substitute_groups("get \\1", m) == "get Shield"
+    assert substitute_groups("get \\1", m) == "get Shield"
 
 
 def test_compare_unknown_operator_raises():
     with pytest.raises(ValueError, match="unknown operator"):
-        _compare(50, "~", 30)
+        compare(50, "~", 30)
 
 
-def _mock_writer():
+def mock_writer():
     """Create a mock ctx+writer that records write() calls."""
     written: list[str] = []
     writer = types.SimpleNamespace(write=written.append)
@@ -367,7 +367,7 @@ def _mock_writer():
     ],
 )
 async def test_autoreply_engine_feed_and_match(pattern, flags, reply, feed_text, expected):
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(pattern, flags), reply=reply)]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed(feed_text)
@@ -378,7 +378,7 @@ async def test_autoreply_engine_feed_and_match(pattern, flags, reply, feed_text,
 
 @pytest.mark.asyncio
 async def test_autoreply_engine_mud_prompt_without_newline():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"What is your name\?"), reply="dingo;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("Welcome to the Mini-MUD!\n")
@@ -391,7 +391,7 @@ async def test_autoreply_engine_mud_prompt_without_newline():
 
 @pytest.mark.asyncio
 async def test_autoreply_engine_no_double_trigger():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"hello"), reply="world;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("hello\n")
@@ -404,7 +404,7 @@ async def test_autoreply_engine_no_double_trigger():
 
 @pytest.mark.asyncio
 async def test_autoreply_engine_delay_execution():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"trigger"), reply="`delay 10ms`;delayed;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("trigger\n")
@@ -416,7 +416,7 @@ async def test_autoreply_engine_delay_execution():
 
 @pytest.mark.asyncio
 async def test_autoreply_engine_reply_chaining():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"alpha"), reply="`delay 20ms`;first;"),
         AutoreplyRule(pattern=re.compile(r"beta"), reply="second;"),
@@ -435,7 +435,7 @@ async def test_autoreply_engine_reply_chaining():
 
 @pytest.mark.asyncio
 async def test_autoreply_engine_cancel():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"slow"), reply="`delay 1s`;result;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("slow\n")
@@ -447,7 +447,7 @@ async def test_autoreply_engine_cancel():
 
 @pytest.mark.asyncio
 async def test_autoreply_engine_repeat_expansion():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"go"), reply="3e;2n;look;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("go\n")
@@ -460,46 +460,46 @@ async def test_autoreply_engine_repeat_expansion():
 
 
 def test_autoreply_engine_cancel_when_idle():
-    writer, _ = _mock_writer()
+    writer, _ = mock_writer()
     engine = AutoreplyEngine([], writer, writer.log)
     engine.cancel()
-    assert engine._reply_chain is None
+    assert engine.reply_chain is None
 
 
 def test_send_command_empty_string():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     engine = AutoreplyEngine([], writer, writer.log)
-    engine._send_command("")
+    engine.send_command("")
     assert not written
 
 
 def test_send_command_whitespace_only():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     engine = AutoreplyEngine([], writer, writer.log)
-    engine._send_command("   ")
+    engine.send_command("   ")
     assert not written
 
 
 def test_send_command_valid():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     engine = AutoreplyEngine([], writer, writer.log)
-    engine._send_command("look")
+    engine.send_command("look")
     assert "look\r\n" in written
 
 
 def test_sent_commands_bounded(monkeypatch):
     monkeypatch.setenv("TELNETLIB3_SENT_COMMANDS_MAX", "5")
-    writer, _ = _mock_writer()
+    writer, _ = mock_writer()
     engine = AutoreplyEngine([], writer, writer.log)
-    assert engine._sent_commands_max == 5
+    assert engine.sent_commands_max == 5
     for i in range(10):
-        engine._send_command(f"cmd{i}")
-    assert len(engine._sent_commands) <= 5
+        engine.send_command(f"cmd{i}")
+    assert len(engine.sent_commands) <= 5
 
 
 @pytest.mark.asyncio
 async def test_autoreply_reply_without_semicolon_still_sends():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     inserted: list[str] = []
     rules = [AutoreplyRule(pattern=re.compile(r"Items here: (\w+)"), reply=r"pick up \1")]
     engine = AutoreplyEngine(rules, writer, writer.log, insert_fn=inserted.append)
@@ -511,7 +511,7 @@ async def test_autoreply_reply_without_semicolon_still_sends():
 
 @pytest.mark.asyncio
 async def test_autoreply_insert_fn_with_cr_sends():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     inserted: list[str] = []
     rules = [AutoreplyRule(pattern=re.compile(r"hello"), reply="world;")]
     engine = AutoreplyEngine(rules, writer, writer.log, insert_fn=inserted.append)
@@ -523,7 +523,7 @@ async def test_autoreply_insert_fn_with_cr_sends():
 
 @pytest.mark.asyncio
 async def test_autoreply_no_insert_fn_sends_without_cr():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"hello"), reply="world")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("hello\n")
@@ -534,14 +534,14 @@ async def test_autoreply_no_insert_fn_sends_without_cr():
 @pytest.mark.asyncio
 async def test_autoreply_wait_fn_called_before_send():
     """wait_fn is awaited before second command, first sends immediately."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     wait_calls: list[float] = []
 
-    async def _fake_wait() -> None:
+    async def fake_wait() -> None:
         wait_calls.append(asyncio.get_event_loop().time())
 
     rules = [AutoreplyRule(pattern=re.compile(r"go"), reply="cmd1;cmd2;")]
-    engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=_fake_wait)
+    engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=fake_wait)
     engine.feed("go\n")
     await asyncio.sleep(0.02)
     assert len(wait_calls) == 1
@@ -552,7 +552,7 @@ async def test_autoreply_wait_fn_called_before_send():
 @pytest.mark.asyncio
 async def test_autoreply_wait_fn_none_no_pacing():
     """When wait_fn is None, commands send immediately without pacing."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"go"), reply="cmd1;cmd2;")]
     engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=None)
     engine.feed("go\n")
@@ -564,17 +564,17 @@ async def test_autoreply_wait_fn_none_no_pacing():
 @pytest.mark.asyncio
 async def test_autoreply_wait_fn_timeout_does_not_hang():
     """wait_fn that blocks eventually times out and command still sends."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     never_set = asyncio.Event()
 
-    async def _blocking_wait() -> None:
+    async def blocking_wait() -> None:
         try:
             await asyncio.wait_for(never_set.wait(), timeout=0.02)
         except asyncio.TimeoutError:
             pass
 
     rules = [AutoreplyRule(pattern=re.compile(r"go"), reply="cmd;")]
-    engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=_blocking_wait)
+    engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=blocking_wait)
     engine.feed("go\n")
     await asyncio.sleep(0.05)
     assert any("cmd\r\n" in w for w in written)
@@ -583,14 +583,14 @@ async def test_autoreply_wait_fn_timeout_does_not_hang():
 @pytest.mark.asyncio
 async def test_autoreply_wait_fn_with_trailing_text():
     """First command sends immediately without wait_fn, even without ;."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     wait_calls: list[int] = []
 
-    async def _fake_wait() -> None:
+    async def fake_wait() -> None:
         wait_calls.append(1)
 
     rules = [AutoreplyRule(pattern=re.compile(r"go"), reply="trailing")]
-    engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=_fake_wait)
+    engine = AutoreplyEngine(rules, writer, writer.log, wait_fn=fake_wait)
     engine.feed("go\n")
     await asyncio.sleep(0.02)
     assert len(wait_calls) == 0
@@ -599,7 +599,7 @@ async def test_autoreply_wait_fn_with_trailing_text():
 
 @pytest.mark.asyncio
 async def test_exclusive_rule_suppresses_later_matches():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"A (\w+) pheasant"), reply=r"kill \1;"),
         AutoreplyRule(pattern=re.compile(r"A (\w+) rabbit"), reply=r"kill \1;"),
@@ -615,7 +615,7 @@ async def test_exclusive_rule_suppresses_later_matches():
 
 @pytest.mark.asyncio
 async def test_exclusive_rule_index_tracks_active_rule():
-    writer, _ = _mock_writer()
+    writer, _ = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"alpha"), reply="`delay 20ms`;a;"),
         AutoreplyRule(pattern=re.compile(r"beta"), reply="b;"),
@@ -643,7 +643,7 @@ async def test_exclusive_rule_index_tracks_active_rule():
 @pytest.mark.asyncio
 async def test_exclusive_cleared_when_chain_completes():
     """Exclusive clears when the reply chain task completes."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"A (\w+) pheasant"), reply=r"kill \1;"),
         AutoreplyRule(pattern=re.compile(r"A (\w+) rabbit"), reply=r"kill \1;"),
@@ -666,7 +666,7 @@ async def test_exclusive_cleared_when_chain_completes():
 
 @pytest.mark.asyncio
 async def test_all_rules_exclusive_only_first_fires():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"A (\w+) pheasant"), reply=r"kill \1;"),
         AutoreplyRule(pattern=re.compile(r"A (\w+) rabbit"), reply=r"kill \1;"),
@@ -700,9 +700,9 @@ async def test_all_rules_exclusive_only_first_fires():
     ],
 )
 def test_parse_entries_field(entries, checks):
-    from telix.autoreply import _parse_entries
+    from telix.autoreply import parse_entries
 
-    rules = _parse_entries(entries)
+    rules = parse_entries(entries)
     for idx, field, expected in checks:
         assert getattr(rules[idx], field) == expected
 
@@ -722,14 +722,14 @@ def test_save_autoreplies_field_roundtrip(
         AutoreplyRule(pattern=re.compile(r"(\w+) attacks"), reply=r"kill \1;", **rule_kwargs),
         AutoreplyRule(pattern=re.compile(r"foo"), reply="bar;"),
     ]
-    save_autoreplies(str(fp), original, _SK)
-    loaded = load_autoreplies(str(fp), _SK)
+    save_autoreplies(str(fp), original, SK)
+    loaded = load_autoreplies(str(fp), SK)
     assert getattr(loaded[0], field) == exp0
     assert getattr(loaded[1], field) == exp1
 
     with open(str(fp), "r", encoding="utf-8") as fh:
         data = json.load(fh)
-    entries = data[_SK]["autoreplies"]
+    entries = data[SK]["autoreplies"]
     assert entries[0][json_key] == json_in_0
     if json_absent_1:
         assert json_key not in entries[1]
@@ -737,7 +737,7 @@ def test_save_autoreplies_field_roundtrip(
 
 @pytest.mark.asyncio
 async def test_exclusive_suppresses_feed_while_chain_active():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"monster"), reply="`delay 20ms`;kill;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("monster\n")
@@ -757,7 +757,7 @@ async def test_exclusive_suppresses_feed_while_chain_active():
 
 @pytest.mark.asyncio
 async def test_always_rule_fires_during_exclusive():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"A (\w+) pheasant"), reply=r"kill \1;"),
         AutoreplyRule(pattern=re.compile(r"died\."), reply="look;", always=True),
@@ -774,7 +774,7 @@ async def test_always_rule_fires_during_exclusive():
 
 @pytest.mark.asyncio
 async def test_disabled_rule_skipped_by_engine():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"hello"), reply="world;", enabled=False),
         AutoreplyRule(pattern=re.compile(r"hello"), reply="backup;"),
@@ -788,7 +788,7 @@ async def test_disabled_rule_skipped_by_engine():
 
 @pytest.mark.asyncio
 async def test_disabled_always_rule_skipped():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"monster"), reply="kill;"),
         AutoreplyRule(pattern=re.compile(r"died\."), reply="look;", always=True, enabled=False),
@@ -804,7 +804,7 @@ async def test_disabled_always_rule_skipped():
 @pytest.mark.asyncio
 async def test_prompt_cycle_dedup_blocks_same_rule():
     """Once on_prompt activates cycle tracking, a rule fires at most once per cycle."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(
             pattern=re.compile(r"(^Corpse of|^\w+ times 'Corpse)", re.MULTILINE),
@@ -828,7 +828,7 @@ async def test_prompt_cycle_dedup_blocks_same_rule():
 
 @pytest.mark.asyncio
 async def test_prompt_cycle_dedup_different_rules_first_fires():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"gold"), reply="get gold;"),
         AutoreplyRule(pattern=re.compile(r"corpse"), reply="look corpse;"),
@@ -846,7 +846,7 @@ async def test_prompt_cycle_dedup_different_rules_first_fires():
 @pytest.mark.asyncio
 async def test_prompt_cycle_dedup_inactive_without_on_prompt():
     """Without on_prompt, cycle dedup is not active -- same rule fires twice."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"^trigger$", re.MULTILINE), reply="reply;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
 
@@ -860,7 +860,7 @@ async def test_prompt_cycle_dedup_inactive_without_on_prompt():
 @pytest.mark.asyncio
 async def test_prompt_cycle_dedup_always_rule():
     """Cycle dedup applies to always=True rules during exclusive mode."""
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"monster"), reply="`delay 10ms`;kill;"),
         AutoreplyRule(pattern=re.compile(r"corpse", re.MULTILINE), reply="loot;", always=True),
@@ -891,12 +891,12 @@ async def test_prompt_cycle_dedup_always_rule():
 def test_search_buffer_clear_resets_lines_and_position():
     buf = SearchBuffer(max_lines=100)
     buf.add_text("line1\nline2\n")
-    buf._last_match_line = 1
-    buf._last_match_col = 3
+    buf.last_match_line = 1
+    buf.last_match_col = 3
     buf.clear()
     assert buf.lines == []
-    assert buf._last_match_line == 0
-    assert buf._last_match_col == 0
+    assert buf.last_match_line == 0
+    assert buf.last_match_col == 0
 
 
 def test_search_buffer_clear_preserves_partial():
@@ -924,11 +924,11 @@ async def test_search_buffer_wait_for_pattern_delayed():
     buf = SearchBuffer(max_lines=100)
     pattern = re.compile(r"died\.", re.IGNORECASE)
 
-    async def _feed_later():
+    async def feed_later():
         await asyncio.sleep(0.05)
         buf.add_text("The monster died.\n")
 
-    asyncio.ensure_future(_feed_later())
+    asyncio.ensure_future(feed_later())
     match = await buf.wait_for_pattern(pattern, timeout=2.0)
     assert match is not None
     assert match.group(0) == "died."
@@ -959,7 +959,7 @@ async def test_search_buffer_wait_for_pattern_case_sensitive():
 
 @pytest.mark.asyncio
 async def test_on_prompt_clears_buffer_prevents_stale_rematch():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"^Corpse of", re.MULTILINE), reply="look in corpse;")
     ]
@@ -979,7 +979,7 @@ async def test_on_prompt_clears_buffer_prevents_stale_rematch():
 
 @pytest.mark.asyncio
 async def test_on_prompt_clears_buffer_dotall_no_cross_record():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(
             pattern=re.compile(r"Corpse contains:.*?(\d+ solaris)", re.DOTALL),
@@ -1002,7 +1002,7 @@ async def test_on_prompt_clears_buffer_dotall_no_cross_record():
 
 @pytest.mark.asyncio
 async def test_cancel_clears_exclusive():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"A (\w+) is here"), reply=r"`delay 20ms`;kill \1;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("A shark is here\n")
@@ -1016,10 +1016,10 @@ async def test_cancel_clears_exclusive():
 
 @pytest.mark.asyncio
 async def test_sent_commands_not_matched_as_echo():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"corpse"), reply="look in corpse;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
-    engine._send_command("look in corpse")
+    engine.send_command("look in corpse")
     await asyncio.sleep(0.05)
     written.clear()
 
@@ -1037,7 +1037,7 @@ async def test_sent_commands_not_matched_as_echo():
 
 @pytest.mark.asyncio
 async def test_reply_pending_tracks_chain():
-    writer, _ = _mock_writer()
+    writer, _ = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"hello"), reply="world;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     assert engine.reply_pending is False
@@ -1049,7 +1049,7 @@ async def test_reply_pending_tracks_chain():
 
 @pytest.mark.asyncio
 async def test_cycle_matched_tracks_matches():
-    writer, _ = _mock_writer()
+    writer, _ = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"hello"), reply="world;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     assert engine.cycle_matched is False
@@ -1062,7 +1062,7 @@ async def test_cycle_matched_tracks_matches():
     assert engine.cycle_matched is False
 
 
-def _mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
+def mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
     """Create a mock ctx with GMCP vitals data."""
     written: list[str] = []
     writer = types.SimpleNamespace(write=written.append)
@@ -1111,7 +1111,7 @@ def _mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
     ],
 )
 def test_check_condition(when, hp, maxhp, mp, maxmp, ok):
-    writer, _ = _mock_writer_with_vitals(hp, maxhp, mp, maxmp)
+    writer, _ = mock_writer_with_vitals(hp, maxhp, mp, maxmp)
     result, desc = check_condition(when, writer)
     assert result is ok
     if not ok:
@@ -1131,13 +1131,13 @@ def test_check_condition_no_vitals():
 
 
 def test_check_condition_zero_max():
-    writer, _ = _mock_writer_with_vitals(50, 0, 50, 100)
+    writer, _ = mock_writer_with_vitals(50, 0, 50, 100)
     ok, desc = check_condition({"HP%": ">50"}, writer)
     assert ok is True
 
 
 def test_check_condition_invalid_expr():
-    writer, _ = _mock_writer_with_vitals(50, 100, 50, 100)
+    writer, _ = mock_writer_with_vitals(50, 100, 50, 100)
     ok, desc = check_condition({"HP%": "bad"}, writer)
     assert ok is True
 
@@ -1274,7 +1274,7 @@ def test_load_autoreplies_case_sensitive_flag(tmp_path):
 
 @pytest.mark.asyncio
 async def test_engine_skips_rule_on_condition_fail():
-    writer, written = _mock_writer_with_vitals(30, 100, 50, 100)
+    writer, written = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("A bear appears.\n")
@@ -1288,7 +1288,7 @@ async def test_engine_skips_rule_on_condition_fail():
 
 @pytest.mark.asyncio
 async def test_engine_fires_rule_when_condition_passes():
-    writer, written = _mock_writer_with_vitals(80, 100, 50, 100)
+    writer, written = mock_writer_with_vitals(80, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("A bear appears.\n")
@@ -1299,7 +1299,7 @@ async def test_engine_fires_rule_when_condition_passes():
 
 @pytest.mark.asyncio
 async def test_condition_failed_clears_on_read():
-    writer, _ = _mock_writer_with_vitals(30, 100, 50, 100)
+    writer, _ = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.feed("A bear appears.\n")
@@ -1311,7 +1311,7 @@ async def test_condition_failed_clears_on_read():
 @pytest.mark.asyncio
 async def test_condition_blocked_preserves_buffer_for_retry():
     """Buffer is retained when condition fails so rule can fire after HP heals."""
-    writer, written = _mock_writer_with_vitals(30, 100, 50, 100)
+    writer, written = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.on_prompt()
@@ -1331,7 +1331,7 @@ async def test_condition_blocked_preserves_buffer_for_retry():
 @pytest.mark.asyncio
 async def test_condition_blocked_clears_buffer_on_repeated_failure():
     """Buffer is cleared when the same condition fails twice to prevent loops."""
-    writer, written = _mock_writer_with_vitals(30, 100, 50, 100)
+    writer, written = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [
         AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"}),
         AutoreplyRule(pattern=re.compile(r"corpse"), reply="loot corpse;"),
@@ -1355,14 +1355,14 @@ async def test_condition_blocked_clears_buffer_on_repeated_failure():
 
 @pytest.mark.asyncio
 async def test_immediate_rule_fires_in_prompt_based_mode():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"normal trigger"), reply="normal;"),
         AutoreplyRule(pattern=re.compile(r"ship arrived"), reply="enter ship;", immediate=True),
     ]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.on_prompt()
-    assert engine._prompt_based is True
+    assert engine.prompt_based is True
 
     engine.feed("ship arrived\n")
     await asyncio.sleep(0.02)
@@ -1371,11 +1371,11 @@ async def test_immediate_rule_fires_in_prompt_based_mode():
 
 @pytest.mark.asyncio
 async def test_non_immediate_rule_deferred_in_prompt_based_mode():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"normal trigger"), reply="normal;")]
     engine = AutoreplyEngine(rules, writer, writer.log)
     engine.on_prompt()
-    assert engine._prompt_based is True
+    assert engine.prompt_based is True
 
     engine.feed("normal trigger\n")
     await asyncio.sleep(0.02)
@@ -1388,7 +1388,7 @@ async def test_non_immediate_rule_deferred_in_prompt_based_mode():
 
 @pytest.mark.asyncio
 async def test_immediate_and_normal_rules_together():
-    writer, written = _mock_writer()
+    writer, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"normal"), reply="deferred;"),
         AutoreplyRule(pattern=re.compile(r"urgent"), reply="now;", immediate=True),
@@ -1407,7 +1407,7 @@ async def test_immediate_and_normal_rules_together():
 
 
 def test_exclusive_state_clear():
-    state = _ExclusiveState()
+    state = ExclusiveState()
     state.active = True
     state.rule_index = 3
     state.clear()
@@ -1449,7 +1449,7 @@ async def test_autoreply_engine_stamps_last_fired():
 
 @pytest.mark.asyncio
 async def test_inline_when_passes_fires_commands():
-    ctx, written = _mock_writer_with_vitals(80, 100, 50, 100)
+    ctx, written = mock_writer_with_vitals(80, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="`when HP%>50`;kill bear;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
@@ -1459,7 +1459,7 @@ async def test_inline_when_passes_fires_commands():
 
 @pytest.mark.asyncio
 async def test_inline_when_fails_aborts_chain():
-    ctx, written = _mock_writer_with_vitals(30, 100, 50, 100)
+    ctx, written = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="`when HP%>50`;kill bear;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
@@ -1469,7 +1469,7 @@ async def test_inline_when_fails_aborts_chain():
 
 @pytest.mark.asyncio
 async def test_inline_when_raw_hp_passes():
-    ctx, written = _mock_writer_with_vitals(80, 100, 50, 100)
+    ctx, written = mock_writer_with_vitals(80, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="`when HP>50`;kill bear;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
@@ -1479,7 +1479,7 @@ async def test_inline_when_raw_hp_passes():
 
 @pytest.mark.asyncio
 async def test_inline_when_raw_hp_fails():
-    ctx, written = _mock_writer_with_vitals(30, 100, 50, 100)
+    ctx, written = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="`when HP>50`;kill bear;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
@@ -1489,7 +1489,7 @@ async def test_inline_when_raw_hp_fails():
 
 @pytest.mark.asyncio
 async def test_inline_when_raw_mp_passes():
-    ctx, written = _mock_writer_with_vitals(80, 100, 50, 100)
+    ctx, written = mock_writer_with_vitals(80, 100, 50, 100)
     rules = [AutoreplyRule(pattern=re.compile(r"bear"), reply="`when MP>30`;kill bear;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
@@ -1499,7 +1499,7 @@ async def test_inline_when_raw_mp_passes():
 
 @pytest.mark.asyncio
 async def test_inline_until_waits_for_match():
-    ctx, written = _mock_writer()
+    ctx, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 died\\.`;glance;")
     ]
@@ -1516,7 +1516,7 @@ async def test_inline_until_waits_for_match():
 
 @pytest.mark.asyncio
 async def test_inline_until_matches_partial_line():
-    ctx, written = _mock_writer()
+    ctx, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 2 Password:`;secret;")
     ]
@@ -1533,7 +1533,7 @@ async def test_inline_until_matches_partial_line():
 
 @pytest.mark.asyncio
 async def test_inline_until_timeout_aborts():
-    ctx, written = _mock_writer()
+    ctx, written = mock_writer()
     rules = [
         AutoreplyRule(pattern=re.compile(r"bear"), reply="kill bear;`until 0.02 died\\.`;glance;")
     ]
@@ -1546,7 +1546,7 @@ async def test_inline_until_timeout_aborts():
 
 @pytest.mark.asyncio
 async def test_inline_untils_case_sensitive():
-    ctx, written = _mock_writer()
+    ctx, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"mob"), reply="attack;`untils 0.02 DEAD`;loot;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A mob appears.\n")
@@ -1560,7 +1560,7 @@ async def test_inline_untils_case_sensitive():
 
 @pytest.mark.asyncio
 async def test_inline_untils_case_sensitive_matches():
-    ctx, written = _mock_writer()
+    ctx, written = mock_writer()
     rules = [AutoreplyRule(pattern=re.compile(r"mob"), reply="attack;`untils 2 DEAD`;loot;")]
     engine = AutoreplyEngine(rules, ctx, ctx.log)
     engine.feed("A mob appears.\n")
@@ -1573,14 +1573,14 @@ async def test_inline_untils_case_sensitive_matches():
 
 @pytest.mark.asyncio
 async def test_pipe_immediate_send_skips_wait_fn():
-    ctx, written = _mock_writer()
+    ctx, written = mock_writer()
     wait_calls: list[float] = []
 
-    async def _fake_wait() -> None:
+    async def fake_wait() -> None:
         wait_calls.append(asyncio.get_event_loop().time())
 
     rules = [AutoreplyRule(pattern=re.compile(r"go"), reply="cmd1|cmd2;cmd3;")]
-    engine = AutoreplyEngine(rules, ctx, ctx.log, wait_fn=_fake_wait)
+    engine = AutoreplyEngine(rules, ctx, ctx.log, wait_fn=fake_wait)
     engine.feed("go\n")
     await asyncio.sleep(0.02)
     assert any("cmd1" in w for w in written)
