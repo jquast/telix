@@ -166,6 +166,99 @@ def want_repl(
     return ctx.repl_enabled and getattr(writer, "mode", "local") == "local"
 
 
+def _setup_color_filter(
+    ctx: session_context.SessionContext,
+    writer: (
+        telnetlib3.stream_writer.TelnetWriter
+        | telnetlib3.stream_writer.TelnetWriterUnicode
+    ),
+) -> None:
+    """
+    Create and attach a color filter from CLI args and terminal detection.
+
+    Parses ``--colormatch``, ``--color-brightness``, ``--color-contrast``,
+    ``--background-color``, ``--ice-colors`` from ``sys.argv`` and creates
+    the appropriate filter.  For retro encodings (PETSCII, ATASCII), uses
+    the encoding-specific filter instead of ColorFilter.
+    """
+    import io
+    import contextlib
+
+    from .color_filter import (
+        PALETTES,
+        ColorConfig,
+        ColorFilter,
+        PetsciiColorFilter,
+        AtasciiControlFilter,
+    )
+
+    _stderr_buf = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(_stderr_buf):
+            args = telnetlib3.client._get_argument_parser().parse_known_args(sys.argv[1:])[0]
+    except (SystemExit, Exception):
+        return
+
+    colormatch: str = getattr(args, "colormatch", "vga") or "vga"
+    if colormatch.lower() == "none":
+        return
+
+    encoding_name: str = getattr(args, "encoding", "") or ""
+    is_petscii = encoding_name.lower() in ("petscii", "cbm", "commodore", "c64", "c128")
+    is_atascii = encoding_name.lower() in ("atascii", "atari8bit", "atari_8bit")
+    if colormatch == "petscii":
+        colormatch = "c64"
+    if is_petscii and colormatch != "c64":
+        colormatch = "c64"
+
+    if colormatch not in PALETTES:
+        log.warning("Unknown palette %r, disabling color filter", colormatch)
+        return
+
+    if is_petscii or colormatch == "c64":
+        brightness = getattr(args, "color_brightness", 1.0)
+        contrast = getattr(args, "color_contrast", 1.0)
+        ctx.color_filter = PetsciiColorFilter(brightness=brightness, contrast=contrast)
+        return
+
+    if is_atascii:
+        ctx.color_filter = AtasciiControlFilter()
+        return
+
+    bg_color: tuple[int, int, int] = getattr(args, "background_color", (0, 0, 0))
+    fg_color: tuple[int, int, int] | None = None
+
+    # Terminal color detection (best-effort)
+    try:
+        import blessed  # noqa: PLC0415
+        term = blessed.Terminal()
+        detected_bg = term.get_bgcolor(timeout=0.5, bits=8)
+        detected_fg = term.get_fgcolor(timeout=0.5, bits=8)
+        if detected_bg != (-1, -1, -1):
+            bg_color = detected_bg
+        if detected_fg != (-1, -1, -1):
+            fg_color = detected_fg
+    except Exception:
+        pass
+
+    force_black_bg = getattr(args, "force_black_bg", False)
+    if force_black_bg:
+        bg_color = (0, 0, 0)
+        fg_color = None
+        ctx.erase_eol = True
+
+    color_config = ColorConfig(
+        palette_name=colormatch,
+        brightness=getattr(args, "color_brightness", 1.0),
+        contrast=getattr(args, "color_contrast", 1.0),
+        background_color=bg_color,
+        ice_colors=getattr(args, "ice_colors", True),
+        foreground_color=fg_color,
+        force_black_bg=force_black_bg,
+    )
+    ctx.color_filter = ColorFilter(color_config)
+
+
 async def telix_client_shell(
     telnet_reader: (telnetlib3.stream_reader.TelnetReader | telnetlib3.stream_reader.TelnetReaderUnicode),
     telnet_writer: (telnetlib3.stream_writer.TelnetWriter | telnetlib3.stream_writer.TelnetWriterUnicode),
@@ -190,7 +283,6 @@ async def telix_client_shell(
     ctx.typescript_file = old_ctx.typescript_file
     ctx.raw_mode = old_ctx.raw_mode
     ctx.ascii_eol = old_ctx.ascii_eol
-    ctx.color_filter = old_ctx.color_filter
     ctx.input_filter = old_ctx.input_filter
     ctx.writer = telnet_writer
     ctx.repl_enabled = True
@@ -198,6 +290,9 @@ async def telix_client_shell(
 
     # 2. Load per-session configs.
     load_configs(ctx)
+
+    # 2b. Set up color filter from CLI args.
+    _setup_color_filter(ctx, telnet_writer)
 
     # 3. Override GMCP callback to dispatch ctx hooks after base storage.
     base_on_gmcp = telnet_writer._ext_callback.get(telnetlib3.telopt.GMCP)
@@ -263,7 +358,11 @@ async def telix_client_shell(
         stdout.write(f"Escape character is '{escape_name}'.{banner_sep}".encode())
 
         def handle_close(msg: str) -> None:
-            telnetlib3.client_shell._flush_color_filter(telnet_writer, stdout)
+            cf = ctx.color_filter
+            if cf is not None:
+                flush = cf.flush()
+                if flush:
+                    stdout.write(flush.encode())
             stdout.write(f"\033[m{linesep}{msg}{linesep}".encode())
             tty_shell.cleanup_winch()
 
@@ -393,7 +492,11 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
                     history_file=ctx.history_file,
                 )
 
-            telnetlib3.client_shell._flush_color_filter(writer, stdout)  # type: ignore[arg-type]
+            cf = ctx.color_filter
+            if cf is not None:
+                flush = cf.flush()
+                if flush:
+                    stdout.write(flush.encode())
             stdout.write(f"\033[m{linesep}Connection closed.{linesep}".encode())
             tty_shell.cleanup_winch()
 

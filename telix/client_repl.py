@@ -1403,7 +1403,11 @@ if sys.platform != "win32":
                             self.stdout.write(esc_hold)
                             self.replay_buf.append(esc_hold)
                             self.stdout.write(bt.save.encode())
-                        telnetlib3.client_shell._flush_color_filter(self.telnet_writer, self.stdout)
+                        cf = self.ctx.color_filter
+                        if cf is not None:
+                            flush = cf.flush()
+                            if flush:
+                                self.stdout.write(flush.encode())
                         self.stdout.write(bt.restore.encode())
                         if local_close:
                             msg = b"\r\nConnection closed by client.\r\n"
@@ -1428,7 +1432,12 @@ if sys.platform != "win32":
                 rx_dot.trigger()
                 if isinstance(out, bytes):
                     out = out.decode("utf-8", errors="replace")
+                cf = self.ctx.color_filter
+                if cf is not None:
+                    out = cf.filter(out)
                 out = telnetlib3.client_shell._transform_output(out, self.telnet_writer, True)
+                if self.ctx.erase_eol:
+                    out = out.replace("\r\n", "\x1b[K\r\n")
                 ts = self.ctx.typescript_file
                 if ts is not None:
                     ts.write(out)

@@ -307,6 +307,7 @@ class SessionConfig:
     color_contrast: float = 1.0
     background_color: str = "#000000"
     ice_colors: bool = True
+    force_black_bg: bool = False
 
     # Input
     ansi_keys: bool = False
@@ -1035,6 +1036,9 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     #colormatch {
         max-width: 14;
     }
+    .field-input-short {
+        max-width: 8;
+    }
     #palette-preview {
         width: 1fr;
         padding-top: 1;
@@ -1179,9 +1183,19 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             textual.widgets.Static("", id="palette-preview"),
             classes="field-row",
         )
+        yield textual.containers.Horizontal(
+            textual.widgets.Label("Brightness %", classes="field-label"),
+            textual.widgets.Input(value=str(int(cfg.color_brightness * 100)), id="color-brightness", classes="field-input-short"),
+            textual.widgets.Label("Contrast %", classes="field-label-short"),
+            textual.widgets.Input(value=str(int(cfg.color_contrast * 100)), id="color-contrast", classes="field-input-short"),
+            classes="field-row",
+        )
         with textual.containers.Horizontal(classes="switch-row"):
             yield textual.widgets.Label("iCE Colors", classes="field-label")
             yield textual.widgets.Switch(value=cfg.ice_colors, id="ice-colors")
+        with textual.containers.Horizontal(classes="switch-row"):
+            yield textual.widgets.Label("Force Black BG", classes="field-label")
+            yield textual.widgets.Switch(value=cfg.force_black_bg, id="force-black-bg")
 
     def compose_advanced_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Advanced tab pane."""
@@ -1329,6 +1343,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                 label = self.query_one(label_id, textual.widgets.Label)
                 label.set_class(not is_retro, "dimmed")
 
+    def on_input_changed(self, event: textual.widgets.Input.Changed) -> None:
+        """Update palette preview when brightness/contrast changes."""
+        if event.input.id in ("color-brightness", "color-contrast"):
+            self.update_palette_preview()
+
     def on_switch_changed(self, event: textual.widgets.Switch.Changed) -> None:
         """Update palette preview when ice_colors changes."""
         if event.switch.id == "ice-colors":
@@ -1336,20 +1355,32 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
 
     def update_palette_preview(self) -> None:
         """Render CP437 full-block color preview for the selected palette."""
-        from telnetlib3.color_filter import PALETTES  # noqa: PLC0415
+        from telix.color_filter import PALETTES, _adjust_color  # noqa: PLC0415
 
         palette_name = self.query_one("#colormatch", textual.widgets.Select).value
         preview = self.query_one("#palette-preview", textual.widgets.Static)
         if palette_name == "none" or palette_name not in PALETTES:
             preview.update("")
             return
-        palette = PALETTES[palette_name]
+        brightness = self._parse_pct("#color-brightness", 100) / 100.0
+        contrast = self._parse_pct("#color-contrast", 100) / 100.0
+        palette = tuple(
+            _adjust_color(r, g, b, brightness, contrast) for r, g, b in PALETTES[palette_name]
+        )
         ice = self.query_one("#ice-colors", textual.widgets.Switch).value
         block = "\u2588"
         fg_blocks = "".join(f"[rgb({r},{g},{b})]{block}[/]" for r, g, b in palette)
         bg_count = 16 if ice else 8
         bg_blocks = "".join(f"[on rgb({r},{g},{b})] [/]" for r, g, b in palette[:bg_count])
         preview.update(f"FG: {fg_blocks}\nBG: {bg_blocks}")
+
+    def _parse_pct(self, widget_id: str, default: int) -> int:
+        """Parse a percentage integer from an Input widget, clamped 0-100."""
+        try:
+            val = int(self.query_one(widget_id, textual.widgets.Input).value)
+        except (ValueError, textual.css.query.NoMatches):
+            return default
+        return max(0, min(100, val))
 
     def switch_to_tab(self, tab_id: str) -> None:
         """Activate the given tab and update button styling."""
@@ -1479,8 +1510,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         cfg.ascii_eol = self.query_one("#ascii-eol", textual.widgets.Switch).value
 
         cfg.colormatch = self.query_one("#colormatch", textual.widgets.Select).value
+        cfg.color_brightness = self._parse_pct("#color-brightness", 100) / 100.0
+        cfg.color_contrast = self._parse_pct("#color-contrast", 100) / 100.0
         cfg.background_color = "#000000"
         cfg.ice_colors = self.query_one("#ice-colors", textual.widgets.Switch).value
+        cfg.force_black_bg = self.query_one("#force-black-bg", textual.widgets.Switch).value
 
         timeout_input = self.query_one("#connect-timeout", textual.widgets.Input)
         cfg.connect_timeout = float_val(timeout_input.value, 10.0)

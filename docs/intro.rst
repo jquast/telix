@@ -47,14 +47,8 @@ Connect directly to a host via Telnet::
 
 Connect directly via WebSocket::
 
-    telix ws://mud.example.com:4000
-    telix wss://mud.example.com
+    telix ws://mud.example.com:9119
     telix wss://mud.example.com/ws
-
-The scheme determines transport and SSL: ``ws://`` is plain WebSocket
-(default port 80) and ``wss://`` is WebSocket over TLS (default port 443).
-An optional path (e.g. ``/ws``) is passed verbatim to the server.  The port
-is omitted from the URL when it matches the scheme default.
 
 Run ``telix --help`` for the full list of options.
 

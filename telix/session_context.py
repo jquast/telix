@@ -128,8 +128,10 @@ class SessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.on_autoreply_activity: Callable[[], None] | None = None
 
         # rendering / input config
-        # (raw_mode, ascii_eol, input_filter, color_filter, typescript_file
+        # (raw_mode, ascii_eol, input_filter, typescript_file
         #  inherited from TelnetSessionContext)
+        self.color_filter: typing.Any | None = None
+        self.erase_eol: bool = False
         self.repl_enabled: bool = False
         self.history_file: str | None = None
 
