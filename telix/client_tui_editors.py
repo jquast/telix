@@ -1273,7 +1273,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
                     yield textual.widgets.Static("", id=f"{pfx}-count")
 
     @staticmethod
-    def color_options() -> list[tuple[RichText, str]]:
+    def color_options() -> list[tuple["RichText", str]]:
         """Build textual.widgets.Select options from all Rich named colors with swatches."""
         options: list[tuple[rich.text.Text, str]] = []
         for c in progressbars.CURATED_COLORS:
@@ -1284,7 +1284,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         return options
 
     @staticmethod
-    def theme_color_options() -> list[tuple[RichText, str]]:
+    def theme_color_options() -> list[tuple["RichText", str]]:
         """Build textual.widgets.Select options from Textual theme colors with swatches."""
         options: list[tuple[rich.text.Text, str]] = []
         for name, hex_val in progressbars.get_theme_colors().items():
@@ -1295,7 +1295,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         return options
 
     @staticmethod
-    def text_color_options(is_custom: bool) -> list[tuple[RichText, str]]:
+    def text_color_options(is_custom: bool) -> list[tuple["RichText", str]]:
         """Build textual.widgets.Select options for text color: ``auto`` plus bar color options."""
         auto_label = rich.text.Text()
         auto_label.append("auto")
@@ -1339,7 +1339,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
     SWATCH_STEPS = 10
 
     @staticmethod
-    def color_swatch(bar: ProgressBarTuple) -> RichText:
+    def color_swatch(bar: ProgressBarTuple) -> "RichText":
         """Build a solid-block gradient swatch for the Color column."""
         cfg = progressbars.BarConfig(
             bar.name,
@@ -1799,6 +1799,12 @@ SWATCH_KEYS = ("primary", "secondary", "accent", "success", "error", "warning", 
 class ThemeEditPane(textual.containers.Vertical):
     """Pane widget for selecting Textual built-in themes."""
 
+    class Saved(textual.events.Event):
+        """Posted when the user confirms a theme selection in modal mode."""
+
+    class Cancelled(textual.events.Event):
+        """Posted when the user cancels theme selection in modal mode."""
+
     DEFAULT_CSS = """
     ThemeEditPane {
         width: 100%; height: 100%;
@@ -1809,22 +1815,32 @@ class ThemeEditPane(textual.containers.Vertical):
     }
     #theme-table { height: 1fr; }
     #theme-preview { height: 3; margin-top: 1; }
+    #theme-modal-buttons { height: auto; margin-top: 1; }
+    #theme-modal-buttons Button { margin-right: 1; min-width: 0; }
     """
 
-    def __init__(self, session_key: str = "", **kwargs: Any) -> None:
+    def __init__(self, session_key: str = "", modal: bool = False, **kwargs: Any) -> None:
         """Initialize theme editor."""
         super().__init__(**kwargs)
         self.session_key = session_key
+        self.modal = modal
+        self.original_theme: str = ""
 
     def compose(self) -> textual.app.ComposeResult:
         """Build the theme selection layout."""
         with textual.containers.Vertical(id="theme-panel"):
-            yield textual.widgets.Label("textual.widgets.Select a theme:")
+            yield textual.widgets.Label("Select a theme:")
+            yield textual.widgets.Static(" ")
             yield textual.widgets.DataTable(id="theme-table")
             yield textual.widgets.Static("", id="theme-preview")
+            if self.modal:
+                with textual.containers.Horizontal(id="theme-modal-buttons"):
+                    yield textual.widgets.Button("Save & Close", variant="success", id="theme-save-btn")
+                    yield textual.widgets.Button("Cancel", variant="default", id="theme-cancel-btn")
 
     def on_mount(self) -> None:
         """Populate the theme list on mount."""
+        self.original_theme = self.app.theme or ""
         table = self.query_one("#theme-table", textual.widgets.DataTable)
         table.cursor_type = "row"
         table.add_columns("Theme", "Preview")
@@ -1844,13 +1860,32 @@ class ThemeEditPane(textual.containers.Vertical):
 
         self.update_preview()
 
+    def apply_theme(self, name: str) -> None:
+        """Set the app theme and update markers and preview."""
+        self.app.theme = name
+        self.refresh_markers(name)
+        self.update_preview()
+
     def on_data_table_row_selected(self, event: textual.widgets.DataTable.RowSelected) -> None:
         """Apply the selected theme."""
         name = str(event.row_key.value) if event.row_key.value else ""
         if name:
-            self.refresh_markers(name)
-            self.app.theme = name
-            self.update_preview()
+            self.apply_theme(name)
+
+    def on_data_table_row_highlighted(self, event: textual.widgets.DataTable.RowHighlighted) -> None:
+        """Preview theme on cursor movement."""
+        name = str(event.row_key.value) if event.row_key.value else ""
+        if name:
+            self.apply_theme(name)
+
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
+        """Handle Save & Close / Cancel in modal mode."""
+        btn_id = event.button.id or ""
+        if btn_id == "theme-save-btn":
+            self.post_message(self.Saved())
+        elif btn_id == "theme-cancel-btn":
+            self.app.theme = self.original_theme
+            self.post_message(self.Cancelled())
 
     def refresh_markers(self, active: str) -> None:
         """Update the check-mark column to reflect the active theme."""
@@ -1862,6 +1897,7 @@ class ThemeEditPane(textual.containers.Vertical):
                 table.update_cell(name, "Theme", label)
             except textual.widgets.data_table.CellDoesNotExist:
                 pass
+        table.refresh()
 
     def update_preview(self) -> None:
         """Show a color swatch preview of the current theme."""

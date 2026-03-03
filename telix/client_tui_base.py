@@ -540,6 +540,7 @@ class SessionListScreen(textual.screen.Screen[None]):
         textual.binding.Binding("c", "copy_session", "Copy"),
         textual.binding.Binding("b", "toggle_bookmark", "Bookmark"),
         textual.binding.Binding("d", "delete_session", "Delete"),
+        textual.binding.Binding("t", "theme", "Theme"),
         textual.binding.Binding("enter", "connect", "Connect"),
         textual.binding.Binding("f1", "show_help", "Help"),
     ]
@@ -557,7 +558,8 @@ class SessionListScreen(textual.screen.Screen[None]):
     #session-body {
         height: 1fr;
     }
-    #session-search { height: auto; margin-bottom: 0; }
+    #search-row { height: auto; margin-bottom: 0; }
+    #session-search { width: 1fr; }
     #session-table {
         width: 1fr;
         height: 100%;
@@ -574,6 +576,39 @@ class SessionListScreen(textual.screen.Screen[None]):
         min-width: 0;
         margin-bottom: 0;
     }
+    #copy-btn {
+        background: dodgerblue 30%;
+        color: $text;
+    }
+    #copy-btn:hover {
+        background: dodgerblue 50%;
+    }
+    #copy-btn:focus {
+        background: dodgerblue 50%;
+    }
+    #edit-btn {
+        background: mediumorchid 30%;
+        color: $text;
+    }
+    #edit-btn:hover {
+        background: mediumorchid 50%;
+    }
+    #edit-btn:focus {
+        background: mediumorchid 50%;
+    }
+    #theme-btn {
+        width: auto;
+        min-width: 0;
+        margin-left: 1;
+        background: teal 30%;
+        color: $text;
+    }
+    #theme-btn:hover {
+        background: teal 50%;
+    }
+    #theme-btn:focus {
+        background: teal 50%;
+    }
     """
 
     def __init__(self) -> None:
@@ -582,20 +617,23 @@ class SessionListScreen(textual.screen.Screen[None]):
         self.sessions: dict[str, SessionConfig] = {}
         self.pending_rows: list[tuple[str, SessionConfig]] = []
         self.refresh_gen: int = 0
+        self.cursor_just_moved: bool = False
 
     def compose(self) -> textual.app.ComposeResult:
         """Build the session list layout."""
         with textual.containers.Vertical(id="session-panel"):
-            yield textual.widgets.Input(placeholder="Search sessions\u2026", id="session-search")
+            with textual.containers.Horizontal(id="search-row"):
+                yield textual.widgets.Input(placeholder="Search sessions\u2026", id="session-search")
+                yield textual.widgets.Button("Theme", variant="default", id="theme-btn")
             yield textual.widgets.Static(" ")
             with textual.containers.Horizontal(id="session-body"):
                 with textual.containers.Vertical(id="button-col"):
                     yield textual.widgets.Button("Connect", variant="primary", id="connect-btn")
                     yield textual.widgets.Button("New", variant="success", id="add-btn")
-                    yield textual.widgets.Button("Copy", variant="success", id="copy-btn")
                     yield textual.widgets.Button("Bookmark", variant="warning", id="bookmark-btn")
                     yield textual.widgets.Button("Delete", variant="error", id="delete-btn")
-                    yield textual.widgets.Button("Edit", variant="warning", id="edit-btn")
+                    yield textual.widgets.Button("Copy", variant="default", id="copy-btn")
+                    yield textual.widgets.Button("Edit", variant="default", id="edit-btn")
                 yield textual.widgets.DataTable(id="session-table")
         yield textual.widgets.Footer()
 
@@ -610,10 +648,30 @@ class SessionListScreen(textual.screen.Screen[None]):
         table = self.query_one("#session-table", textual.widgets.DataTable)
         table.cursor_type = "row"
         table.add_column(" ", width=4, key="icon")
-        table.add_columns("Host/Name", "Port", "Enc", "Last", "Flags")
+        table.add_column("Host/Name", width=20, key="name")
+        table.add_column("Port", width=6, key="port")
+        table.add_column("Enc", width=5, key="enc")
+        table.add_column("Last", width=8, key="last")
+        table.add_column("Flags", width=12, key="flags")
+        self.resize_name_column()
         self.refresh_table()
         if table.row_count > 0:
             table.focus()
+
+    def resize_name_column(self) -> None:
+        """Set Host/Name column width to fill available space."""
+        table = self.query_one("#session-table", textual.widgets.DataTable)
+        # Fixed columns: icon(4) + Port(6) + Enc(5) + Last(8) + Flags(12) = 35
+        # Button col(12) + padding/borders(6) + column gutters(10)
+        fixed = 35 + 12 + 6 + 10
+        name_w = max(16, self.app.size.width - fixed)
+        col = table.columns.get("name")
+        if col is not None:
+            col.width = name_w
+
+    def on_resize(self, event: textual.events.Resize) -> None:
+        """Recalculate name column width on terminal resize."""
+        self.resize_name_column()
 
     @staticmethod
     def flags(cfg: SessionConfig) -> str:
@@ -706,9 +764,29 @@ class SessionListScreen(textual.screen.Screen[None]):
         return str(row_key.value)
 
     def on_key(self, event: textual.events.Key) -> None:
-        """Arrow/Home/End keys navigate between search, buttons, and the table."""
+        """Arrow/Home/End keys navigate between search, theme button, buttons, and the table."""
         search_input = self.query_one("#session-search", textual.widgets.Input)
         table = self.query_one("#session-table", textual.widgets.DataTable)
+        theme_btn = self.query_one("#theme-btn", textual.widgets.Button)
+
+        # Right from search -> theme button; left from theme -> search
+        if self.focused is search_input and event.key == "right":
+            theme_btn.focus()
+            event.prevent_default()
+            return
+        if self.focused is theme_btn and event.key == "left":
+            search_input.focus()
+            event.prevent_default()
+            return
+        # Down from theme button -> table
+        if self.focused is theme_btn and event.key == "down":
+            table.focus()
+            event.prevent_default()
+            return
+        # Up from table row 0 or first button-col button -> search row
+        if self.focused is theme_btn and event.key == "up":
+            event.prevent_default()
+            return
 
         if event.key in ("up", "down"):
             if self.focused is search_input and event.key == "down":
@@ -742,14 +820,22 @@ class SessionListScreen(textual.screen.Screen[None]):
             "bookmark-btn": self.action_toggle_bookmark,
             "edit-btn": self.action_edit_session,
             "delete-btn": self.action_delete_session,
+            "theme-btn": self.action_theme,
             "quit-btn": self.action_quit_app,
         }
         handler = handlers.get(event.button.id or "")
         if handler:
             handler()
 
+    def on_data_table_row_highlighted(self, event: textual.widgets.DataTable.RowHighlighted) -> None:
+        """Track that the cursor just moved to a new row."""
+        self.cursor_just_moved = True
+
     def on_data_table_row_selected(self, event: textual.widgets.DataTable.RowSelected) -> None:
-        """Connect on double-click or Enter."""
+        """Connect when clicking an already-selected row or pressing Enter."""
+        if self.cursor_just_moved:
+            self.cursor_just_moved = False
+            return
         self.action_connect()
 
     def action_quit_app(self) -> None:
@@ -918,6 +1004,10 @@ class SessionListScreen(textual.screen.Screen[None]):
         # repaint.  Without this, widgets only redraw on hover.
         self.screen.refresh()
 
+    def action_theme(self) -> None:
+        """Open the theme picker modal."""
+        self.app.push_screen(ThemePickerScreen())
+
     def do_edit_result(self, config: SessionConfig | None) -> None:
         if config is None:
             return
@@ -936,6 +1026,46 @@ class SessionListScreen(textual.screen.Screen[None]):
             if str(row_key.value) == key:
                 table.move_cursor(row=row_idx)
                 break
+
+
+class ThemePickerScreen(textual.screen.Screen[str | None]):  # type: ignore[misc]
+    """Modal screen wrapping ThemeEditPane for standalone theme selection."""
+
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+        textual.binding.Binding("escape", "cancel", "Cancel", priority=True),
+    ]
+
+    CSS = """
+    ThemePickerScreen {
+        height: 100%;
+        width: 100%;
+    }
+    """
+
+    def compose(self) -> textual.app.ComposeResult:
+        """Compose the theme picker with modal ThemeEditPane."""
+        from . import client_tui_editors  # noqa: PLC0415
+
+        yield client_tui_editors.ThemeEditPane(modal=True)
+
+    def on_theme_edit_pane_saved(self, event: "object") -> None:
+        """Dismiss with the current theme on save."""
+        self.dismiss(self.app.theme)
+
+    def on_theme_edit_pane_cancelled(self, event: "object") -> None:
+        """Dismiss with None on cancel."""
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        """Restore original theme and dismiss."""
+        from . import client_tui_editors  # noqa: PLC0415
+
+        try:
+            pane = self.query_one(client_tui_editors.ThemeEditPane)
+            self.app.theme = pane.original_theme
+        except textual.css.query.NoMatches:
+            pass
+        self.dismiss(None)
 
 
 class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: ignore[misc]
@@ -981,6 +1111,10 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     }
     .field-label {
         width: 14;
+        padding-top: 1;
+    }
+    .field-label-wide {
+        width: 28;
         padding-top: 1;
     }
     .field-label-short {
@@ -1157,7 +1291,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     ]
 
     @staticmethod
-    def field_row(label: str, *widgets: Widget, row_class: str = "field-row") -> textual.containers.Horizontal:
+    def field_row(label: str, *widgets: "Widget", row_class: str = "field-row") -> textual.containers.Horizontal:
         """Return a ``Horizontal`` row with a label and widgets."""
         return textual.containers.Horizontal(
             textual.widgets.Label(label, classes="field-label"), *widgets, classes=row_class
@@ -1275,7 +1409,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             r, g, b = self.detected_bg
             hex_color = f"#{r:02x}{g:02x}{b:02x}"
             yield textual.containers.Horizontal(
-                textual.widgets.Label("Detected Background", classes="field-label"),
+                textual.widgets.Label("Detected Background", classes="field-label-wide"),
                 textual.widgets.Static(
                     f"[on rgb({r},{g},{b})]  [/] {hex_color}", id="detected-bg-color"
                 ),
@@ -1433,6 +1567,9 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                 self.select_radio("compression-radio", "compress-no")
             else:
                 self.select_radio("compression-radio", "compress-passive")
+            force_bg = self.query_one("#force-black-bg", textual.widgets.Switch)
+            if not force_bg.disabled:
+                force_bg.value = True
             self.update_palette_preview()
             compress_label = "no (SSL)" if ssl_on else "passive"
             self.notify(
@@ -1450,6 +1587,9 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             self.query_one("#repl-label", textual.widgets.Label).set_class(False, "dimmed")
             self.query_one("#colormatch", textual.widgets.Select).value = "none"
             self.query_one("#ice-colors", textual.widgets.Switch).value = False
+            force_bg = self.query_one("#force-black-bg", textual.widgets.Switch)
+            if not force_bg.disabled:
+                force_bg.value = False
             self.update_palette_preview()
             compress_label = "no (SSL)" if ssl_on else "yes"
             self.notify(

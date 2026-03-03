@@ -106,6 +106,11 @@ def main() -> None:
     project_dir = os.path.dirname(script_dir)
     modem_dir = os.path.join(os.path.dirname(project_dir), "modem.xyz")
 
+    if not os.path.exists(modem_dir):
+        print(f"Error: {modem_dir} not found")
+        print("? git clone https://github.com/jquast/modem.xyz.git ../modem.xyz")
+        sys.exit(1)
+
     mudlist = os.path.join(modem_dir, "mudlist.txt")
     bbslist = os.path.join(modem_dir, "bbslist.txt")
 

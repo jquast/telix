@@ -183,6 +183,7 @@ class RoomBrowserPane(textual.containers.Vertical):
         self.name_col: int = NAME_COL_BASE
         self.id_width: int = ID_COL_BASE + 20
         self.muted_style: str = "dim"
+        self.cursor_just_moved: bool = False
 
     def heading_text(self) -> str:
         """Return the column heading string for the tree."""
@@ -520,6 +521,7 @@ class RoomBrowserPane(textual.containers.Vertical):
 
     def on_tree_node_highlighted(self, event: textual.widgets.Tree.NodeHighlighted[str]) -> None:
         """Update distance and exits labels when tree cursor moves."""
+        self.cursor_just_moved = True
         dist_label = self.query_one("#room-distance", textual.widgets.Static)
         exits_label = self.query_one("#room-exits", textual.widgets.Static)
         node = event.node
@@ -555,6 +557,13 @@ class RoomBrowserPane(textual.containers.Vertical):
             n = len(path)
             dist_label.update(f"Distance: {n} turn{'s' if n != 1 else ''}")
             self.set_travel_buttons_disabled(False)
+
+    def on_tree_node_selected(self, event: textual.widgets.Tree.NodeSelected[str]) -> None:
+        """Travel when clicking an already-selected node or pressing Enter."""
+        if self.cursor_just_moved:
+            self.cursor_just_moved = False
+            return
+        self.do_travel()
 
     def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle button presses."""
@@ -1094,6 +1103,8 @@ EDITOR_TABS: list[tuple[str, str]] = [
     ("Theme", "theme"),
 ]
 
+GLOBAL_TABS: set[str] = {"theme"}
+
 
 class TabbedEditorScreen(textual.screen.Screen[None]):
     """Full-screen tabbed editor combining all editor panes."""
@@ -1135,27 +1146,35 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
         Initialize tabbed editor from a parameters dict.
 
         :param params: Dict with keys for each pane's
-            constructor args, plus ``initial_tab`` and
-            ``initial_channel``.
+            constructor args, plus ``initial_tab``,
+            ``initial_channel``, and ``hide_globals``.
         """
         super().__init__()
         self.params = params
         self.initial_tab = params.get("initial_tab", "highlights")
+        self.hide_globals: bool = params.get("hide_globals", False)
         self.panes: dict[str, typing.Any] = {}
         self.loaded: set[str] = set()
         self.dirty: set[str] = set()
 
+    def visible_tabs(self) -> list[tuple[str, str]]:
+        """Return tabs filtered by ``hide_globals``."""
+        if self.hide_globals:
+            return [(label, tid) for label, tid in EDITOR_TABS if tid not in GLOBAL_TABS]
+        return list(EDITOR_TABS)
+
     def compose(self) -> textual.app.ComposeResult:
         """Build tab bar and content switcher with lazy-loaded panes."""
+        tabs = self.visible_tabs()
         with textual.containers.Horizontal(id="te-tab-bar"):
-            for label, tab_id in EDITOR_TABS:
+            for label, tab_id in tabs:
                 btn = textual.widgets.Button(label, id=f"te-btn-{tab_id}")
                 if tab_id == self.initial_tab:
                     btn.add_class("active-tab")
                 yield btn
 
         with textual.widgets.ContentSwitcher(id="te-content", initial=self.initial_tab):
-            for label, tab_id in EDITOR_TABS:
+            for label, tab_id in tabs:
                 pane = self.create_pane(tab_id)
                 self.panes[tab_id] = pane
                 yield pane

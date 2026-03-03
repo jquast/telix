@@ -62,14 +62,17 @@ class HighlightRule:
     captures: list[dict[str, str]] = dataclasses.field(default_factory=list)
 
 
-def validate_highlight(term: blessed.Terminal, name: str) -> bool:
+def validate_highlight(term: "blessed.Terminal", name: str) -> bool:
     """
     Return ``True`` if *name* is a valid blessed compoundable.
 
     :param term: Blessed terminal instance.
     :param name: Compoundable attribute name, e.g. ``"bold_red_on_white"``.
     """
-    attr = getattr(term, name)
+    try:
+        attr = getattr(term, name)
+    except AttributeError:
+        return False
     return callable(attr)
 
 
@@ -180,7 +183,7 @@ class CompiledRuleSet:
     def __init__(
         self,
         rules: list[HighlightRule],
-        autoreply_rules: list[AutoreplyRule],
+        autoreply_rules: list["AutoreplyRule"],
         autoreply_highlight: str,
         autoreply_enabled: bool,
     ) -> None:
@@ -250,9 +253,9 @@ class HighlightEngine:
     def __init__(
         self,
         rules: list[HighlightRule],
-        autoreply_rules: list[AutoreplyRule],
-        term: blessed.Terminal,
-        ctx: SessionContext | None = None,
+        autoreply_rules: list["AutoreplyRule"],
+        term: "blessed.Terminal",
+        ctx: "SessionContext | None" = None,
         autoreply_highlight: str = DEFAULT_AUTOREPLY_HIGHLIGHT,
         autoreply_enabled: bool = True,
     ) -> None:

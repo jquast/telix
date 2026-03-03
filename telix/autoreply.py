@@ -153,7 +153,7 @@ def compare(value: int, op: str, threshold: int) -> bool:
     raise ValueError(f"unknown operator: {op!r}")
 
 
-def check_condition(when: dict[str, str], ctx: SessionContext) -> tuple[bool, str]:
+def check_condition(when: dict[str, str], ctx: "SessionContext") -> tuple[bool, str]:
     """
     Check vital conditions against GMCP data and captured variables on *ctx*.
 
@@ -675,7 +675,7 @@ class AutoreplyEngine:
     def __init__(
         self,
         rules: list[AutoreplyRule],
-        ctx: SessionContext,
+        ctx: "SessionContext",
         log: logging.Logger,
         max_lines: int = 100,
         insert_fn: Callable[[str], None] | None = None,

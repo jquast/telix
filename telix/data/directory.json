@@ -503,13 +503,6 @@
   "columns": 90
  },
  {
-  "host": "bl.mud.at",
-  "port": 5679,
-  "name": "bl.mud.at",
-  "type": "mud",
-  "ssl": true
- },
- {
   "host": "blackfire.online",
   "port": 4000,
   "name": "blackfire.online",
@@ -1219,16 +1212,16 @@
  },
  {
   "host": "dunemud.net",
-  "port": 6789,
-  "name": "dunemud.net",
-  "type": "mud"
- },
- {
-  "host": "dunemud.net",
   "port": 6788,
   "name": "dunemud.net",
   "type": "mud",
   "ssl": true
+ },
+ {
+  "host": "dunemud.net",
+  "port": 6789,
+  "name": "dunemud.net",
+  "type": "mud"
  },
  {
   "host": "dungeon.name",
@@ -2142,16 +2135,16 @@
  },
  {
   "host": "iberia.jdai.pt",
-  "port": 5900,
-  "name": "iberia.jdai.pt",
-  "type": "mud"
- },
- {
-  "host": "iberia.jdai.pt",
   "port": 5899,
   "name": "iberia.jdai.pt",
   "type": "mud",
   "ssl": true
+ },
+ {
+  "host": "iberia.jdai.pt",
+  "port": 5900,
+  "name": "iberia.jdai.pt",
+  "type": "mud"
  },
  {
   "host": "icesus.org",
@@ -2547,12 +2540,6 @@
   "host": "mf.deepfire.net",
   "port": 4242,
   "name": "mf.deepfire.net",
-  "type": "mud"
- },
- {
-  "host": "mg.mud.de",
-  "port": 23,
-  "name": "mg.mud.de",
   "type": "mud"
  },
  {
@@ -3163,12 +3150,6 @@
   "type": "mud"
  },
  {
-  "host": "mud.silberland.at",
-  "port": 4711,
-  "name": "mud.silberland.at",
-  "type": "mud"
- },
- {
   "host": "mud.simauria.org",
   "port": 23,
   "name": "mud.simauria.org",
@@ -3245,16 +3226,16 @@
  },
  {
   "host": "mud.theforestsedge.com",
-  "port": 4000,
-  "name": "mud.theforestsedge.com",
-  "type": "mud"
- },
- {
-  "host": "mud.theforestsedge.com",
   "port": 3999,
   "name": "mud.theforestsedge.com",
   "type": "mud",
   "ssl": true
+ },
+ {
+  "host": "mud.theforestsedge.com",
+  "port": 4000,
+  "name": "mud.theforestsedge.com",
+  "type": "mud"
  },
  {
   "host": "mud.theghostbox.com",
@@ -4754,12 +4735,6 @@
   "type": "mud"
  },
  {
-  "host": "unitopia.de",
-  "port": 23,
-  "name": "unitopia.de",
-  "type": "mud"
- },
- {
   "host": "uossmud.sandwich.net",
   "port": 9000,
   "name": "uossmud.sandwich.net",
@@ -5214,12 +5189,6 @@
   "type": "bbs"
  },
  {
-  "host": "UNItopia.DE",
-  "port": 4444,
-  "name": "UNItopia.DE",
-  "type": "bbs"
- },
- {
   "host": "a-net.online",
   "port": 23,
   "name": "a-net.online",
@@ -5229,6 +5198,12 @@
   "host": "a-net.online",
   "port": 513,
   "name": "a-net.online",
+  "type": "bbs"
+ },
+ {
+  "host": "aardmud.org",
+  "port": 23,
+  "name": "aardmud.org",
   "type": "bbs"
  },
  {
@@ -5273,6 +5248,12 @@
   "host": "agency.bbs.nz",
   "port": 23,
   "name": "agency.bbs.nz",
+  "type": "bbs"
+ },
+ {
+  "host": "alamobbs.mywire.org",
+  "port": 6400,
+  "name": "alamobbs.mywire.org",
   "type": "bbs"
  },
  {
@@ -5401,6 +5382,12 @@
   "type": "bbs"
  },
  {
+  "host": "angstridden.net",
+  "port": 1337,
+  "name": "angstridden.net",
+  "type": "bbs"
+ },
+ {
   "host": "ansalon.net",
   "port": 8679,
   "name": "ansalon.net",
@@ -5456,6 +5443,12 @@
   "type": "bbs"
  },
  {
+  "host": "astronetbbs.ddns.net",
+  "port": 23,
+  "name": "astronetbbs.ddns.net",
+  "type": "bbs"
+ },
+ {
   "host": "atari-bbs.zapto.org",
   "port": 8888,
   "name": "atari-bbs.zapto.org",
@@ -5484,6 +5477,12 @@
   "type": "bbs"
  },
  {
+  "host": "aubbs.zapto.org",
+  "port": 23,
+  "name": "aubbs.zapto.org",
+  "type": "bbs"
+ },
+ {
   "host": "avastbbs.servegame.com",
   "port": 23,
   "name": "avastbbs.servegame.com",
@@ -5508,6 +5507,12 @@
   "host": "bay.jayscafe.net",
   "port": 6401,
   "name": "bay.jayscafe.net",
+  "type": "bbs"
+ },
+ {
+  "host": "bayoublog.ddns.net",
+  "port": 23,
+  "name": "bayoublog.ddns.net",
   "type": "bbs"
  },
  {
@@ -5623,6 +5628,12 @@
   "host": "bbs.anduin.net",
   "port": 23,
   "name": "bbs.anduin.net",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.apostols.org",
+  "port": 23,
+  "name": "bbs.apostols.org",
   "type": "bbs"
  },
  {
@@ -5849,6 +5860,12 @@
   "type": "bbs"
  },
  {
+  "host": "bbs.deadparrotbbs.com",
+  "port": 2323,
+  "name": "bbs.deadparrotbbs.com",
+  "type": "bbs"
+ },
+ {
   "host": "bbs.decafbad.com",
   "port": 6513,
   "name": "bbs.decafbad.com",
@@ -5888,6 +5905,12 @@
   "host": "bbs.digital-warfare.net",
   "port": 1337,
   "name": "bbs.digital-warfare.net",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.digitaldistortionbbs.com",
+  "port": 23,
+  "name": "bbs.digitaldistortionbbs.com",
   "type": "bbs"
  },
  {
@@ -5931,6 +5954,12 @@
   "host": "bbs.duensing.digital",
   "port": 23,
   "name": "bbs.duensing.digital",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.echo-mirage.net",
+  "port": 1989,
+  "name": "bbs.echo-mirage.net",
   "type": "bbs"
  },
  {
@@ -6175,6 +6204,12 @@
   "type": "bbs"
  },
  {
+  "host": "bbs.jerseyjam.com",
+  "port": 2323,
+  "name": "bbs.jerseyjam.com",
+  "type": "bbs"
+ },
+ {
   "host": "bbs.kd3.us",
   "port": 23,
   "name": "bbs.kd3.us",
@@ -6221,6 +6256,12 @@
   "host": "bbs.lizardmaster.com",
   "port": 23,
   "name": "bbs.lizardmaster.com",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.lizsugar.me",
+  "port": 6000,
+  "name": "bbs.lizsugar.me",
   "type": "bbs"
  },
  {
@@ -6308,6 +6349,12 @@
   "type": "bbs"
  },
  {
+  "host": "bbs.mynameisgabe.com",
+  "port": 23,
+  "name": "bbs.mynameisgabe.com",
+  "type": "bbs"
+ },
+ {
   "host": "bbs.mythicalkingdom.com",
   "port": 5023,
   "name": "bbs.mythicalkingdom.com",
@@ -6335,6 +6382,12 @@
   "host": "bbs.novass.net",
   "port": 2323,
   "name": "bbs.novass.net",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.nuageinfo.com",
+  "port": 23,
+  "name": "bbs.nuageinfo.com",
   "type": "bbs"
  },
  {
@@ -6417,6 +6470,12 @@
   "host": "bbs.phospher.com",
   "port": 23,
   "name": "bbs.phospher.com",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.photik.org",
+  "port": 23,
+  "name": "bbs.photik.org",
   "type": "bbs"
  },
  {
@@ -6509,6 +6568,12 @@
   "host": "bbs.roguenet.work",
   "port": 8888,
   "name": "bbs.roguenet.work",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.roonsbbs.hu",
+  "port": 1212,
+  "name": "bbs.roonsbbs.hu",
   "type": "bbs"
  },
  {
@@ -6661,7 +6726,8 @@
   "host": "bbs.thejollyrogerbbs.com",
   "port": 8023,
   "name": "bbs.thejollyrogerbbs.com",
-  "type": "bbs"
+  "type": "bbs",
+  "encoding": "cp437"
  },
  {
   "host": "bbs.themajorbbs.com",
@@ -6718,6 +6784,12 @@
   "name": "bbs.twomice.net",
   "type": "bbs",
   "encoding": "gbk"
+ },
+ {
+  "host": "bbs.ultimatebbs.net",
+  "port": 23,
+  "name": "bbs.ultimatebbs.net",
+  "type": "bbs"
  },
  {
   "host": "bbs.uncomfortable.business",
@@ -7260,6 +7332,12 @@
   "type": "bbs"
  },
  {
+  "host": "coconet.ddns.net",
+  "port": 6809,
+  "name": "coconet.ddns.net",
+  "type": "bbs"
+ },
+ {
   "host": "commodoreserver.com",
   "port": 1541,
   "name": "commodoreserver.com",
@@ -7369,6 +7447,12 @@
   "type": "bbs"
  },
  {
+  "host": "crowsnestbbs.ddns.net",
+  "port": 6801,
+  "name": "crowsnestbbs.ddns.net",
+  "type": "bbs"
+ },
+ {
   "host": "cryosphere.net",
   "port": 6666,
   "name": "cryosphere.net",
@@ -7378,6 +7462,12 @@
   "host": "csbbs.dyndns.org",
   "port": 23,
   "name": "csbbs.dyndns.org",
+  "type": "bbs"
+ },
+ {
+  "host": "cscnet1.net",
+  "port": 23,
+  "name": "cscnet1.net",
   "type": "bbs"
  },
  {
@@ -7458,6 +7548,12 @@
   "host": "darklevel.hopto.org",
   "port": 64128,
   "name": "darklevel.hopto.org",
+  "type": "bbs"
+ },
+ {
+  "host": "darklordmud.duckdns.org",
+  "port": 5000,
+  "name": "darklordmud.duckdns.org",
   "type": "bbs"
  },
  {
@@ -7639,6 +7735,12 @@
   "encoding": "topaz"
  },
  {
+  "host": "dragonballrevolt.genesismuds.com",
+  "port": 6969,
+  "name": "dragonballrevolt.genesismuds.com",
+  "type": "bbs"
+ },
+ {
   "host": "dumuzi.lykaina.com",
   "port": 23,
   "name": "dumuzi.lykaina.com",
@@ -7733,6 +7835,12 @@
   "host": "enterprisebbs.ddns.net",
   "port": 1701,
   "name": "enterprisebbs.ddns.net",
+  "type": "bbs"
+ },
+ {
+  "host": "entropybbs.zapto.org",
+  "port": 23,
+  "name": "entropybbs.zapto.org",
   "type": "bbs"
  },
  {
@@ -7843,6 +7951,12 @@
   "name": "ferchobbs.ddns.net",
   "type": "bbs",
   "encoding": "latin-1"
+ },
+ {
+  "host": "ff.mud.de",
+  "port": 7600,
+  "name": "ff.mud.de",
+  "type": "bbs"
  },
  {
   "host": "fibs.com",
@@ -8264,6 +8378,12 @@
   "type": "bbs"
  },
  {
+  "host": "irc.s3tg5z.com",
+  "port": 23,
+  "name": "irc.s3tg5z.com",
+  "type": "bbs"
+ },
+ {
   "host": "itcbbs.ddns.net",
   "port": 23000,
   "name": "itcbbs.ddns.net",
@@ -8626,6 +8746,12 @@
   "type": "bbs"
  },
  {
+  "host": "mclmud.mclink.it",
+  "port": 6000,
+  "name": "mclmud.mclink.it",
+  "type": "bbs"
+ },
+ {
   "host": "megadodo.online",
   "port": 4242,
   "name": "megadodo.online",
@@ -8677,6 +8803,12 @@
   "host": "mojo.synchro.net",
   "port": 23,
   "name": "mojo.synchro.net",
+  "type": "bbs"
+ },
+ {
+  "host": "mongoose.moo.mud.org",
+  "port": 7777,
+  "name": "mongoose.moo.mud.org",
   "type": "bbs"
  },
  {
@@ -8743,6 +8875,12 @@
   "type": "bbs"
  },
  {
+  "host": "mud.tfcmud.com",
+  "port": 4000,
+  "name": "mud.tfcmud.com",
+  "type": "bbs"
+ },
+ {
   "host": "muinet.com",
   "port": 2323,
   "name": "muinet.com",
@@ -8758,6 +8896,12 @@
   "host": "multizork.icculus.org",
   "port": 23,
   "name": "multizork.icculus.org",
+  "type": "bbs"
+ },
+ {
+  "host": "mush.elendor.net",
+  "port": 1892,
+  "name": "mush.elendor.net",
   "type": "bbs"
  },
  {
@@ -9357,6 +9501,12 @@
   "type": "bbs"
  },
  {
+  "host": "region15.net",
+  "port": 23,
+  "name": "region15.net",
+  "type": "bbs"
+ },
+ {
   "host": "retrobbs.sinclair.homepc.it",
   "port": 23,
   "name": "retrobbs.sinclair.homepc.it",
@@ -9420,6 +9570,12 @@
   "host": "rofbbs.ddns.net",
   "port": 2300,
   "name": "rofbbs.ddns.net",
+  "type": "bbs"
+ },
+ {
+  "host": "rom.mud.de",
+  "port": 4000,
+  "name": "rom.mud.de",
   "type": "bbs"
  },
  {
@@ -10212,6 +10368,18 @@
   "type": "bbs"
  },
  {
+  "host": "torilmud.com",
+  "port": 9999,
+  "name": "torilmud.com",
+  "type": "bbs"
+ },
+ {
+  "host": "towers.t2tmud.org",
+  "port": 9999,
+  "name": "towers.t2tmud.org",
+  "type": "bbs"
+ },
+ {
   "host": "toxicbbs.com",
   "port": 23,
   "name": "toxicbbs.com",
@@ -10354,6 +10522,12 @@
   "type": "bbs"
  },
  {
+  "host": "vikingmud.org",
+  "port": 2001,
+  "name": "vikingmud.org",
+  "type": "bbs"
+ },
+ {
   "host": "vintage.thcbbs.com",
   "port": 23,
   "name": "vintage.thcbbs.com",
@@ -10381,6 +10555,12 @@
   "host": "voidbbs.com",
   "port": 23,
   "name": "voidbbs.com",
+  "type": "bbs"
+ },
+ {
+  "host": "vormud.genesismuds.com",
+  "port": 7777,
+  "name": "vormud.genesismuds.com",
   "type": "bbs"
  },
  {
@@ -10496,6 +10676,12 @@
   "host": "wizzybbs.win",
   "port": 23,
   "name": "wizzybbs.win",
+  "type": "bbs"
+ },
+ {
+  "host": "wl.mud.de",
+  "port": 4711,
+  "name": "wl.mud.de",
   "type": "bbs"
  },
  {
@@ -10635,7 +10821,8 @@
   "host": "xibalba.l33t.codes",
   "port": 44510,
   "name": "xibalba.l33t.codes",
-  "type": "bbs"
+  "type": "bbs",
+  "encoding": "cp437"
  },
  {
   "host": "zahrl.ddns.net",
@@ -10653,6 +10840,12 @@
   "host": "zenolab.synchro.net",
   "port": 23,
   "name": "zenolab.synchro.net",
+  "type": "bbs"
+ },
+ {
+  "host": "zeus.cybercitizen.net",
+  "port": 3337,
+  "name": "zeus.cybercitizen.net",
   "type": "bbs"
  },
  {
