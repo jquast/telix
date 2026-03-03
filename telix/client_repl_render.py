@@ -91,9 +91,7 @@ def scramble_password(length: int = SCRAMBLE_LEN) -> str:
 
 
 def editor_cursor_col(editor: "blessed.line_editor.LineEditor") -> int:
-    """Return cursor column, pinned to :data:`SCRAMBLE_LEN` in password mode."""
-    if editor.password_mode and editor._buf:
-        return SCRAMBLE_LEN
+    """Return cursor column for the editor display."""
     return editor.display.cursor
 
 

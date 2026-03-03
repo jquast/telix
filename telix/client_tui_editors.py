@@ -9,6 +9,7 @@ Imports from ``client_tui_base`` only (no circular deps).
 # std imports
 import os
 import re
+import sys
 import json
 import shutil
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
@@ -89,9 +90,7 @@ class MacroEditPane(client_tui_base.EditListPane):
         self.rooms_path = rooms_file
         self.current_room_path = current_room_file
         self.macros: list[tuple[str, str, bool, str, bool, str, bool, str]] = []
-        self.capturing: bool = False
         self.sort_mode: str = ""
-        self.capture_escape_pending: bool = False
         self.captured_key: str = ""
 
     @property
@@ -227,8 +226,6 @@ class MacroEditPane(client_tui_base.EditListPane):
         builtin_name: str = "",
     ) -> None:
         self.captured_key = key_val
-        self.capturing = False
-        self.capture_escape_pending = False
         label = self.query_one("#macro-key-label", textual.widgets.Static)
         display = self.blessed_display(key_val) if key_val else "(none)"
         label.update(display)
@@ -255,11 +252,6 @@ class MacroEditPane(client_tui_base.EditListPane):
             self.query_one("#macro-capture", textual.widgets.Button).focus()
         else:
             text_input.focus()
-
-    def hide_form(self) -> None:
-        self.capturing = False
-        self.capture_escape_pending = False
-        super()._hide_form()
 
     def action_delete(self) -> None:
         """Block deletion of builtin macros."""
@@ -299,114 +291,50 @@ class MacroEditPane(client_tui_base.EditListPane):
             return blessed_name[4:]
         return blessed_name
 
-    def finish_capture(self, blessed_key: str, display: str) -> None:
-        """Accept a captured key and update the form."""
-        if blessed_key in blessed.line_editor.DEFAULT_KEYMAP:
-            self.reject_capture(f"Rejected: {display} -- reserved by line editor")
-            return
-        self.capturing = False
-        self.capture_escape_pending = False
-        self.captured_key = blessed_key
-        label = self.query_one("#macro-key-label", textual.widgets.Static)
-        label.update(display)
-        label.remove_class("capturing")
-        self.query_one("#macro-capture-status", textual.widgets.Static).update("")
-
-    def reject_capture(self, reason: str) -> None:
-        """Show a rejection message and stay in capture mode."""
-        self.query_one("#macro-capture-status", textual.widgets.Static).update(reason)
-
-    def on_key(self, event: textual.events.Key) -> None:
-        """Handle key capture mode, then delegate to base navigation."""
-        if self.capturing:
-            event.stop()
-            event.prevent_default()
-            key = event.key
-
-            if self.capture_escape_pending:
-                self.capture_escape_pending = False
-                if key == "escape":
-                    blessed_key = "KEY_ESCAPE"
-                    self.finish_capture(blessed_key, "ESCAPE")
-                elif len(key) == 1 and key.isalpha():
-                    if key.isupper():
-                        blessed_key = "KEY_ALT_SHIFT_" + key.upper()
-                        self.finish_capture(blessed_key, "ALT_SHIFT_" + key.upper())
-                    else:
-                        blessed_key = "KEY_ALT_" + key.upper()
-                        self.finish_capture(blessed_key, "ALT_" + key.upper())
+    def _blessed_capture(self) -> None:
+        """Suspend textual and use blessed.inkey() to capture a keystroke."""
+        bt = client_repl.get_term()
+        result_key = ""
+        result_display = ""
+        rejected = ""
+        with self.app.suspend():
+            os.set_blocking(sys.stdin.fileno(), True)
+            sys.stdout.write("\r\nPress a key to capture (Esc to cancel) ... ")
+            sys.stdout.flush()
+            with bt.raw():
+                key = bt.inkey()
+            sys.stdout.write("\r\n")
+            sys.stdout.flush()
+            if key.name == "KEY_ESCAPE":
+                pass
+            elif key.name:
+                blessed_name = key.name
+                display = self.blessed_display(blessed_name)
+                if blessed_name in blessed.line_editor.DEFAULT_KEYMAP:
+                    rejected = f"Rejected: {display} -- reserved by line editor"
                 else:
-                    self.reject_capture(f"Rejected: escape+{key} -- use Esc then a letter")
-                return
-
-            if key == "escape":
-                self.capture_escape_pending = True
-                self.query_one("#macro-capture-status", textual.widgets.Static).update(
-                    "Esc pressed -- now press a letter for Alt combo, or Esc again for plain Escape"
-                )
-                return
-
-            if key.startswith("f") and key[1:].isdigit():
-                blessed_key = "KEY_" + key.upper()
-                self.finish_capture(blessed_key, key.upper())
-                return
-
-            if key.startswith("ctrl+"):
-                suffix = key[5:]
-                if len(suffix) == 1 and suffix.isalpha():
-                    blessed_key = "KEY_CTRL_" + suffix.upper()
-                    self.finish_capture(blessed_key, "CTRL_" + suffix.upper())
-                    return
-                ctrl_special = {
-                    "close_bracket": "CLOSE_BRACKET",
-                    "open_bracket": "OPEN_BRACKET",
-                    "backslash": "BACKSLASH",
-                }
-                if suffix in ctrl_special:
-                    blessed_key = "KEY_CTRL_" + ctrl_special[suffix]
-                    self.finish_capture(blessed_key, "CTRL_" + ctrl_special[suffix])
-                    return
-
-            if key.startswith("alt+shift+"):
-                letter = key[10:]
-                if len(letter) == 1 and letter.isalpha():
-                    blessed_key = "KEY_ALT_SHIFT_" + letter.upper()
-                    self.finish_capture(blessed_key, "ALT_SHIFT_" + letter.upper())
-                    return
-
-            if key.startswith("alt+"):
-                letter = key[4:]
-                if len(letter) == 1 and letter.isalpha():
-                    if letter.isupper():
-                        blessed_key = "KEY_ALT_SHIFT_" + letter.upper()
-                        self.finish_capture(blessed_key, "ALT_SHIFT_" + letter.upper())
-                    else:
-                        blessed_key = "KEY_ALT_" + letter.upper()
-                        self.finish_capture(blessed_key, "ALT_" + letter.upper())
-                    return
-
-            self.reject_capture(f"Rejected: {key} -- use F-keys, Ctrl+key, or Alt+key")
-            return
-
-        super().on_key(event)
-
-    def action_cancel_or_close(self) -> None:
-        """Cancel key capture or close the screen."""
-        if self.capturing:
-            return
-        super().action_cancel_or_close()
+                    result_key = blessed_name
+                    result_display = display
+            elif len(str(key)) == 1 and str(key).isprintable():
+                rejected = f"Rejected: '{key}' -- use F-keys, Ctrl+key, or Alt+key"
+            else:
+                rejected = "Rejected: unknown key"
+        self.screen.refresh()
+        if result_key:
+            self.captured_key = result_key
+            label = self.query_one("#macro-key-label", textual.widgets.Static)
+            label.update(result_display)
+            label.remove_class("capturing")
+            self.query_one("#macro-capture-status", textual.widgets.Static).update("")
+        elif rejected:
+            self.query_one("#macro-capture-status", textual.widgets.Static).update(rejected)
 
     def do_extra_button(self, suffix: str, btn: str) -> None:
         """Handle macro-specific buttons (travel, capture, etc.)."""
         if suffix == "fast-travel":
             self.pick_room_for_travel()
         elif suffix == "capture":
-            self.capturing = True
-            self.capture_escape_pending = False
-            label = self.query_one("#macro-key-label", textual.widgets.Static)
-            label.update("press keystroke to capture ...")
-            label.add_class("capturing")
-            self.query_one("#macro-capture-status", textual.widgets.Static).update("")
+            self._blessed_capture()
         else:
             super()._on_extra_button(suffix, btn)
 
@@ -1581,7 +1509,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         self.stop_preview_timer()
         self.form_source_pkg = ""
         self.form_color_mode = ""
-        super()._hide_form()
+        super().hide_form()
 
     def start_preview_timer(self) -> None:
         """Start the animated preview at ~15 fps."""

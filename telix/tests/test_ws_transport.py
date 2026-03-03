@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import websockets.exceptions
 
-from telix.ws_transport import WebSocketReader, WebSocketWriter, parse_gmcp_frame
+from telix.ws_transport import WebSocketReader, WebSocketWriter, parse_gmcp_frame, extract_iac
 
 
 class TestWebSocketReader:
@@ -82,6 +82,41 @@ class TestWebSocketReader:
         reader._wakeup_waiter()
         await reader.read(1024)
         assert reader.at_eof() is False
+
+
+class TestWebSocketReaderEncoding:
+    """WebSocketReader decodes binary frames using a configurable encoding."""
+
+    @pytest.mark.asyncio
+    async def test_cp437_encoding(self):
+        """CP437 byte 0xe1 decodes to sharp s."""
+        reader = WebSocketReader(encoding="cp437")
+        reader.feed_data(b"\xe1")
+        result = await reader.read(1024)
+        assert result == "\u00df"
+
+    @pytest.mark.asyncio
+    async def test_default_encoding_is_utf8(self):
+        """Default encoding is UTF-8."""
+        reader = WebSocketReader()
+        assert reader._encoding == "utf-8"
+        assert reader._encoding_errors == "replace"
+
+    @pytest.mark.asyncio
+    async def test_encoding_errors_replace(self):
+        """Invalid bytes are replaced with the replacement character."""
+        reader = WebSocketReader(encoding="ascii", encoding_errors="replace")
+        reader.feed_data(b"\xff")
+        result = await reader.read(1024)
+        assert result == "\ufffd"
+
+    @pytest.mark.asyncio
+    async def test_encoding_errors_ignore(self):
+        """Invalid bytes are silently dropped with ignore handler."""
+        reader = WebSocketReader(encoding="ascii", encoding_errors="ignore")
+        reader.feed_data(b"A\xffB")
+        result = await reader.read(1024)
+        assert result == "AB"
 
 
 class TestWebSocketWriter:
@@ -175,6 +210,33 @@ class TestWebSocketWriter:
         writer = self._make_writer()
         assert writer.remote_option.enabled(b"\x18") is False
         assert writer.remote_option.enabled(b"\x01") is False
+
+
+class TestWebSocketWriterEncoding:
+    """WebSocketWriter encodes outgoing text using a configurable encoding."""
+
+    def test_write_encodes_with_custom_encoding(self):
+        """Write() encodes text using the configured encoding."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws, encoding="cp437")
+        writer.write("\u00df")
+        item = writer._send_queue.get_nowait()
+        assert item == b"\xe1"
+
+    def test_default_encoding_is_utf8(self):
+        """Default writer encoding is UTF-8."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws)
+        assert writer._encoding == "utf-8"
+
+    def test_write_bytes_bypass_encoding(self):
+        """Write() with bytes skips encoding entirely."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws, encoding="cp437")
+        raw = b"\xff\xfe"
+        writer.write(raw)
+        item = writer._send_queue.get_nowait()
+        assert item is raw
 
 
 class TestGMCPDispatch:
@@ -394,3 +456,202 @@ class TestWsClientParser:
         parser = build_parser()
         args = parser.parse_args(["wss://example.com"])
         assert args.typescript_mode == "append"
+
+    def test_encoding_flag_accepted(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com", "--encoding", "cp437"])
+        assert args.encoding == "cp437"
+
+    def test_encoding_defaults_utf8(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com"])
+        assert args.encoding == "utf-8"
+
+    def test_encoding_errors_flag_accepted(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com", "--encoding-errors", "strict"])
+        assert args.encoding_errors == "strict"
+
+    def test_encoding_errors_defaults_replace(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com"])
+        assert args.encoding_errors == "replace"
+
+    def test_subprotocols_list(self) -> None:
+        """WS_SUBPROTOCOLS contains both protocols in correct order."""
+        from telix.ws_client import WS_SUBPROTOCOLS
+        assert len(WS_SUBPROTOCOLS) == 2
+        assert WS_SUBPROTOCOLS[0] == "gmcp.mudstandards.org"
+        assert WS_SUBPROTOCOLS[1] == "telnet.mudstandards.org"
+
+    def test_colormatch_flag_accepted(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com", "--colormatch", "c64"])
+        assert args.colormatch == "c64"
+
+    def test_no_ice_colors_flag(self) -> None:
+        from telix.ws_client import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["wss://example.com", "--no-ice-colors"])
+        assert args.no_ice_colors is True
+
+
+class TestExtractIac:
+    """extract_iac parses IAC sequences from a binary telnet stream."""
+
+    def test_no_iac_passes_through(self):
+        """Data with no IAC bytes passes through unchanged."""
+        clean, events, remainder = extract_iac(b"hello world")
+        assert clean == b"hello world"
+        assert events == []
+        assert remainder == b""
+
+    def test_iac_will_echo(self):
+        """IAC WILL ECHO is extracted as a will event."""
+        data = b"text\xff\xfb\x01more"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b"textmore"
+        assert len(events) == 1
+        assert events[0] == ("will", b"\x01")
+        assert remainder == b""
+
+    def test_iac_wont_echo(self):
+        """IAC WONT ECHO is extracted as a wont event."""
+        data = b"\xff\xfc\x01"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b""
+        assert events == [("wont", b"\x01")]
+        assert remainder == b""
+
+    def test_iac_do(self):
+        """IAC DO option is extracted as a do event."""
+        data = b"\xff\xfd\x18"
+        clean, events, remainder = extract_iac(data)
+        assert events == [("do", b"\x18")]
+
+    def test_iac_dont(self):
+        """IAC DONT option is extracted as a dont event."""
+        data = b"\xff\xfe\x18"
+        clean, events, remainder = extract_iac(data)
+        assert events == [("dont", b"\x18")]
+
+    def test_iac_iac_escape(self):
+        """IAC IAC produces a single 0xFF in output."""
+        data = b"a\xff\xffb"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b"a\xffb"
+        assert events == []
+        assert remainder == b""
+
+    def test_iac_ga(self):
+        """IAC GA is extracted as a cmd event."""
+        data = b"\xff\xf9"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b""
+        assert events == [("cmd", b"\xf9")]
+        assert remainder == b""
+
+    def test_iac_eor(self):
+        """IAC CMD_EOR is extracted as a cmd event."""
+        data = b"\xff\xef"
+        clean, events, remainder = extract_iac(data)
+        assert events == [("cmd", b"\xef")]
+
+    def test_mixed_data_and_iac(self):
+        """Mixed data and IAC sequences return correct clean data and events."""
+        data = b"hello\xff\xfb\x01world\xff\xf9end"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b"helloworldend"
+        assert len(events) == 2
+        assert events[0] == ("will", b"\x01")
+        assert events[1] == ("cmd", b"\xf9")
+        assert remainder == b""
+
+    def test_trailing_iac_remainder(self):
+        """Trailing IAC at frame boundary is returned as remainder."""
+        data = b"hello\xff"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b"hello"
+        assert events == []
+        assert remainder == b"\xff"
+
+    def test_remainder_consumed_next_call(self):
+        """Remainder from previous call is consumed in the next call."""
+        _, _, remainder = extract_iac(b"hello\xff")
+        clean, events, remainder = extract_iac(b"\xfb\x01more", remainder)
+        assert clean == b"more"
+        assert events == [("will", b"\x01")]
+        assert remainder == b""
+
+    def test_iac_sb_se(self):
+        """IAC SB option payload IAC SE is extracted as sb event."""
+        data = b"\xff\xfa\xc9payload\xff\xf0"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b""
+        assert len(events) == 1
+        assert events[0] == ("sb", b"\xc9", b"payload")
+        assert remainder == b""
+
+    def test_iac_sb_partial(self):
+        """Partial IAC SB (no IAC SE) is returned as remainder."""
+        data = b"\xff\xfa\xc9payload"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b""
+        assert events == []
+        assert remainder == data
+
+    def test_trailing_iac_will_partial(self):
+        """Trailing IAC WILL without option byte is returned as remainder."""
+        data = b"text\xff\xfb"
+        clean, events, remainder = extract_iac(data)
+        assert clean == b"text"
+        assert events == []
+        assert remainder == b"\xff\xfb"
+
+    def test_empty_input(self):
+        """Empty input produces empty output."""
+        clean, events, remainder = extract_iac(b"")
+        assert clean == b""
+        assert events == []
+        assert remainder == b""
+
+
+class TestWriteIac:
+    """WebSocketWriter.write_iac enqueues IAC negotiation responses."""
+
+    def test_write_iac_enqueues_bytes(self):
+        """write_iac enqueues IAC + cmd + option as bytes."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws)
+        writer.write_iac(b"\xfd", b"\x01")
+        item = writer._send_queue.get_nowait()
+        assert item == b"\xff\xfd\x01"
+
+
+class TestEchoMode:
+    """Echo mode derives local_echo from will_echo."""
+
+    def test_will_echo_default_false(self):
+        """will_echo defaults to False."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws)
+        assert writer.will_echo is False
+
+    def test_will_echo_true_means_no_local_echo(self):
+        """When will_echo is True, local_echo should be False."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws)
+        writer.will_echo = True
+        assert not writer.will_echo is False
+
+    def test_will_echo_false_means_local_echo(self):
+        """When will_echo is False, local_echo should be True."""
+        ws = MagicMock()
+        writer = WebSocketWriter(ws)
+        writer.will_echo = False
+        assert not writer.will_echo is True

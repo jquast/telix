@@ -1101,13 +1101,6 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
     BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
         textual.binding.Binding("escape", "close_or_back", "Close", priority=True),
         textual.binding.Binding("f1", "show_help", "Help", show=False, priority=True),
-        textual.binding.Binding("f6", "switch_tab('highlights')", "Highlights", show=False, priority=True),
-        textual.binding.Binding("f7", "switch_tab('rooms')", "Rooms", show=False, priority=True),
-        textual.binding.Binding("f8", "switch_tab('macros')", "Macros", show=False, priority=True),
-        textual.binding.Binding("f9", "switch_tab('autoreplies')", "Autoreplies", show=False, priority=True),
-        textual.binding.Binding("f10", "switch_tab('captures')", "Caps", show=False, priority=True),
-        textual.binding.Binding("f11", "switch_tab('bars')", "Bars", show=False, priority=True),
-        textual.binding.Binding("f12", "switch_tab('theme')", "Theme", show=False, priority=True),
     ]
 
     CSS = """

@@ -22,7 +22,7 @@ class TestMainRouting:
         monkeypatch.setattr(sys, "argv", ["telix", "ws://example.com:4000"])
         run_ws_calls = []
 
-        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode):
+        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs):
             run_ws_calls.append(url)
 
         with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
@@ -35,7 +35,7 @@ class TestMainRouting:
         monkeypatch.setattr(sys, "argv", ["telix", "wss://example.com"])
         run_ws_called = []
 
-        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode):
+        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs):
             run_ws_called.append(url)
 
         with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
@@ -71,7 +71,7 @@ class TestMainRouting:
         monkeypatch.setattr(sys, "argv", ["telix", "ws://example.com:4000", "--no-repl"])
         run_ws_calls = []
 
-        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode):
+        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs):
             run_ws_calls.append(no_repl)
 
         with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
@@ -115,7 +115,7 @@ class TestServerTypePresets:
         monkeypatch.setattr(sys, "argv", ["telix", "--bbs", "ws://bbs.example.com"])
         captured = []
 
-        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode):
+        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs):
             captured.append(no_repl)
 
         with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
@@ -128,7 +128,7 @@ class TestServerTypePresets:
         monkeypatch.setattr(sys, "argv", ["telix", "--mud", "ws://mud.example.com"])
         captured = []
 
-        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode):
+        async def fake_run_ws(url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs):
             captured.append(no_repl)
 
         with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):

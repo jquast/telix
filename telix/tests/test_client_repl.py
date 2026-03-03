@@ -183,19 +183,20 @@ def test_scroll_region_restore_cursor() -> None:
     assert len(bytes(transport.data)) > 0
 
 
-def test_scramble_password_empty_buf_no_replace() -> None:
-    """str.replace with empty search inserts between every char; guard against it."""
+def test_scramble_password_per_char_replacement() -> None:
+    """Per-character replacement preserves length and non-password chars."""
+    import random
+    from ..client_repl_render import SEXTANT_VISIBLE
 
-    raw = "\x1b[45;1H\x1b[48;2;26;0;0m\x1b[0m" + (" " * 80)
-    search = PASSWORD_CHAR * 0
-    result = raw.replace(search, scramble_password())
-    assert len(result) > len(raw) * 10
-
-    guarded_raw = raw
-    buf_len = 0
-    if buf_len:
-        guarded_raw = raw.replace(PASSWORD_CHAR * buf_len, scramble_password())
-    assert guarded_raw == raw
+    raw = "\x1b[45;1H" + PASSWORD_CHAR * 5 + " " * 10
+    result = "".join(
+        random.choice(SEXTANT_VISIBLE) if ch == PASSWORD_CHAR else ch
+        for ch in raw
+    )
+    assert len(result) == len(raw)
+    assert PASSWORD_CHAR not in result
+    assert result.startswith("\x1b[45;1H")
+    assert result.endswith(" " * 10)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")

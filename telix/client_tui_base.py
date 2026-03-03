@@ -489,15 +489,23 @@ def build_ws_command(config: SessionConfig) -> list[str]:
     if config.no_repl or config.mode == "raw":
         cmd.append("--no-repl")
     for field, flag, default in [
+        ("encoding", "--encoding", "utf8"),
+        ("encoding_errors", "--encoding-errors", "replace"),
         ("loglevel", "--loglevel", "warn"),
         ("logfile", "--logfile", ""),
         ("typescript", "--typescript", ""),
         ("logfile_mode", "--logfile-mode", "append"),
         ("typescript_mode", "--typescript-mode", "append"),
+        ("colormatch", "--colormatch", "vga"),
+        ("color_brightness", "--color-brightness", 1.0),
+        ("color_contrast", "--color-contrast", 1.0),
+        ("background_color", "--background-color", "#000000"),
     ]:
         value = getattr(config, field, default)
         if value != default:
             cmd += [flag, str(value)]
+    if not getattr(config, "ice_colors", True):
+        cmd.append("--no-ice-colors")
     return cmd
 
 
@@ -891,7 +899,6 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         width: 100%;
         max-width: 65;
         height: 100%;
-        max-height: 30;
         border: round $surface-lighten-2;
         background: $surface;
         padding: 1 1;
@@ -916,7 +923,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         height: 1fr;
     }
     .tab-pane {
-        height: auto;
+        height: 1fr;
     }
     .field-row {
         height: 3;
@@ -938,6 +945,12 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     #logfile-mode, #typescript-mode {
         width: auto;
         height: auto;
+    }
+    #loglevel-spacer {
+        width: 22;
+    }
+    #tab-terminal > *, #tab-display > *, #tab-advanced > * {
+        margin-bottom: 1;
     }
     .switch-row {
         height: 3;
@@ -1196,12 +1209,23 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
 
     def compose_display_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Display tab pane."""
+        has_detected = self.detected_bg is not None
         yield textual.containers.Horizontal(
             textual.widgets.Label("Color Palette", classes="field-label"),
             textual.widgets.Select([(v, v) for v in ("vga", "xterm", "none")], value=cfg.colormatch, id="colormatch"),
             textual.widgets.Static("", id="palette-preview"),
             classes="field-row",
         )
+        if has_detected:
+            r, g, b = self.detected_bg
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            yield textual.containers.Horizontal(
+                textual.widgets.Label("Detected Background", classes="field-label"),
+                textual.widgets.Static(
+                    f"[on rgb({r},{g},{b})]  [/] {hex_color}", id="detected-bg-color"
+                ),
+                classes="field-row",
+            )
         yield textual.containers.Horizontal(
             textual.widgets.Label("Brightness %", classes="field-label"),
             textual.widgets.Input(value=str(int(cfg.color_brightness * 100)), id="color-brightness", classes="field-input-short"),
@@ -1209,7 +1233,6 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             textual.widgets.Input(value=str(int(cfg.color_contrast * 100)), id="color-contrast", classes="field-input-short"),
             classes="field-row",
         )
-        has_detected = self.detected_bg is not None
         force_val = True if not has_detected else cfg.force_black_bg
         with textual.containers.Horizontal():
             with textual.containers.Horizontal(classes="switch-row"):
@@ -1225,16 +1248,6 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                 if not has_detected:
                     switch.tooltip = "Could not detect background color of your terminal"
                 yield switch
-        if has_detected:
-            r, g, b = self.detected_bg
-            hex_color = f"#{r:02x}{g:02x}{b:02x}"
-            yield textual.containers.Horizontal(
-                textual.widgets.Label("Detected Background", classes="field-label"),
-                textual.widgets.Static(
-                    f"[on rgb({r},{g},{b})]  [/] {hex_color}", id="detected-bg-color"
-                ),
-                classes="field-row",
-            )
 
     def compose_advanced_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Advanced tab pane."""
@@ -1252,13 +1265,14 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             classes="field-row",
         )
         yield textual.containers.Horizontal(
-            textual.widgets.Label("Level", classes="field-label"),
+            textual.widgets.Label("LogLevel", classes="field-label"),
             textual.widgets.Select(
                 [(v, v) for v in ("trace", "debug", "info", "warn", "error", "critical")],
                 value=cfg.loglevel,
                 id="loglevel",
                 classes="field-input",
             ),
+            textual.widgets.Static(id="loglevel-spacer"),
             classes="field-row",
         )
         yield textual.containers.Horizontal(
@@ -1289,13 +1303,13 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                     yield btn
 
             with textual.widgets.ContentSwitcher(id="tab-content", initial="tab-connection"):
-                with textual.containers.Vertical(id="tab-connection", classes="tab-pane"):
+                with textual.containers.VerticalScroll(id="tab-connection", classes="tab-pane"):
                     yield from self.compose_connection_tab(cfg)
-                with textual.containers.Vertical(id="tab-terminal", classes="tab-pane"):
+                with textual.containers.VerticalScroll(id="tab-terminal", classes="tab-pane"):
                     yield from self.compose_terminal_tab(cfg)
-                with textual.containers.Vertical(id="tab-display", classes="tab-pane"):
+                with textual.containers.VerticalScroll(id="tab-display", classes="tab-pane"):
                     yield from self.compose_display_tab(cfg)
-                with textual.containers.Vertical(id="tab-advanced", classes="tab-pane"):
+                with textual.containers.VerticalScroll(id="tab-advanced", classes="tab-pane"):
                     yield from self.compose_advanced_tab(cfg)
 
             with textual.containers.Horizontal(id="bottom-bar"):
@@ -1316,6 +1330,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             idx = radio_set.pressed_index
             if idx >= 0:
                 radio_set._selected = idx
+        self.apply_ssl_compression(self.config.ssl)
         if not self.is_defaults:
             self.apply_protocol_visibility(self.config.protocol == "websocket")
 
@@ -1344,6 +1359,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
 
     def apply_server_type(self, button_id: str) -> None:
         """Apply preset field values for BBS or MUD server type."""
+        ssl_on = self.query_one("#ssl", textual.widgets.Switch).value
         if button_id == "type-bbs":
             self.query_one("#colormatch", textual.widgets.Select).value = "vga"
             self.query_one("#ice-colors", textual.widgets.Switch).value = True
@@ -1351,11 +1367,21 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             self.query_one("#use-repl", textual.widgets.Switch).value = False
             self.query_one("#use-repl", textual.widgets.Switch).disabled = True
             self.query_one("#repl-label", textual.widgets.Label).set_class(True, "dimmed")
-            self.select_radio("compression-radio", "compress-passive")
+            if ssl_on:
+                self.select_radio("compression-radio", "compress-no")
+            else:
+                self.select_radio("compression-radio", "compress-passive")
             self.update_palette_preview()
-            self.notify("BBS: Color Palette vga, iCE Colors on, Raw mode, REPL off, MCCP Compression passive")
+            compress_label = "no (SSL)" if ssl_on else "passive"
+            self.notify(
+                f"BBS: Color Palette vga, iCE Colors on, Raw mode,"
+                f" REPL off, MCCP Compression {compress_label}"
+            )
         elif button_id == "type-mud":
-            self.select_radio("compression-radio", "compress-yes")
+            if ssl_on:
+                self.select_radio("compression-radio", "compress-no")
+            else:
+                self.select_radio("compression-radio", "compress-yes")
             self.select_radio("mode-radio", "mode-line")
             self.query_one("#use-repl", textual.widgets.Switch).value = True
             self.query_one("#use-repl", textual.widgets.Switch).disabled = False
@@ -1363,7 +1389,29 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             self.query_one("#colormatch", textual.widgets.Select).value = "none"
             self.query_one("#ice-colors", textual.widgets.Switch).value = False
             self.update_palette_preview()
-            self.notify("MUD: MCCP Compression yes, Line mode, REPL on, Color Palette none, iCE Colors off")
+            compress_label = "no (SSL)" if ssl_on else "yes"
+            self.notify(
+                f"MUD: MCCP Compression {compress_label}, Line mode,"
+                f" REPL on, Color Palette none, iCE Colors off"
+            )
+
+    def apply_ssl_compression(self, ssl_on: bool) -> None:
+        """Enforce MCCP compression state based on SSL/TLS toggle.
+
+        When SSL is enabled, MCCP is forced to "No" and the radio set is
+        disabled.  When SSL is turned off, MCCP is restored to "Passive"
+        (if it was "No") and the radio set is re-enabled.
+        """
+        radio_set = self.query_one("#compression-radio", textual.widgets.RadioSet)
+        if ssl_on:
+            self.select_radio("compression-radio", "compress-no")
+            radio_set.disabled = True
+        else:
+            radio_set.disabled = False
+            if self.query_one(
+                "#compress-no", textual.widgets.RadioButton
+            ).value:
+                self.select_radio("compression-radio", "compress-passive")
 
     def apply_protocol_visibility(self, is_ws: bool) -> None:
         """Toggle visibility of telnet-only and websocket-only widgets."""
@@ -1396,8 +1444,10 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             self.update_palette_preview()
 
     def on_switch_changed(self, event: textual.widgets.Switch.Changed) -> None:
-        """Update palette preview when ice_colors or force_black_bg changes."""
-        if event.switch.id in ("ice-colors", "force-black-bg"):
+        """Handle switch changes for SSL, palette, and other toggles."""
+        if event.switch.id == "ssl":
+            self.apply_ssl_compression(event.value)
+        elif event.switch.id in ("ice-colors", "force-black-bg"):
             self.update_palette_preview()
 
     def update_palette_preview(self) -> None:

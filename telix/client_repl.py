@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+import random
 import typing
 import asyncio
 import logging
@@ -32,6 +33,7 @@ from .client_repl_render import (  # noqa: F401
     HOLD,
     PHASES,
     SEXTANT,
+    SEXTANT_VISIBLE,
     WARM_UP,
     DMZ_CHAR,
     DURATION,
@@ -896,7 +898,10 @@ if sys.platform != "win32":
             """Render the line editor, scrambling password text."""
             raw = self.editor.render(bt, row, width)
             if self.editor.password_mode and self.editor._buf:
-                raw = raw.replace(PASSWORD_CHAR * len(self.editor._buf), scramble_password())
+                raw = "".join(
+                    random.choice(SEXTANT_VISIBLE) if ch == PASSWORD_CHAR else ch
+                    for ch in raw
+                )
             return raw
 
         def editor_cursor(self) -> int:

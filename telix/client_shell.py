@@ -184,6 +184,7 @@ def _setup_color_filter(
     writer: (
         telnetlib3.stream_writer.TelnetWriter
         | telnetlib3.stream_writer.TelnetWriterUnicode
+        | ws_transport.WebSocketWriter
     ),
 ) -> None:
     """
@@ -462,6 +463,7 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
     session_key = build_session_key(writer)
     old_ctx = writer.ctx
     ctx = session_context.SessionContext(session_key=session_key)
+    ctx.encoding = getattr(old_ctx, "encoding", "utf-8")
     ctx.writer = writer
     ctx.repl_enabled = not old_ctx.no_repl
     typescript_path = getattr(old_ctx, "typescript_path", "")
@@ -480,6 +482,9 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
     try:
         # 2. Load per-session configs.
         load_configs(ctx)
+
+        # 2b. Set up color filter from CLI args.
+        _setup_color_filter(ctx, writer)
 
         # 3. Wire GMCP dispatch (no base callback -- WebSocket has none).
         def on_gmcp(package: str, data: typing.Any) -> None:
@@ -537,7 +542,7 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
                 state = telnetlib3.client_shell._RawLoopState(
                     switched_to_raw=True,
                     last_will_echo=False,
-                    local_echo=True,
+                    local_echo=not writer.will_echo,
                     linesep=linesep,
                 )
                 await telnetlib3.client_shell._raw_event_loop(

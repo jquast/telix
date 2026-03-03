@@ -23,6 +23,7 @@ import asyncio
 import logging
 
 import websockets.exceptions
+import telnetlib3.telopt
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ CMD_EOR = b"\xef"
 # GMCP telopt byte used as ext callback key.
 GMCP = b"\xc9"
 
-__all__ = ("WebSocketReader", "WebSocketWriter", "parse_gmcp_frame")
+__all__ = ("WebSocketReader", "WebSocketWriter", "parse_gmcp_frame", "extract_iac")
 
 
 def parse_gmcp_frame(text: str) -> tuple[str, typing.Any]:
@@ -60,6 +61,110 @@ def parse_gmcp_frame(text: str) -> tuple[str, typing.Any]:
         return (package, raw)
 
 
+IacEvent = tuple[str, ...]
+"""Type alias for IAC events returned by :func:`extract_iac`.
+
+Each event is a tuple whose first element is the event kind:
+
+- ``("will", option)`` / ``("wont", option)`` / ``("do", option)`` / ``("dont", option)``
+- ``("cmd", cmd_byte)``
+- ``("sb", option, payload)``
+"""
+
+NEGOTIATION_CMDS = {
+    telnetlib3.telopt.WILL: "will",
+    telnetlib3.telopt.WONT: "wont",
+    telnetlib3.telopt.DO: "do",
+    telnetlib3.telopt.DONT: "dont",
+}
+
+TWO_BYTE_CMDS = {telnetlib3.telopt.GA, telnetlib3.telopt.CMD_EOR}
+
+
+def extract_iac(
+    data: bytes, remainder: bytes = b""
+) -> tuple[bytes, list[IacEvent], bytes]:
+    """
+    Extract IAC sequences from a binary telnet stream.
+
+    Scans *data* (prepended with any *remainder* from a previous call)
+    for IAC sequences and returns clean game data with the IAC bytes
+    stripped, a list of parsed IAC events, and any trailing partial
+    IAC sequence that should be passed as *remainder* to the next call.
+
+    :param data: Raw bytes from a BINARY WebSocket frame.
+    :param remainder: Leftover bytes from the previous frame.
+    :returns: ``(clean_data, events, new_remainder)``
+    """
+    buf = remainder + data
+    iac_byte = telnetlib3.telopt.IAC[0]
+    sb_byte = telnetlib3.telopt.SB[0]
+    se_byte = telnetlib3.telopt.SE[0]
+
+    clean = bytearray()
+    events: list[IacEvent] = []
+    i = 0
+    length = len(buf)
+
+    while i < length:
+        if buf[i] != iac_byte:
+            clean.append(buf[i])
+            i += 1
+            continue
+
+        # IAC at end of buffer -- partial sequence
+        if i + 1 >= length:
+            return bytes(clean), events, buf[i:]
+
+        cmd = buf[i + 1]
+
+        # IAC IAC -- escaped 0xFF
+        if cmd == iac_byte:
+            clean.append(iac_byte)
+            i += 2
+            continue
+
+        # IAC SB option ... IAC SE
+        if cmd == sb_byte:
+            if i + 2 >= length:
+                return bytes(clean), events, buf[i:]
+            option = bytes([buf[i + 2]])
+            # scan for IAC SE
+            j = i + 3
+            while j < length - 1:
+                if buf[j] == iac_byte and buf[j + 1] == se_byte:
+                    payload = bytes(buf[i + 3 : j])
+                    events.append(("sb", option, payload))
+                    i = j + 2
+                    break
+                j += 1
+            else:
+                # no IAC SE found -- partial
+                return bytes(clean), events, buf[i:]
+            continue
+
+        # 3-byte negotiation: IAC WILL/WONT/DO/DONT option
+        neg_name = NEGOTIATION_CMDS.get(bytes([cmd]))
+        if neg_name is not None:
+            if i + 2 >= length:
+                return bytes(clean), events, buf[i:]
+            option = bytes([buf[i + 2]])
+            events.append((neg_name, option))
+            i += 3
+            continue
+
+        # 2-byte commands: IAC GA, IAC CMD_EOR
+        if bytes([cmd]) in TWO_BYTE_CMDS:
+            events.append(("cmd", bytes([cmd])))
+            i += 2
+            continue
+
+        # Unknown IAC command -- skip
+        i += 2
+
+    return bytes(clean), events, b""
+
+
 class WebSocketReader:
     """
     Async reader fed by WebSocket BINARY frames.
@@ -69,18 +174,25 @@ class WebSocketReader:
     ``_read_server`` loop works without changes.
     """
 
-    def __init__(self) -> None:
-        """Initialise the reader with an empty queue."""
+    def __init__(self, encoding: str = "utf-8", encoding_errors: str = "replace") -> None:
+        """
+        Initialise the reader with an empty queue.
+
+        :param encoding: Character encoding for decoding binary frames.
+        :param encoding_errors: Error handler for decoding (default ``"replace"``).
+        """
         self._buffer: asyncio.Queue[str | None] = asyncio.Queue()
         self._eof = False
+        self._encoding = encoding
+        self._encoding_errors = encoding_errors
 
     def feed_data(self, data: bytes) -> None:
         """
         Enqueue decoded text from a BINARY WebSocket frame.
 
-        :param data: Raw bytes (UTF-8 encoded game text).
+        :param data: Raw bytes from the server.
         """
-        self._buffer.put_nowait(data.decode("utf-8", errors="replace"))
+        self._buffer.put_nowait(data.decode(self._encoding, errors=self._encoding_errors))
 
     def feed_eof(self) -> None:
         """Signal end-of-stream."""
@@ -136,16 +248,23 @@ class WebSocketWriter:
     so that code shared with the telnet path does not need conditionals.
     """
 
-    def __init__(self, ws: typing.Any, peername: tuple[str, int] | None = None) -> None:
+    def __init__(
+        self,
+        ws: typing.Any,
+        peername: tuple[str, int] | None = None,
+        encoding: str = "utf-8",
+    ) -> None:
         """
         Initialise the writer.
 
         :param ws: A ``websockets`` connection object.
         :param peername: ``(host, port)`` tuple for ``get_extra_info("peername")``.
+        :param encoding: Character encoding for outgoing text.
         """
         self._ws = ws
         self._closing = False
         self._peername = peername
+        self._encoding = encoding
         self._ext_callback: dict[bytes, typing.Any] = {}
         self._iac_callback: dict[bytes, typing.Any] = {}
         self._send_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
@@ -168,7 +287,7 @@ class WebSocketWriter:
 
         :param text: Text to send (str is encoded to UTF-8; bytes passed through).
         """
-        self._send_queue.put_nowait(text.encode("utf-8") if isinstance(text, str) else text)
+        self._send_queue.put_nowait(text.encode(self._encoding) if isinstance(text, str) else text)
 
     def _write(self, buf: bytes, escape_iac: bool = True) -> None:
         """
@@ -234,6 +353,18 @@ class WebSocketWriter:
         cb = self._ext_callback.get(GMCP)
         if cb is not None:
             cb(package, data)
+
+    def write_iac(self, cmd: bytes, option: bytes) -> None:
+        """
+        Enqueue an IAC response (e.g. ``IAC DO ECHO``) as a binary frame.
+
+        Used by the telnet-over-WebSocket receive loop to send negotiation
+        responses back to the server.
+
+        :param cmd: IAC command byte (e.g. ``WILL``, ``WONT``, ``DO``, ``DONT``).
+        :param option: Telnet option byte.
+        """
+        self._send_queue.put_nowait(telnetlib3.telopt.IAC + cmd + option)
 
     def send_gmcp(self, package: str, data: typing.Any = None) -> None:
         """
