@@ -62,7 +62,8 @@ def parse_gmcp_frame(text: str) -> tuple[str, typing.Any]:
 
 
 IacEvent = tuple[str, ...]
-"""Type alias for IAC events returned by :func:`extract_iac`.
+"""
+Type alias for IAC events returned by :func:`extract_iac`.
 
 Each event is a tuple whose first element is the event kind:
 
@@ -87,14 +88,13 @@ def extract_iac(
     """
     Extract IAC sequences from a binary telnet stream.
 
-    Scans *data* (prepended with any *remainder* from a previous call)
-    for IAC sequences and returns clean game data with the IAC bytes
-    stripped, a list of parsed IAC events, and any trailing partial
-    IAC sequence that should be passed as *remainder* to the next call.
+    Scans *data* (prepended with any *remainder* from a previous call) for IAC sequences and returns clean game data
+    with the IAC bytes stripped, a list of parsed IAC events, and any trailing partial IAC sequence that should be
+    passed as *remainder* to the next call.
 
     :param data: Raw bytes from a BINARY WebSocket frame.
     :param remainder: Leftover bytes from the previous frame.
-    :returns: ``(clean_data, events, new_remainder)``
+    :returns:``(clean_data, events, new_remainder)``
     """
     buf = remainder + data
     iac_byte = telnetlib3.telopt.IAC[0]

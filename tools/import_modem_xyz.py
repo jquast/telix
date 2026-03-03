@@ -11,7 +11,7 @@ import sys
 # Tokens recognised as encoding names (non-numeric, non-ssl).
 _KNOWN_ENCODINGS = frozenset({
     "ascii", "atascii", "big5", "cp437", "gbk", "gb18030",
-    "latin-1", "petscii", "topaz", "utf-8", "utf8",
+    "latin-1", "latin1", "petscii", "topaz", "utf-8", "utf8",
 })
 
 
@@ -61,6 +61,8 @@ def _parse_line(line: str, entry_type: str) -> dict[str, object] | None:
     # Field 2: encoding (non-numeric string)
     if rest and rest[0].lower() in _KNOWN_ENCODINGS:
         encoding = rest.pop(0).lower()
+        if encoding == "topaz":
+            encoding = "latin1"
 
     # Field 3: columns (numeric)
     if rest and rest[0].isdigit():

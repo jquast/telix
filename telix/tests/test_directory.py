@@ -12,7 +12,7 @@ from typing import Any
 # 3rd party
 import pytest
 
-from telix.directory import load_directory, directory_to_sessions
+from telix.directory import load_directory, load_favorites, directory_to_sessions
 
 # local
 from telix.client_tui import SessionConfig
@@ -58,6 +58,40 @@ class TestLoadDirectory:
                 pass
 
 
+class TestLoadFavorites:
+    def test_returns_list(self) -> None:
+        entries = load_favorites()
+        assert isinstance(entries, list)
+        assert len(entries) > 0
+
+    def test_entry_fields(self) -> None:
+        entries = load_favorites()
+        for entry in entries:
+            assert "host" in entry
+            assert "port" in entry
+            assert "name" in entry
+            assert "type" in entry
+
+    def test_topaz_alias(self) -> None:
+        from telix.directory import _ENCODING_ALIASES
+        assert _ENCODING_ALIASES["topaz"] == "latin1"
+
+    def test_port_is_int(self) -> None:
+        entries = load_favorites()
+        for entry in entries:
+            assert isinstance(entry["port"], int)
+
+    def test_types(self) -> None:
+        entries = load_favorites()
+        types = {e["type"] for e in entries}
+        assert types == {"mud", "bbs"}
+
+    def test_encoding_override(self) -> None:
+        entries = load_favorites()
+        by_name = {e["name"]: e for e in entries}
+        assert by_name["Absinthe BBS"]["encoding"] == "latin1"
+
+
 class TestDirectoryToSessions:
     def test_returns_session_configs(self) -> None:
         sessions = directory_to_sessions()
@@ -86,9 +120,28 @@ class TestDirectoryToSessions:
             assert host
             assert port.isdigit()
 
-    def test_default_bookmark(self) -> None:
+    def test_favorites_bookmarked(self) -> None:
         sessions = directory_to_sessions()
-        assert sessions["1984.ws:23"].bookmarked is True
+        favorites = load_favorites()
+        for fav in favorites:
+            key = f"{fav['host']}:{fav.get('port', 23)}"
+            assert sessions[key].bookmarked is True
+
+    def test_favorites_new_entry_added(self) -> None:
+        sessions = directory_to_sessions()
+        favorites = load_favorites()
+        directory_keys = {
+            f"{e['host']}:{e.get('port', 23)}" for e in load_directory()
+        }
+        fav_only = [
+            f for f in favorites
+            if f"{f['host']}:{f.get('port', 23)}" not in directory_keys
+        ]
+        for fav in fav_only:
+            key = f"{fav['host']}:{fav.get('port', 23)}"
+            assert key in sessions
+            assert sessions[key].bookmarked is True
+            assert sessions[key].name == fav["name"]
 
     def test_bbs_presets_applied(self) -> None:
         sessions = directory_to_sessions()
@@ -169,6 +222,11 @@ class TestParseLine:
         entry = _parse_line(f"host.example 1234 {encoding}", "mud")
         assert entry is not None
         assert entry["encoding"] == encoding
+
+    def test_topaz_becomes_latin1(self) -> None:
+        entry = _parse_line("host.example 1234 topaz", "bbs")
+        assert entry is not None
+        assert entry["encoding"] == "latin1"
 
 
 class TestParseFile:

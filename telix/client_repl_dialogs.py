@@ -37,7 +37,8 @@ log = logging.getLogger(__name__)
 
 
 def _coverage_wrap(cmd: list[str]) -> list[str]:
-    """Inject ``coverage.process_startup()`` into ``-c`` subprocess commands.
+    """
+    Inject ``coverage.process_startup()`` into ``-c`` subprocess commands.
 
     When ``COVERAGE_PROCESS_START`` is set (by the session manager Coverage
     switch), prepends coverage startup to the ``-c`` code string so that each
@@ -81,7 +82,8 @@ def _run_subprocess(
     crash_path: str = "",
     cleanup_files: list[str] | None = None,
 ) -> subprocess.CompletedProcess | None:
-    """Run a TUI subprocess with terminal and editor-active flag management.
+    """
+    Run a TUI subprocess with terminal and editor-active flag management.
 
     :param cmd: Command list for :func:`subprocess.run`.
     :param replay_buf: Optional replay buffer for screen repaint on return.

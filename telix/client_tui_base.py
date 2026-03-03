@@ -422,9 +422,8 @@ def build_telnet_command(config: SessionConfig) -> list[str]:
     """
     Build ``telix`` CLI arguments from *config*.
 
-    Uses telix's own entry point so telix-specific flags (color, REPL)
-    are parsed before telnetlib3 sees the remaining arguments.
-    Only emits flags that differ from the CLI defaults.
+    Uses telix's own entry point so telix-specific flags (color, REPL) are parsed before telnetlib3 sees the remaining
+    arguments. Only emits flags that differ from the CLI defaults.
     """
     if config.coverage:
         cmd = [sys.executable, "-m", "coverage", "run",
@@ -1542,10 +1541,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             self.query_one("#repl-label", textual.widgets.Label).set_class(is_raw, "dimmed")
 
     def select_radio(self, radio_set_id: str, button_id: str) -> None:
-        """Select a radio button by setting its value within an enabled RadioSet.
+        """
+        Select a radio button by setting its value within an enabled RadioSet.
 
-        Temporarily enables the RadioSet so that the RadioButton.Changed
-        message propagates and RadioSet updates its internal pressed state.
+        Temporarily enables the RadioSet so that the RadioButton.Changed message propagates and RadioSet updates its
+        internal pressed state.
         """
         radio_set = self.query_one(f"#{radio_set_id}", textual.widgets.RadioSet)
         was_disabled = radio_set.disabled
@@ -1598,11 +1598,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             )
 
     def apply_ssl_compression(self, ssl_on: bool) -> None:
-        """Enforce MCCP compression state based on SSL/TLS toggle.
+        """
+        Enforce MCCP compression state based on SSL/TLS toggle.
 
-        When SSL is enabled, MCCP is forced to "No" and the radio set is
-        disabled.  When SSL is turned off, MCCP is restored to "Passive"
-        (if it was "No") and the radio set is re-enabled.
+        When SSL is enabled, MCCP is forced to "No" and the radio set is disabled.  When SSL is turned off, MCCP is
+        restored to "Passive" (if it was "No") and the radio set is re-enabled.
         """
         radio_set = self.query_one("#compression-radio", textual.widgets.RadioSet)
         if ssl_on:

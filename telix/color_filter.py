@@ -171,11 +171,11 @@ class ColorFilter:
     """
     Stateful ANSI color palette translation filter.
 
-    Translates basic 16-color ANSI SGR codes to 24-bit RGB equivalents from a named hardware
-    palette, with brightness/contrast adjustment and background color enforcement.
+    Translates basic 16-color ANSI SGR codes to 24-bit RGB equivalents from a named hardware palette, with
+    brightness/contrast adjustment and background color enforcement.
 
-    The filter is designed to process chunked text (as received from a telnet connection) and
-    correctly handles escape sequences split across chunk boundaries.
+    The filter is designed to process chunked text (as received from a telnet connection) and correctly handles escape
+    sequences split across chunk boundaries.
 
     :param config: Color configuration parameters.
     """
@@ -233,8 +233,8 @@ class ColorFilter:
         r"""
         Regex replacement callback for a single SGR sequence.
 
-        Tracks bold state across calls so that ``\x1b[1;30m`` (bold + black) uses the bright
-        palette entry (index 8) instead of pure black.
+        Tracks bold state across calls so that ``\x1b[1;30m`` (bold + black) uses the bright palette entry (index 8)
+        instead of pure black.
         """
         params_str = match.group(1)
 

@@ -1,14 +1,15 @@
 """Entry point for the telix CLI."""
 
 # std imports
-import sys
 import argparse
 import asyncio
+import os
+import sys
 
 import telnetlib3.client
 
 # local
-from . import directory, client_tui_base, client_tui_dialogs, ws_client
+from . import directory, client_tui_base, client_tui_dialogs, mtts, ws_client
 
 # Module-level store for telix-specific args, set by main() before
 # telnetlib3 starts the shell.  Read by client_shell._setup_color_filter().
@@ -20,24 +21,28 @@ _color_args: argparse.Namespace | None = None
 # client_tui_base.
 _detected_bg: tuple[int, int, int] | None = None
 _detected_fg: tuple[int, int, int] | None = None
+_detected_sw_name: str | None = None
 
 
 def _detect_terminal_colors() -> None:
     """
-    Query the terminal for background and foreground colors.
+    Query the terminal for background/foreground colors and software name.
 
     Must be called before Textual or telnetlib3 takes over stdin,
-    otherwise the OSC 11/10 response is consumed by the framework.
-    Stores results in :data:`_detected_bg` and :data:`_detected_fg`.
+    otherwise the OSC/XTVERSION responses are consumed by the framework.
+    Stores results in :data:`_detected_bg`, :data:`_detected_fg`,
+    and :data:`_detected_sw_name`.
     """
-    global _detected_bg, _detected_fg
+    global _detected_bg, _detected_fg, _detected_sw_name
     import blessed
     term = blessed.Terminal()
     with term.cbreak():
         bg = term.get_bgcolor(timeout=0.5, bits=8)
         fg = term.get_fgcolor(timeout=0.5, bits=8)
+        sw = term.get_software_version(timeout=0.5)
     _detected_bg = bg if bg != (-1, -1, -1) else None
     _detected_fg = fg if fg != (-1, -1, -1) else None
+    _detected_sw_name = sw.name if sw is not None else None
 
 
 def _build_telix_parser() -> argparse.ArgumentParser:
@@ -81,8 +86,7 @@ def _build_help_parser() -> argparse.ArgumentParser:
     """
     Build a unified help-only parser showing all telix options.
 
-    Groups connection and telix-specific options alphabetically, marking
-    telnet-only options with a dagger.
+    Groups connection and telix-specific options alphabetically, marking telnet-only options with a dagger.
     """
     parser = argparse.ArgumentParser(
         prog="telix",
@@ -276,6 +280,32 @@ def pop_server_type() -> str:
     return ""
 
 
+def _get_argv_value(flag: str, default: str) -> str:
+    """
+    Return the value of a ``--flag`` argument from ``sys.argv``.
+
+    Supports both ``--flag=value`` and ``--flag value`` forms.
+
+    :param flag: The flag name including dashes (e.g. ``"--term"``).
+    :param default: Value to return if the flag is not found.
+    """
+    for i, arg in enumerate(sys.argv[1:], 1):
+        if arg.startswith(f"{flag}="):
+            return arg.split("=", 1)[1]
+        if arg == flag and i < len(sys.argv) - 1:
+            return sys.argv[i + 1]
+    return default
+
+
+def _get_term_value() -> str:
+    """
+    Return the terminal type for MTTS negotiation.
+
+    Uses ``--term`` from ``sys.argv`` if present, otherwise ``$TERM``.
+    """
+    return _get_argv_value("--term", os.environ.get("TERM", "unknown"))
+
+
 def main() -> None:
     """
     Entry point for the ``telix`` command.
@@ -357,6 +387,12 @@ def main() -> None:
     # --no-repl or BBS preset disables the REPL, so skip shell injection.
     if "--shell" not in sys.argv and not telix_args.no_repl and server_type != "bbs":
         sys.argv.insert(1, "--shell=telix.client_shell.telix_client_shell")
+
+    # Install MTTS TTYPE cycling and MNES for MUD connections.
+    if server_type != "bbs":
+        is_ssl = "--ssl" in sys.argv or "--ssl-no-verify" in sys.argv
+        mtts.install_mtts(_get_term_value(), ssl=is_ssl, sw_name=_detected_sw_name,
+                         encoding=_get_argv_value("--encoding", "utf-8"))
 
     try:
         asyncio.run(telnetlib3.client.run_client())

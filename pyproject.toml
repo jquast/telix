@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "telix"
-version = "0.0.1"
+dynamic = ["version"]
 description = "A TUI telnet, WebSocket, and MUD client"
 readme = "README.rst"
 license = "ISC"
@@ -79,6 +79,9 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["telix"]
 artifacts = ["telix/help/*.md", "telix/data/*.json"]
+
+[tool.hatch.version]
+path = "telix/__init__.py"
 
 [tool.ruff]
 line-length = 120
