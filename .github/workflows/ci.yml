@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ["*"]
   pull_request:
-    branches: [main]
+    branches: [master]
   schedule:
     # Monthly on the 1st at 4:30 AM UTC
     - cron: "30 4 1 * *"

@@ -12,6 +12,7 @@ import os
 import abc
 import sys
 import json
+import shlex
 import typing
 import logging
 import datetime
@@ -117,6 +118,7 @@ def read_primary_selection() -> str:
     """Read text from the X11/Wayland primary selection via external helper."""
     for cmd in PRIMARY_PASTE_COMMANDS:
         try:
+            log.debug("launch: %s", shlex.join(cmd))
             result = subprocess.run(cmd, capture_output=True, timeout=2, check=False)
             if result.returncode == 0:
                 return result.stdout.decode("utf-8", errors="replace")
@@ -425,12 +427,7 @@ def build_telnet_command(config: SessionConfig) -> list[str]:
     Uses telix's own entry point so telix-specific flags (color, REPL) are parsed before telnetlib3 sees the remaining
     arguments. Only emits flags that differ from the CLI defaults.
     """
-    if config.coverage:
-        cmd = [sys.executable, "-m", "coverage", "run",
-               "--source=telix", "--branch", "--parallel-mode",
-               "-m", "telix.main", config.host, str(config.port)]
-    else:
-        cmd = [sys.executable, "-c", "from telix.main import main; main()",
+    cmd = [sys.executable, "-c", "from telix.main import main; main()",
                config.host, str(config.port)]
 
     if config.no_repl:
@@ -865,10 +862,13 @@ class SessionListScreen(textual.screen.Screen[None]):
         cfg = self.sessions[old_key]
 
         def do_edit(config: SessionConfig | None) -> None:
+            table = self.query_one("#session-table", textual.widgets.DataTable)
             if config is None:
+                table.focus()
                 return
             new_key = config.name or config.host
             if not new_key:
+                table.focus()
                 return
             if new_key != old_key and old_key in self.sessions:
                 del self.sessions[old_key]
@@ -876,6 +876,7 @@ class SessionListScreen(textual.screen.Screen[None]):
             self.save()
             self.refresh_table()
             self.select_row(new_key)
+            table.focus()
 
         self.app.push_screen(SessionEditScreen(config=cfg), callback=do_edit)
 
@@ -969,14 +970,17 @@ class SessionListScreen(textual.screen.Screen[None]):
                     )
                     env = {**os.environ, "COVERAGE_PROCESS_START": cov_rc}
                     log.debug("coverage enabled, COVERAGE_PROCESS_START=%s", cov_rc)
-                log.debug("launch cmd: %s", cmd)
+                log.debug("launch: %s", shlex.join(cmd))
                 proc = subprocess.Popen(cmd, env=env)
                 proc.wait()
-                if cfg.coverage:
-                    subprocess.run(
-                        [sys.executable, "-m", "coverage", "combine"],
-                        check=False,
+                if proc.returncode != 0:
+                    sys.stdout.write(
+                        f"\r\n\x1b[1;31mProcess exited with code"
+                        f" {proc.returncode}.\x1b[0m\r\n"
+                        "Press Enter to return to the session manager..."
                     )
+                    sys.stdout.flush()
+                    sys.stdin.readline()
             except KeyboardInterrupt:
                 if proc is not None:
                     proc.terminate()
@@ -1008,15 +1012,19 @@ class SessionListScreen(textual.screen.Screen[None]):
         self.app.push_screen(ThemePickerScreen())
 
     def do_edit_result(self, config: SessionConfig | None) -> None:
+        table = self.query_one("#session-table", textual.widgets.DataTable)
         if config is None:
+            table.focus()
             return
         key = config.name or config.host
         if not key:
+            table.focus()
             return
         self.sessions[key] = config
         self.save()
         self.refresh_table()
         self.select_row(key)
+        table.focus()
 
     def select_row(self, key: str) -> None:
         """Move the table cursor to the row with the given key."""
