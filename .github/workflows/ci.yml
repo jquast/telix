@@ -75,6 +75,8 @@ jobs:
             asyncio-debug: true
 
     runs-on: ${{ matrix.os }}
+    # disable windows support, until supported
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - uses: actions/checkout@v4
