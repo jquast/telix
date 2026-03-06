@@ -31,7 +31,7 @@ from .client_repl_render import make_styles
 from .client_repl_travel import fast_travel
 
 if TYPE_CHECKING:
-    from .session_context import SessionContext
+    from .session_context import TelixSessionContext
 
 log = logging.getLogger(__name__)
 
@@ -495,7 +495,7 @@ def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, r
             replay_buf.append(banner.encode("utf-8"))
 
 
-def launch_unified_editor(initial_tab: str, ctx: "SessionContext", replay_buf: Any | None = None) -> None:
+def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the unified tabbed TUI editor as a subprocess.
 
@@ -620,7 +620,7 @@ def launch_unified_editor(initial_tab: str, ctx: "SessionContext", replay_buf: A
         task.add_done_callback(on_done)
 
 
-def launch_tui_editor(editor_type: str, ctx: "SessionContext", replay_buf: Any | None = None) -> None:
+def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch a TUI editor for macros or autoreplies in a subprocess.
 
@@ -723,7 +723,7 @@ def launch_tui_editor(editor_type: str, ctx: "SessionContext", replay_buf: Any |
         reload_autoreplies(ctx, path, session_key, log)
 
 
-def reload_macros(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
+def reload_macros(ctx: "TelixSessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload macro definitions from disk and update dispatch."""
     if not os.path.exists(path):
         return
@@ -739,7 +739,7 @@ def reload_macros(ctx: "SessionContext", path: str, session_key: str, log: loggi
         log.warning("failed to reload macros: %s", exc)
 
 
-def reload_autoreplies(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
+def reload_autoreplies(ctx: "TelixSessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload autoreply rules from disk after editing."""
     if not os.path.exists(path):
         return
@@ -752,7 +752,7 @@ def reload_autoreplies(ctx: "SessionContext", path: str, session_key: str, log: 
         log.warning("failed to reload autoreplies: %s", exc)
 
 
-def reload_progressbars(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
+def reload_progressbars(ctx: "TelixSessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload progress bar configs from disk after editing."""
     if not os.path.exists(path):
         return
@@ -765,7 +765,7 @@ def reload_progressbars(ctx: "SessionContext", path: str, session_key: str, log:
         log.warning("failed to reload progress bars from %s", path)
 
 
-def reload_highlights(ctx: "SessionContext", path: str, session_key: str, log: logging.Logger) -> None:
+def reload_highlights(ctx: "TelixSessionContext", path: str, session_key: str, log: logging.Logger) -> None:
     """Reload highlight rules from disk after editing."""
     if not os.path.exists(path):
         return
@@ -778,7 +778,7 @@ def reload_highlights(ctx: "SessionContext", path: str, session_key: str, log: l
         log.warning("failed to reload highlights: %s", exc)
 
 
-def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> None:
+def launch_chat_viewer(ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the Capture Window TUI in a subprocess.
 
@@ -840,7 +840,7 @@ def launch_chat_viewer(ctx: "SessionContext", replay_buf: Any | None = None) -> 
     )
 
 
-def launch_room_browser(ctx: "SessionContext", replay_buf: Any | None = None) -> None:
+def launch_room_browser(ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the room browser TUI in a subprocess.
 

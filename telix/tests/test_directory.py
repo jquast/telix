@@ -92,6 +92,14 @@ class TestLoadFavorites:
         by_name = {e["name"]: e for e in entries}
         assert by_name["Absinthe BBS"]["encoding"] == "latin1"
 
+    def test_websocket_entry_fields(self) -> None:
+        entries = load_favorites()
+        by_name = {e["name"]: e for e in entries}
+        cryosphere = by_name["Cryosphere"]
+        assert cryosphere["protocol"] == "websocket"
+        assert cryosphere["ws_path"] == "/telnet"
+        assert cryosphere["ssl"] is True
+
 
 class TestDirectoryToSessions:
     def test_returns_session_configs(self) -> None:
@@ -121,6 +129,14 @@ class TestDirectoryToSessions:
             assert host
             assert port.isdigit()
 
+    def test_websocket_session_mapped(self) -> None:
+        sessions = directory_to_sessions()
+        cfg = sessions["dev.cryosphere.org:4443"]
+        assert cfg.protocol == "websocket"
+        assert cfg.ws_path == "/telnet"
+        assert cfg.ssl is True
+        assert cfg.bookmarked is True
+
     def test_favorites_bookmarked(self) -> None:
         sessions = directory_to_sessions()
         favorites = load_favorites()
@@ -141,10 +157,9 @@ class TestDirectoryToSessions:
 
     def test_bbs_presets_applied(self) -> None:
         sessions = directory_to_sessions()
-        bbs = next(v for v in sessions.values() if v.mode == "raw")
+        bbs = next(v for v in sessions.values() if v.server_type == "bbs")
         assert bbs.colormatch == "vga"
         assert bbs.ice_colors is True
-        assert bbs.no_repl is True
         assert bbs.compression is None
 
     def test_mud_presets_applied(self) -> None:

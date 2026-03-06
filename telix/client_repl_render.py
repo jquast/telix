@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import blessed
     import blessed.line_editor
 
-    from .session_context import SessionContext
+    from .session_context import TelixSessionContext
 
 # 3rd party
 import wcwidth
@@ -990,7 +990,7 @@ class ToolbarRenderer:
 
     def __init__(
         self,
-        ctx: "SessionContext",
+        ctx: "TelixSessionContext",
         scroll: Any,
         out: asyncio.StreamWriter,
         stoplight: Stoplight | None,

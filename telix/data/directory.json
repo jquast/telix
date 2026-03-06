@@ -5130,7 +5130,8 @@
   "host": "20forbeers.com",
   "port": 1337,
   "name": "20forbeers.com",
-  "type": "bbs"
+  "type": "bbs",
+  "encoding": "cp437"
  },
  {
   "host": "300baud.dynu.net",

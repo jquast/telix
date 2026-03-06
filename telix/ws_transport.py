@@ -25,6 +25,9 @@ import logging
 import telnetlib3.telopt
 import websockets.exceptions
 
+if typing.TYPE_CHECKING:
+    from telix.session_context import TelixSessionContext
+
 log = logging.getLogger(__name__)
 
 # IAC command bytes used as callback keys (matching telnetlib3 conventions).
@@ -163,6 +166,60 @@ def extract_iac(data: bytes, remainder: bytes = b"") -> tuple[bytes, list[IacEve
     return bytes(clean), events, b""
 
 
+class WSTelnetTransport(asyncio.Transport):
+    """
+    Asyncio Transport that sends bytes as WebSocket binary frames.
+
+    Writes are enqueued for delivery by a drain coroutine.  Inbound data is
+    injected by calling the owning ``asyncio.Protocol``'s
+    ``data_received()`` directly from the receive loop.
+
+    :param send_queue: Queue shared with the drain coroutine.
+    :param extra: Mapping for :meth:`get_extra_info` (``"peername"`` etc.).
+    """
+
+    def __init__(self, send_queue: "asyncio.Queue[bytes | None]", extra: "dict[str, object]") -> None:
+        """Initialise with a shared send queue and extra-info mapping."""
+        super().__init__(extra)
+        self._send_queue = send_queue
+        self._closing = False
+
+    def write(self, data: bytes) -> None:
+        """Enqueue *data* for sending as a binary WebSocket frame."""
+        if not self._closing and data:
+            self._send_queue.put_nowait(data)
+
+    def write_eof(self) -> None:
+        """No-op: WebSocket framing does not use EOF."""
+
+    def can_write_eof(self) -> bool:
+        """Return ``False``: WebSocket does not support write-EOF."""
+        return False
+
+    def close(self) -> None:
+        """Signal the drain coroutine to stop."""
+        if not self._closing:
+            self._closing = True
+            self._send_queue.put_nowait(None)
+
+    def is_closing(self) -> bool:
+        """Return ``True`` if :meth:`close` has been called."""
+        return self._closing
+
+    def set_write_buffer_limits(self, high: "int | None" = None, low: "int | None" = None) -> None:
+        """No-op: no backpressure implementation."""
+
+    def get_write_buffer_size(self) -> int:
+        """Return 0: backpressure not tracked."""
+        return 0
+
+    def pause_reading(self) -> None:
+        """No-op: reading is managed by the WebSocket receive loop."""
+
+    def resume_reading(self) -> None:
+        """No-op: reading is managed by the WebSocket receive loop."""
+
+
 class WebSocketReader:
     """
     Async reader fed by WebSocket BINARY frames.
@@ -257,11 +314,11 @@ class WebSocketWriter:
         self._ws = ws
         self._closing = False
         self._peername = peername
-        self._encoding = encoding
         self._ext_callback: dict[bytes, typing.Any] = {}
         self._iac_callback: dict[bytes, typing.Any] = {}
         self._send_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
-        self.ctx: typing.Any = None
+        self.encoding = encoding
+        self.ctx: TelixSessionContext = None
         self.log = logging.getLogger("telix.ws_transport")
         self.will_echo: bool = False
         self.mode: str = "local"
@@ -280,7 +337,7 @@ class WebSocketWriter:
 
         :param text: Text to send (str is encoded to UTF-8; bytes passed through).
         """
-        self._send_queue.put_nowait(text.encode(self._encoding) if isinstance(text, str) else text)
+        self._send_queue.put_nowait(text.encode(self.encoding) if isinstance(text, str) else text)
 
     def _write(self, buf: bytes, escape_iac: bool = True) -> None:
         """

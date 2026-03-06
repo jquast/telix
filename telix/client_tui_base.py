@@ -12,6 +12,7 @@ import os
 import abc
 import sys
 import json
+import time
 import shlex
 import codecs
 import typing
@@ -39,9 +40,13 @@ from . import util, paths, rooms
 
 log = logging.getLogger(__name__)
 
-# Reset SGR, cursor, alt-screen, mouse, and bracketed paste,
+# Reset SGR, cursor, scroll region, alt-screen, mouse, and bracketed paste,
 # then move cursor home and clear the screen so tracebacks start clean.
-TERMINAL_CLEANUP = "\x1b[m\x1b[?25h\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[H\x1b[2J"
+# \x1b[r (DECSTBM) must come before \x1b[?1049l so it resets the alt-screen
+# scroll region before switching to the normal screen.
+TERMINAL_CLEANUP = (
+    "\x1b[m\x1b[?25h\x1b[r\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[H\x1b[2J"
+)
 
 
 def restore_opost() -> None:
@@ -159,7 +164,8 @@ for _enc in reversed(ENCODINGS):
 
 
 def normalize_encoding(enc: str) -> str:
-    """Return the ENCODINGS entry that best matches *enc*, or ``ENCODINGS[0]``.
+    """
+    Return the ENCODINGS entry that best matches *enc*, or ``ENCODINGS[0]``.
 
     Strips whitespace then resolves Python codec aliases so that e.g.
     ``"utf-8"``, ``"latin1"``, or ``" cp437 "`` each map to the canonical
@@ -538,11 +544,30 @@ def build_ws_command(config: SessionConfig) -> list[str]:
         ]
     else:
         cmd = [sys.executable, "-c", "from telix.main import main; main()", url]
-    if config.no_repl or config.mode == "raw":
+    if config.no_repl:
         cmd.append("--no-repl")
+    if config.mode == "raw":
+        cmd.append("--raw-mode")
+    elif config.mode == "line":
+        cmd.append("--line-mode")
+    if config.ansi_keys:
+        cmd.append("--ansi-keys")
+    if config.ascii_eol:
+        cmd.append("--ascii-eol")
+    if config.force_binary:
+        cmd.append("--force-binary")
+    if config.compression is True:
+        cmd.append("--compression")
+    elif config.compression is False:
+        cmd.append("--no-compression")
     for field, flag, default in [
         ("encoding", "--encoding", "utf8"),
         ("encoding_errors", "--encoding-errors", "replace"),
+        ("term", "--term", ""),
+        ("speed", "--speed", 38400),
+        ("send_environ", "--send-environ", "TERM,LANG,COLUMNS,LINES,COLORTERM"),
+        ("connect_minwait", "--connect-minwait", 0.0),
+        ("connect_maxwait", "--connect-maxwait", 4.0),
         ("loglevel", "--loglevel", "warn"),
         ("logfile", "--logfile", ""),
         ("typescript", "--typescript", ""),
@@ -556,6 +581,12 @@ def build_ws_command(config: SessionConfig) -> list[str]:
         value = getattr(config, field, default)
         if value != default:
             cmd += [flag, str(value)]
+    if config.connect_timeout != 10.0:
+        cmd += ["--connect-timeout", str(config.connect_timeout)]
+    for attr, flag in (("always_will", "--always-will"), ("always_do", "--always-do")):
+        for opt in getattr(config, attr).split(","):
+            if opt := opt.strip():
+                cmd.extend([flag, opt])
     if not getattr(config, "ice_colors", True):
         cmd.append("--no-ice-colors")
     return cmd
@@ -658,6 +689,7 @@ class SessionListScreen(textual.screen.Screen[None]):
     def compose(self) -> textual.app.ComposeResult:
         """Build the session list layout."""
         with textual.containers.Vertical(id="session-panel"):
+            yield textual.widgets.Static(" ")
             with textual.containers.Horizontal(id="search-row"):
                 yield textual.widgets.Input(placeholder="Search sessions\u2026", id="session-search")
                 yield textual.widgets.Button("Theme", variant="default", id="theme-btn")
@@ -1016,14 +1048,18 @@ class SessionListScreen(textual.screen.Screen[None]):
                     env = {**os.environ, "COVERAGE_PROCESS_START": cov_rc}
                     log.debug("coverage enabled, COVERAGE_PROCESS_START=%s", cov_rc)
                 log.debug("launch: %s", shlex.join(cmd))
+                _t0 = time.monotonic()
                 proc = subprocess.Popen(cmd, env=env)
                 proc.wait()
-                if proc.returncode != 0:
+                _elapsed = time.monotonic() - _t0
+                if proc.returncode != 0 or _elapsed < 4:
+                    # if there was a logfile, hopefully the error is there, otherwise maybe its on the screen.
                     sys.stdout.write(
-                        f"\r\n\x1b[1;31mProcess exited with code"
-                        f" {proc.returncode}.\x1b[0m\r\n"
-                        "Press Enter to return to the session manager..."
+                        f"\r\n\x1b[1;31mProcess exited with code {proc.returncode} "
+                        f"after {_elapsed:2.2f} seconds.\x1b[0m\r\n"
                     )
+                    if cfg.logfile:
+                        sys.stdout.write(f"Check file for error: {cfg.logfile}")
                     sys.stdout.flush()
                     sys.stdin.readline()
             except KeyboardInterrupt:
@@ -1200,7 +1236,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         margin-bottom: 1;
     }
     #host {
-        max-width: 30;
+        max-width: 33;
     }
     #port-label {
         width: auto;
@@ -1227,7 +1263,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         padding-left: 2;
     }
     #ws-path {
-        width: 12;
+        width: 17;
         display: none;
     }
     #ws-path.visible {
@@ -1332,9 +1368,8 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         self.config = config
         self.is_defaults = is_defaults
         self.is_new = is_new
-        from telix import main as _main_mod
-
-        self.detected_bg = _main_mod._detected_bg
+        bg_env = os.environ.get("TELIX_DETECTED_BG")
+        self.detected_bg = tuple(int(x) for x in bg_env.split(",")) if bg_env else None
 
     TAB_IDS: typing.ClassVar[list[tuple[str, str]]] = [
         ("Connection", "tab-connection"),
@@ -1381,12 +1416,12 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                         yield textual.widgets.RadioButton(
                             "WebSocket", value=cfg.protocol == "websocket", id="proto-websocket"
                         )
-                with textual.containers.Horizontal(id="ssl-col"):
-                    yield textual.widgets.Label("SSL/TLS", id="ssl-label")
-                    yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
                 yield textual.widgets.Input(
                     value=cfg.ws_path, placeholder="/ws", id="ws-path", tooltip="WebSocket path appended to URL"
                 )
+                with textual.containers.Horizontal(id="ssl-col"):
+                    yield textual.widgets.Label("SSL/TLS", id="ssl-label")
+                    yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
         else:
             with textual.containers.Horizontal(classes="switch-row"):
                 yield textual.widgets.Label("SSL/TLS", id="ssl-label", classes="field-label")
@@ -1427,12 +1462,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         is_retro = enc.lower() in ("atascii", "petscii")
         with textual.containers.Horizontal(classes="field-row"):
             yield textual.widgets.Label("Encoding", id="enc-label")
-            yield textual.widgets.Select(
-                [(e, e) for e in ENCODINGS],
-                value=enc,
-                id="encoding",
-                allow_blank=False,
-            )
+            yield textual.widgets.Select([(e, e) for e in ENCODINGS], value=enc, id="encoding", allow_blank=False)
             yield textual.widgets.Label("Errors", id="enc-errors-label")
             yield textual.widgets.Select(
                 [(v, v) for v in ("replace", "ignore", "strict")], value=cfg.encoding_errors, id="encoding-errors"
@@ -1835,6 +1865,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         cfg.ssl_no_verify = False
 
         cfg.last_connected = self.config.last_connected
+        cfg.bookmarked = self.config.bookmarked
 
         cfg.term = self.query_one("#term", textual.widgets.Input).value.strip()
         cfg.encoding = self.query_one("#encoding", textual.widgets.Select).value

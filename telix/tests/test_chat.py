@@ -12,12 +12,12 @@ import pytest
 # local
 from telix.chat import CHAT_FILE_CAP, load_chat, persist_chat, append_chat_msg
 from telix.paths import chat_path
-from telix.session_context import SessionContext
+from telix.session_context import TelixSessionContext
 from telix.client_repl_render import ToolbarSlot, sgr_fg, wcswidth
 
 
-def make_ctx(tmp_path: Any, session_key: str = "test:4000") -> SessionContext:
-    ctx = SessionContext(session_key=session_key)
+def make_ctx(tmp_path: Any, session_key: str = "test:4000") -> TelixSessionContext:
+    ctx = TelixSessionContext(session_key=session_key)
     ctx.chat_file = str(tmp_path / "chat.json")
     return ctx
 
@@ -100,7 +100,7 @@ class TestPersistChat:
 
 class TestChatBadge:
     def test_badge_present_when_unread(self) -> None:
-        ctx = SessionContext(session_key="test:4000")
+        ctx = TelixSessionContext(session_key="test:4000")
         ctx.chat_unread = 5
         badge = f"Chat:{ctx.chat_unread}"
         slot = ToolbarSlot(
@@ -115,14 +115,14 @@ class TestChatBadge:
         assert "Chat:5" in slot.fragments[0][1]
 
     def test_badge_absent_when_zero(self) -> None:
-        ctx = SessionContext(session_key="test:4000")
+        ctx = TelixSessionContext(session_key="test:4000")
         ctx.chat_unread = 0
         assert ctx.chat_unread == 0
 
 
 class TestChannelList:
     def test_stores_channel_list(self) -> None:
-        ctx = SessionContext(session_key="test:4000")
+        ctx = TelixSessionContext(session_key="test:4000")
         channels = [{"name": "chat", "caption": "Chat"}, {"name": "tp", "caption": "Talker"}]
         ctx.chat_channels = channels
         assert len(ctx.chat_channels) == 2
@@ -139,7 +139,7 @@ class TestOnChatTextCallback:
         assert ctx.chat_unread == 1
 
     def test_channels_callback_stores_list(self) -> None:
-        ctx = SessionContext(session_key="test:4000")
+        ctx = TelixSessionContext(session_key="test:4000")
         channels = [{"name": "chat"}, {"name": "tp"}]
         ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
         ctx.on_chat_channels(channels)

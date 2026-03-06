@@ -12,9 +12,16 @@ from telnetlib3.accessories import function_lookup
 from telnetlib3._session_context import TelnetSessionContext
 
 # local
-from telix.client_shell import want_repl, load_configs, ws_client_shell, build_session_key, telix_client_shell
+from telix.client_shell import (
+    ColorFilteredWriter,
+    want_repl,
+    load_configs,
+    ws_client_shell,
+    build_session_key,
+    telix_client_shell,
+)
 from telix.ws_transport import GMCP, WebSocketWriter
-from telix.session_context import SessionContext
+from telix.session_context import TelixSessionContext
 
 
 class TestBuildSessionKey:
@@ -63,7 +70,7 @@ class TestLoadConfigs:
         )
         monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db"))
 
-        ctx = SessionContext(session_key="host:1234")
+        ctx = TelixSessionContext(session_key="host:1234")
         load_configs(ctx)
 
         assert ctx.macros_file.endswith("macros.json")
@@ -95,7 +102,7 @@ class TestLoadConfigs:
         sentinel = [MagicMock()]
         monkeypatch.setattr("telix.macros.load_macros", lambda path, sk: sentinel)
 
-        ctx = SessionContext(session_key="host:1234")
+        ctx = TelixSessionContext(session_key="host:1234")
         load_configs(ctx)
         assert ctx.macro_defs[0] is sentinel[0]
 
@@ -110,7 +117,7 @@ class TestLoadConfigs:
         monkeypatch.setattr("telix.client_shell.paths.history_path", lambda sk: str(data / f"history-{sk}"))
         monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(data / f"rooms-{sk}.db"))
 
-        ctx = SessionContext(session_key="host:1234")
+        ctx = TelixSessionContext(session_key="host:1234")
         load_configs(ctx)
         assert cfg.is_dir()
         assert data.is_dir()
@@ -118,28 +125,28 @@ class TestLoadConfigs:
 
 class TestWantRepl:
     def test_enabled_local(self) -> None:
-        ctx = SessionContext()
+        ctx = TelixSessionContext()
         ctx.repl_enabled = True
         writer = MagicMock()
         writer.mode = "local"
         assert want_repl(ctx, writer) is True
 
     def test_disabled(self) -> None:
-        ctx = SessionContext()
+        ctx = TelixSessionContext()
         ctx.repl_enabled = False
         writer = MagicMock()
         writer.mode = "local"
         assert want_repl(ctx, writer) is False
 
     def test_kludge_mode(self) -> None:
-        ctx = SessionContext()
+        ctx = TelixSessionContext()
         ctx.repl_enabled = True
         writer = MagicMock()
         writer.mode = "kludge"
         assert want_repl(ctx, writer) is False
 
     def test_raw_mode_forced(self) -> None:
-        ctx = SessionContext()
+        ctx = TelixSessionContext()
         ctx.repl_enabled = True
         ctx.raw_mode = True
         writer = MagicMock()
@@ -147,7 +154,7 @@ class TestWantRepl:
         assert want_repl(ctx, writer) is False
 
     def test_no_mode_attr(self) -> None:
-        ctx = SessionContext()
+        ctx = TelixSessionContext()
         ctx.repl_enabled = True
         writer = MagicMock(spec=[])
         assert want_repl(ctx, writer) is True
@@ -178,7 +185,7 @@ class TestCtxPreservation:
 
         session_key = build_session_key(writer)
         old_ctx = writer.ctx
-        ctx = SessionContext(session_key=session_key)
+        ctx = TelixSessionContext(session_key=session_key)
         ctx.typescript_file = old_ctx.typescript_file
         ctx.raw_mode = old_ctx.raw_mode
         ctx.ascii_eol = old_ctx.ascii_eol
@@ -261,7 +268,7 @@ class TestWsClientShellGMCP:
         # We cannot run the full ws_client_shell (it needs a TTY and blessed),
         # so test the setup steps directly.
         session_key = build_session_key(writer)
-        ctx = SessionContext(session_key=session_key)
+        ctx = TelixSessionContext(session_key=session_key)
         ctx.writer = writer
         ctx.repl_enabled = True
         writer.ctx = ctx
@@ -288,7 +295,7 @@ class TestWsClientShellGMCP:
 
         writer = self._make_writer()
         session_key = build_session_key(writer)
-        ctx = SessionContext(session_key=session_key)
+        ctx = TelixSessionContext(session_key=session_key)
         ctx.writer = writer
         writer.ctx = ctx
         load_configs(ctx)
@@ -331,7 +338,7 @@ class TestWsClientShellNoRepl:
         from telnetlib3._session_context import TelnetSessionContext
 
         from telix.ws_transport import WebSocketWriter
-        from telix.session_context import SessionContext
+        from telix.session_context import TelixSessionContext
 
         ws = MagicMock()
         writer = WebSocketWriter(ws, peername=("gel.monster", 8443))
@@ -340,7 +347,7 @@ class TestWsClientShellNoRepl:
         writer.ctx = initial_ctx
 
         old_ctx = writer.ctx
-        ctx = SessionContext(session_key="gel.monster:8443")
+        ctx = TelixSessionContext(session_key="gel.monster:8443")
         ctx.repl_enabled = not old_ctx.no_repl
 
         assert ctx.repl_enabled is False
@@ -415,6 +422,54 @@ class TestWsClientShellTypescript:
         f.close()
 
         assert opened_files[0] == "w"
+
+
+class TestColorFilteredWriter:
+    """_ColorFilteredWriter applies ctx.color_filter to write() calls."""
+
+    def _make_ctx(self, color_filter=None, erase_eol=False):
+        ctx = TelixSessionContext()
+        ctx.color_filter = color_filter
+        ctx.erase_eol = erase_eol
+        return ctx
+
+    def test_passes_through_without_filter(self) -> None:
+        """Without a color filter, bytes are written unchanged."""
+        inner = MagicMock()
+        ctx = self._make_ctx()
+        writer = ColorFilteredWriter(inner, ctx, "utf-8")
+        writer.write(b"hello")
+        inner.write.assert_called_once_with(b"hello")
+
+    def test_applies_color_filter(self) -> None:
+        """With a color filter, text is decoded, filtered, and re-encoded."""
+        inner = MagicMock()
+        cf = MagicMock()
+        cf.filter.return_value = "filtered"
+        ctx = self._make_ctx(color_filter=cf, erase_eol=False)
+        writer = ColorFilteredWriter(inner, ctx, "utf-8")
+        writer.write(b"input")
+        cf.filter.assert_called_once_with("input")
+        inner.write.assert_called_once_with(b"filtered")
+
+    def test_applies_erase_eol(self) -> None:
+        """With erase_eol=True, CRLF pairs get erase-to-eol sequences injected."""
+        inner = MagicMock()
+        cf = MagicMock()
+        cf.filter.return_value = "line1\r\nline2"
+        ctx = self._make_ctx(color_filter=cf, erase_eol=True)
+        writer = ColorFilteredWriter(inner, ctx, "utf-8")
+        writer.write(b"line1\r\nline2")
+        written = inner.write.call_args[0][0]
+        assert b"\x1b[K" in written
+
+    def test_delegates_other_attributes(self) -> None:
+        """Non-write attributes are delegated to the inner writer."""
+        inner = MagicMock()
+        inner.transport = "fake_transport"
+        ctx = self._make_ctx()
+        writer = ColorFilteredWriter(inner, ctx, "utf-8")
+        assert writer.transport == "fake_transport"
 
     def test_closes_typescript_even_if_shell_raises(self, tmp_path: Any) -> None:
         """ws_client_shell closes typescript file even when an exception occurs in the shell."""

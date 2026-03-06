@@ -17,7 +17,7 @@ from .repl_theme import hex_to_rgb, get_repl_palette
 from .client_repl_render import DISPLAY, get_term, wcswidth, write_hint, session_key
 
 if TYPE_CHECKING:
-    from .session_context import CommandQueue, SessionContext
+    from .session_context import CommandQueue, TelixSessionContext
 
 REPEAT_RE = re.compile(r"^(\d+)([A-Za-z].*)$")
 BACKTICK_RE = re.compile(r"`[^`]*`")
@@ -63,7 +63,7 @@ class DispatchHooks:
     :param prompt_ready: Event to clear before waiting for the next prompt.
     """
 
-    ctx: "SessionContext"
+    ctx: "TelixSessionContext"
     log: logging.Logger
     wait_fn: Callable[[], Awaitable[None]] | None
     send_fn: Callable[[str], None]
@@ -194,7 +194,7 @@ def expand_commands(line: str) -> list[str]:
     return expand_commands_ex(line).commands
 
 
-def get_search_buffer(ctx: "SessionContext") -> typing.Any | None:
+def get_search_buffer(ctx: "TelixSessionContext") -> typing.Any | None:
     """
     Return the :class:`SearchBuffer` for *ctx*, or ``None``.
 
@@ -330,7 +330,7 @@ COMMAND_DELAY = 0.25
 MOVE_MAX_RETRIES = 2
 
 
-def is_known_exit(cmd: str, ctx: "SessionContext") -> bool:
+def is_known_exit(cmd: str, ctx: "TelixSessionContext") -> bool:
     """
     Return ``True`` if *cmd* matches a known exit from the current room.
 
@@ -430,7 +430,7 @@ def render_active_command(
     return w
 
 
-def clear_command_queue(ctx: "SessionContext") -> None:
+def clear_command_queue(ctx: "TelixSessionContext") -> None:
     """Remove the command queue from *ctx* when chained send completes."""
     cq = ctx.command_queue
     if cq is not None:
@@ -512,7 +512,7 @@ def render_command_queue(
 
 async def send_chained(
     commands: list[str],
-    ctx: "SessionContext",
+    ctx: "TelixSessionContext",
     log: logging.Logger,
     queue: "CommandQueue | None" = None,
     immediate_set: frozenset[int] = frozenset(),
@@ -678,7 +678,7 @@ async def send_chained(
                 return
 
 
-def macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
+def macro_send(ctx: "TelixSessionContext", log: logging.Logger, cmd: str) -> None:
     """
     Send a single command for macro execution.
 
@@ -699,7 +699,7 @@ def macro_send(ctx: "SessionContext", log: logging.Logger, cmd: str) -> None:
     ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
 
 
-def _dispatch_repl_action(cmd: str, ctx: "SessionContext", log: logging.Logger) -> bool:
+def _dispatch_repl_action(cmd: str, ctx: "TelixSessionContext", log: logging.Logger) -> bool:
     """
     Dispatch a REPL action backtick command via ``ctx.repl_actions``.
 
@@ -752,7 +752,7 @@ def _dispatch_repl_action(cmd: str, ctx: "SessionContext", log: logging.Logger) 
     return False
 
 
-async def execute_macro_commands(text: str, ctx: "SessionContext", log: logging.Logger) -> None:
+async def execute_macro_commands(text: str, ctx: "TelixSessionContext", log: logging.Logger) -> None:
     """
     Execute a macro text string, handling travel, delay, when, and until commands.
 

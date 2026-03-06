@@ -23,7 +23,6 @@ from telix.client_tui import (
     EDITOR_TABS,
     DEFAULTS_KEY,
     PRIMARY_PASTE_COMMANDS,
-    normalize_encoding,
     CapsPane,
     MacroEditPane,
     SessionConfig,
@@ -50,6 +49,7 @@ from telix.client_tui import (
     save_sessions,
     build_tooltips,
     get_help_topic,
+    normalize_encoding,
     read_primary_selection,
 )
 
@@ -884,6 +884,41 @@ class TestActionConnectScreenRefresh:
             screen.action_connect()
 
         mock_screen.refresh.assert_called_once()
+
+    def test_nonzero_exit_raises_called_process_error(self, tui_tmp_paths: Any) -> None:
+        """CalledProcessError propagates when the subprocess exits with non-zero returncode."""
+        import subprocess
+
+        screen = SessionListScreen()
+        screen.sessions = {"srv": SessionConfig(name="srv", host="example.com")}
+        screen.selected_key = MagicMock(return_value="srv")
+        screen.save = MagicMock()
+        screen.refresh_table = MagicMock()
+        screen.select_row = MagicMock()
+        screen.notify = MagicMock()
+
+        mock_screen = MagicMock()
+        screen._screen = mock_screen
+        type(screen).screen = property(lambda self: self._screen)
+
+        mock_app = MagicMock()
+        mock_app.suspend.return_value.__enter__ = MagicMock()
+        mock_app.suspend.return_value.__exit__ = MagicMock(return_value=False)
+        screen._app = mock_app
+        type(screen).app = property(lambda self: self._app)
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.check_returncode.side_effect = subprocess.CalledProcessError(1, ["telix"])
+
+        with (
+            patch("telix.client_tui_base.subprocess.Popen", return_value=mock_proc),
+            patch("telix.client_tui_base.os.get_terminal_size", return_value=MagicMock(lines=24, columns=80)),
+            patch("telix.client_tui_base.os.set_blocking"),
+            patch("telix.client_tui_base.sys.stdout"),
+        ):
+            with pytest.raises(subprocess.CalledProcessError):
+                screen.action_connect()
 
 
 class TestReadPrimarySelection:

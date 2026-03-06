@@ -2014,6 +2014,7 @@ class TelnetSessionApp(textual.app.App[None]):
 
 def tui_main() -> None:
     """Launch the Textual TUI session manager."""
+    client_tui_base.patch_writer_thread_queue()
     app = TelnetSessionApp()
     app.run()
     # Move cursor to bottom-right corner and print a newline while still in

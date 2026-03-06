@@ -48,7 +48,7 @@ from telix.client_repl import (
     split_incomplete_esc,
     handle_travel_commands,
 )
-from telix.session_context import CommandQueue, SessionContext
+from telix.session_context import CommandQueue, TelixSessionContext
 from telix.client_repl_render import SEXTANT, SCRAMBLE_LEN, idle_rgb, idle_ar_rgb, scramble_password
 from telix.client_repl_travel import MAX_STUCK_RETRIES
 from telix.client_repl_commands import (
@@ -544,7 +544,7 @@ class DynamicRoomContext:
     """SessionContext subclass with property-based current_room_num."""
 
     def __init__(self, room_num: str, room_sequence: list[str] | None) -> None:
-        self.real_ctx = SessionContext(session_key="test")
+        self.real_ctx = TelixSessionContext(session_key="test")
         self.room_val = room_num
         self.seq_iter = iter(room_sequence) if room_sequence else None
 
@@ -1728,7 +1728,7 @@ class TestLineHoldBuffer:
 def test_typescript_file_default_none() -> None:
     """SessionContext.typescript_file defaults to None."""
 
-    ctx = SessionContext()
+    ctx = TelixSessionContext()
     assert ctx.typescript_file is None
 
 
@@ -1802,7 +1802,7 @@ def test_echo_autoreply_writes_typescript(tmp_path: Any) -> None:
     scroll = types.SimpleNamespace(input_row=0)
     stdout_writer, _ = mock_stdout()
 
-    ctx = SessionContext()
+    ctx = TelixSessionContext()
     ts_path = tmp_path / "typescript"
     ts_file = open(ts_path, "w", encoding="utf-8", newline="")
     ctx.typescript_file = ts_file
@@ -1831,7 +1831,7 @@ def test_echo_autoreply_no_typescript() -> None:
     scroll = types.SimpleNamespace(input_row=0)
     stdout_writer, _ = mock_stdout()
 
-    ctx = SessionContext()
+    ctx = TelixSessionContext()
     ctx.typescript_file = None
 
     repl = object.__new__(ReplSession)
@@ -1854,7 +1854,7 @@ def test_echo_autoreply_masks_when_will_echo(tmp_path: Any) -> None:
     scroll = types.SimpleNamespace(input_row=0)
     stdout_writer, stdout_buf = mock_stdout()
 
-    ctx = SessionContext()
+    ctx = TelixSessionContext()
     ts_path = tmp_path / "typescript"
     ts_file = open(ts_path, "w", encoding="utf-8", newline="")
     ctx.typescript_file = ts_file
@@ -1888,7 +1888,7 @@ def test_typescript_will_echo_writes_bare_crlf(tmp_path: Any) -> None:
     """When will_echo is True, read_input writes bare \\r\\n to typescript."""
     pytest.importorskip("blessed")
 
-    ctx = SessionContext()
+    ctx = TelixSessionContext()
     ts_path = tmp_path / "typescript"
     ts_file = open(ts_path, "w", encoding="utf-8", newline="")
     ctx.typescript_file = ts_file

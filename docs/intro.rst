@@ -45,11 +45,15 @@ Launch the Session Manager::
 
 Connect directly to a host via Telnet::
 
-    telix mud.example.com 4000
+    telix dunemud.net 6789
+
+Using ssl::
+
+    telix --ssl dunemud.net 6788
 
 Connect directly via WebSocket::
 
-    telix ws://mud.example.com:9119
+    telix wss://xibalba.vip:44512 
     telix wss://mud.example.com/ws
 
 Use ``--bbs`` or ``--mud`` to apply server type presets::

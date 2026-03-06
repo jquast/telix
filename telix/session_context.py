@@ -1,13 +1,16 @@
 """Per-connection session state for MUD client sessions."""
 
-import typing
 import asyncio
+from typing import IO, TYPE_CHECKING, Any
 from collections.abc import Callable, Awaitable
 
 import telnetlib3.stream_writer
 import telnetlib3._session_context  # pylint: disable=no-name-in-module
 
 from . import mslp, macros, autoreply, ws_transport, gmcp_snapshot
+
+if TYPE_CHECKING:
+    from .session_context import TelixSessionContext
 
 
 class CommandQueue:
@@ -23,7 +26,7 @@ class CommandQueue:
         self.render = render
 
 
-class SessionContext(telnetlib3._session_context.TelnetSessionContext):
+class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
     """
     Per-connection runtime state for a MUD client session.
 
@@ -34,30 +37,39 @@ class SessionContext(telnetlib3._session_context.TelnetSessionContext):
     :param session_key: Session identifier (``"host:port"``).
     """
 
-    def __init__(self, session_key: str = "") -> None:
+    def __init__(
+        self,
+        session_key: str = "",
+        writer: telnetlib3.stream_writer.TelnetWriterUnicode | ws_transport.WebSocketWriter | None = None,
+        encoding: str = "",
+        raw_mode: bool | None = None,
+        ascii_eol: bool = False,
+        input_filter: Any | None = None,
+        autoreply_engine: Any | None = None,
+        autoreply_wait_fn: Callable[..., Awaitable[None]] | None = None,
+        typescript_file: IO[str] | None = None,
+        gmcp_data: "dict[str, Any] | None" = None,
+    ):
         """Initialize session context with default state."""
         super().__init__()
 
-        # back-reference to the writer (set by session_shell)
-        self.writer: (
-            telnetlib3.stream_writer.TelnetWriter
-            | telnetlib3.stream_writer.TelnetWriterUnicode
-            | ws_transport.WebSocketWriter
-            | None
-        ) = None
+        # back-reference to the writer (set by session_shell), kind of annoying, but
+        # the 'ctx' is passed around everywhere, so naturally we need access to it
+        self.writer = writer
+        self.encoding = encoding or (getattr(writer, "encoding", "") if writer else "") or "utf-8"
 
         # identity
         self.session_key: str = session_key
 
         # room / navigation
-        self.room_graph: typing.Any = None
+        self.room_graph: Any = None
         self.rooms_file: str = ""
         self.current_room_file: str = ""
         self.current_room_num: str = ""
         self.previous_room_num: str = ""
         self.macro_start_room: str = ""
         self.room_changed: asyncio.Event = asyncio.Event()
-        self.room_arrival_timeout: float = 5.0
+        self.room_arrival_timeout: float = 3.0
 
         # walk automation
         self.discover_active: bool = False
@@ -88,15 +100,15 @@ class SessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.command_queue: CommandQueue | None = None
 
         # macros & autoreplies (autoreply_engine inherited from base)
-        self.macro_defs: list[typing.Any] = []
+        self.macro_defs: list[Any] = []
         self.macros_file: str = ""
-        self.autoreply_rules: list[typing.Any] = []
+        self.autoreply_rules: list[Any] = []
         self.autoreplies_file: str = ""
 
         # highlighters
-        self.highlight_rules: list[typing.Any] = []
+        self.highlight_rules: list[Any] = []
         self.highlights_file: str = ""
-        self.highlight_engine: typing.Any | None = None
+        self.highlight_engine: Any | None = None
 
         # prompt / GA pacing
         self.wait_for_prompt: Callable[..., Awaitable[None]] | None = None
@@ -104,27 +116,27 @@ class SessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.prompt_ready: asyncio.Event | None = None
 
         # GMCP
-        self.gmcp_data: dict[str, typing.Any] = {}
+        self.gmcp_data: dict[str, Any] = gmcp_data if gmcp_data is not None else {}
         self.on_gmcp_ready: Callable[[], None] | None = None
         self.gmcp_snapshot_file: str = ""
         self.gmcp_dirty: bool = False
 
         # progress bars
-        self.progressbar_configs: list[typing.Any] = []
+        self.progressbar_configs: list[Any] = []
         self.progressbars_file: str = ""
 
         # highlight captures
         self.captures: dict[str, int] = {}
-        self.capture_log: dict[str, list[dict[str, typing.Any]]] = {}
+        self.capture_log: dict[str, list[dict[str, Any]]] = {}
 
         # chat (GMCP Comm.Channel)
-        self.chat_messages: list[dict[str, typing.Any]] = []
+        self.chat_messages: list[dict[str, Any]] = []
         self.chat_unread: int = 0
-        self.chat_channels: list[dict[str, typing.Any]] = []
+        self.chat_channels: list[dict[str, Any]] = []
         self.chat_file: str = ""
-        self.on_room_info: Callable[[dict[str, typing.Any]], None] | None = None
-        self.on_chat_text: Callable[[dict[str, typing.Any]], None] | None = None
-        self.on_chat_channels: Callable[[list[dict[str, typing.Any]]], None] | None = None
+        self.on_room_info: Callable[[dict[str, Any]], None] | None = None
+        self.on_chat_text: Callable[[dict[str, Any]], None] | None = None
+        self.on_chat_channels: Callable[[list[dict[str, Any]]], None] | None = None
         self.on_autoreply_activity: Callable[[], None] | None = None
 
         # MSLP link collector
@@ -133,21 +145,21 @@ class SessionContext(telnetlib3._session_context.TelnetSessionContext):
         # rendering / input config
         # (raw_mode, ascii_eol, input_filter, typescript_file
         #  inherited from TelnetSessionContext)
-        self.color_filter: typing.Any | None = None
+        self.color_filter: Any | None = None
         self.erase_eol: bool = False
         self.repl_enabled: bool = False
         self.history_file: str | None = None
 
         # modem activity dots (set by REPL, used by send_chained et al.)
-        self.rx_dot: typing.Any | None = None
-        self.tx_dot: typing.Any | None = None
-        self.cx_dot: typing.Any | None = None
+        self.rx_dot: Any | None = None
+        self.tx_dot: Any | None = None
+        self.cx_dot: Any | None = None
 
         # REPL internals
-        self.key_dispatch: typing.Any | None = None
+        self.key_dispatch: Any | None = None
         self.cursor_style: str = ""
         self.send_line: Callable[[str], None] | None = None
-        self.repl_actions: dict[str, Callable[..., typing.Any]] = {}
+        self.repl_actions: dict[str, Callable[..., Any]] = {}
         self.keyboard_escape: str = "\x1d"
         # autoreply_wait_fn inherited from TelnetSessionContext
         self.send_naws: Callable[[], None] | None = None
@@ -156,6 +168,28 @@ class SessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.macros_dirty: bool = False
         self.autoreplies_dirty: bool = False
         self.save_timer: asyncio.TimerHandle | None = None
+
+    @classmethod
+    def create_using_telnet_ctx(
+        cls,
+        writer: (telnetlib3.stream_writer.TelnetWriterUnicode | ws_transport.WebSocketWriter),
+        session_key: str,
+        encoding,
+    ) -> TelixSessionContext:
+        # writer: ws_transport.WebSocketWriter
+        """Class factory method, makes TelixSessionContext from TelnetSessionContext."""
+        return cls(
+            session_key,
+            writer,
+            encoding,
+            writer.ctx.raw_mode,
+            writer.ctx.ascii_eol,
+            writer.ctx.input_filter,
+            writer.ctx.autoreply_engine,
+            writer.ctx.autoreply_wait_fn,
+            writer.ctx.typescript_file,
+            gmcp_data=getattr(writer.ctx, "gmcp_data", None),
+        )
 
     def mark_macros_dirty(self) -> None:
         """Mark macros as needing a save and schedule a debounced flush."""

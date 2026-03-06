@@ -191,6 +191,8 @@ class ColorFilter:
         self._reset_bg_parts = ["48", "2", str(bg[0]), str(bg[1]), str(bg[2])]
         self._reset_fg_parts = ["38", "2", str(fg[0]), str(fg[1]), str(fg[2])]
         self._fg_color = fg
+        self._current_fg: tuple[int, int, int] = fg
+        self._current_bg: tuple[int, int, int] = bg
         self._buffer = ""
         self._initial = True
         self._bold = False
@@ -236,7 +238,9 @@ class ColorFilter:
             self._bold = False
             self._blink = False
             self._fg_idx = 7
-            return f"\x1b[0m{self._bg_sgr}{self._fg_sgr}"
+            self._current_fg = self._fg_color
+            self._current_bg = self._config.background_color
+            return f"\x1b[0;{';'.join(self._reset_bg_parts)};{';'.join(self._reset_fg_parts)}m"
 
         if ":" in params_str:
             return match.group()
@@ -279,6 +283,8 @@ class ColorFilter:
                 output_parts.extend(self._reset_bg_parts)
                 output_parts.extend(self._reset_fg_parts)
                 self._fg_idx = 7
+                self._current_fg = self._fg_color
+                self._current_bg = self._config.background_color
                 i += 1
                 continue
 
@@ -288,6 +294,7 @@ class ColorFilter:
                 if not seq_has_fg and 0 <= self._fg_idx <= 7:
                     bright_idx = self._fg_idx + 8
                     r, g, b = self._adjusted[bright_idx]
+                    self._current_fg = (r, g, b)
                     output_parts.extend(["38", "2", str(r), str(g), str(b)])
                 i += 1
                 continue
@@ -299,6 +306,7 @@ class ColorFilter:
                         r, g, b = self._fg_color
                     else:
                         r, g, b = self._adjusted[self._fg_idx]
+                    self._current_fg = (r, g, b)
                     output_parts.extend(["38", "2", str(r), str(g), str(b)])
                 i += 1
                 continue
@@ -314,6 +322,19 @@ class ColorFilter:
                 blink = False
                 if not ice:
                     output_parts.append("25")
+                i += 1
+                continue
+
+            if p == 7:
+                r, g, b = self._current_bg
+                fg_r, fg_g, fg_b = self._current_fg
+                output_parts.extend(["38", "2", str(r), str(g), str(b), "48", "2", str(fg_r), str(fg_g), str(fg_b)])
+                i += 1
+                continue
+            if p == 27:
+                r, g, b = self._current_fg
+                bg_r, bg_g, bg_b = self._current_bg
+                output_parts.extend(["38", "2", str(r), str(g), str(b), "48", "2", str(bg_r), str(bg_g), str(bg_b)])
                 i += 1
                 continue
 
@@ -338,11 +359,13 @@ class ColorFilter:
             if p == 39:
                 self._fg_idx = 7
                 r, g, b = self._fg_color
+                self._current_fg = (r, g, b)
                 output_parts.extend(["38", "2", str(r), str(g), str(b)])
                 i += 1
                 continue
             if p == 49:
                 bg = self._config.background_color
+                self._current_bg = bg
                 output_parts.extend(["48", "2", str(bg[0]), str(bg[1]), str(bg[2])])
                 i += 1
                 continue
@@ -358,8 +381,10 @@ class ColorFilter:
                     idx += 8
                 r, g, b = self._adjusted[idx]
                 if is_fg:
+                    self._current_fg = (r, g, b)
                     output_parts.extend(["38", "2", str(r), str(g), str(b)])
                 else:
+                    self._current_bg = (r, g, b)
                     output_parts.extend(["48", "2", str(r), str(g), str(b)])
             else:
                 output_parts.append(str(p))

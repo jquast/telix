@@ -20,12 +20,8 @@ from . import mtts, directory, ws_client, client_tui_base, client_tui_dialogs
 # telnetlib3 starts the shell.  Read by client_shell._setup_color_filter().
 _color_args: argparse.Namespace | None = None
 
-# Cached terminal background/foreground colors detected before any
-# framework (Textual, telnetlib3) takes over stdin.  Set once by
-# _detect_terminal_colors() in main(), read by client_shell and
-# client_tui_base.
-_detected_bg: tuple[int, int, int] | None = None
-_detected_fg: tuple[int, int, int] | None = None
+# Detected terminal software name, set by _detect_terminal_colors() for use
+# in MTTS negotiation within the same main() call.
 _detected_sw_name: str | None = None
 
 
@@ -35,10 +31,12 @@ def _detect_terminal_colors() -> None:
 
     Must be called before Textual or telnetlib3 takes over stdin,
     otherwise the OSC/XTVERSION responses are consumed by the framework.
-    Stores results in :data:`_detected_bg`, :data:`_detected_fg`,
-    and :data:`_detected_sw_name`.
+    Stores background/foreground results in :envvar:`TELIX_DETECTED_BG` and
+    :envvar:`TELIX_DETECTED_FG` (format ``R,G,B``) so subprocess connections
+    inherit them without re-querying.  Software name is stored in
+    :data:`_detected_sw_name` for MTTS negotiation.
     """
-    global _detected_bg, _detected_fg, _detected_sw_name
+    global _detected_sw_name
     import blessed
 
     term = blessed.Terminal()
@@ -46,8 +44,14 @@ def _detect_terminal_colors() -> None:
         bg = term.get_bgcolor(timeout=0.5, bits=8)
         fg = term.get_fgcolor(timeout=0.5, bits=8)
         sw = term.get_software_version(timeout=0.5)
-    _detected_bg = bg if bg != (-1, -1, -1) else None
-    _detected_fg = fg if fg != (-1, -1, -1) else None
+    if bg != (-1, -1, -1):
+        os.environ["TELIX_DETECTED_BG"] = f"{bg[0]},{bg[1]},{bg[2]}"
+    else:
+        os.environ.pop("TELIX_DETECTED_BG", None)
+    if fg != (-1, -1, -1):
+        os.environ["TELIX_DETECTED_FG"] = f"{fg[0]},{fg[1]},{fg[2]}"
+    else:
+        os.environ.pop("TELIX_DETECTED_FG", None)
     _detected_sw_name = sw.name if sw is not None else None
 
 
@@ -94,48 +98,49 @@ def _build_help_parser() -> argparse.ArgumentParser:
     )
 
     conn = parser.add_argument_group("Connection options")
-    conn.add_argument("--always-do", metavar="OPT", help=f"always send DO for this option {DAGGER}")
-    conn.add_argument("--always-dont", metavar="OPT", help=f"always send DONT for this option {DAGGER}")
-    conn.add_argument("--always-will", metavar="OPT", help=f"always send WILL for this option {DAGGER}")
-    conn.add_argument("--always-wont", metavar="OPT", help=f"always send WONT for this option {DAGGER}")
     conn.add_argument(
-        "--ansi-keys", action="store_true", help=f"transmit raw ANSI escape sequences for arrow/function keys {DAGGER}"
+        "--always-do", metavar="OPT", help="always send DO for this option (comma-separated, named like GMCP)"
     )
     conn.add_argument(
-        "--ascii-eol", action="store_true", help=f"use ASCII CR/LF instead of encoding-native EOL {DAGGER}"
-    )
-    conn.add_argument("--compression", action="store_true", default=None, help=f"request MCCP compression {DAGGER}")
-    conn.add_argument(
-        "--connect-maxwait", metavar="N", type=float, help=f"timeout for pending negotiation (default: 4.0) {DAGGER}"
+        "--always-dont", metavar="OPT", help="always send DONT for this option, refusing even natively supported"
     )
     conn.add_argument(
-        "--connect-minwait", metavar="N", type=float, help=f"shell delay for negotiation (default: 0) {DAGGER}"
+        "--always-will", metavar="OPT", help="always send WILL for this option (comma-separated, named like MXP)"
     )
     conn.add_argument(
-        "--connect-timeout",
-        metavar="N",
-        type=float,
-        help=f"timeout for TCP connection in seconds (default: 10) {DAGGER}",
+        "--always-wont", metavar="OPT", help="always send WONT for this option, refusing even natively supported"
+    )
+    conn.add_argument(
+        "--ansi-keys", action="store_true", help="transmit raw ANSI escape sequences for arrow/function keys"
+    )
+    conn.add_argument("--ascii-eol", action="store_true", help="use ASCII CR/LF instead of encoding-native EOL")
+    conn.add_argument("--compression", action="store_true", default=None, help="request MCCP compression")
+    conn.add_argument(
+        "--connect-maxwait", metavar="N", type=float, help="timeout for pending negotiation (default: 4.0)"
+    )
+    conn.add_argument("--connect-minwait", metavar="N", type=float, help="shell delay for negotiation (default: 0)")
+    conn.add_argument(
+        "--connect-timeout", metavar="N", type=float, help="timeout for connection in seconds (default: 10)"
     )
     conn.add_argument("--encoding", default="utf-8", help="encoding name (default: utf-8)")
     conn.add_argument("--encoding-errors", default="replace", help="handler for encoding errors (default: replace)")
-    conn.add_argument("--force-binary", action="store_true", help=f"force binary mode negotiation {DAGGER}")
-    conn.add_argument(
-        "--gmcp-modules", metavar="MODULES", help=f"comma-separated list of GMCP modules to request {DAGGER}"
-    )
+    conn.add_argument("--force-binary", action="store_true", help="force binary mode negotiation")
+    conn.add_argument("--gmcp-modules", metavar="MODULES", help="comma-separated list of GMCP modules to request")
     conn.add_argument("--line-mode", action="store_true", help="force line-mode input (default: auto-detect)")
     conn.add_argument("--logfile", metavar="FILE", help="write log to FILE")
     conn.add_argument("--logfile-mode", choices=["append", "rewrite"], help="log file write mode (default: append)")
     conn.add_argument("--loglevel", help="logging level (default: warn)")
     conn.add_argument("--no-repl", action="store_true", help="disable the interactive REPL (raw I/O only)")
     conn.add_argument("--raw-mode", action="store_true", help="force raw-mode input (default: auto-detect)")
-    conn.add_argument("--send-environ", metavar="VARS", help=f"comma-separated environment variables to send {DAGGER}")
+    conn.add_argument(
+        "--send-environ", metavar="VARS", help="comma-separated environment variables to send via NEW-ENVIRON"
+    )
     conn.add_argument("--shell", metavar="SHELL", help="dotted path to shell coroutine")
-    conn.add_argument("--speed", metavar="N", type=int, help=f"terminal speed to report (default: 38400) {DAGGER}")
+    conn.add_argument("--speed", metavar="N", type=int, help="terminal speed to report (default: 38400)")
     conn.add_argument("--ssl", action="store_true", help=f"enable SSL/TLS {DAGGER}")
     conn.add_argument("--ssl-cafile", metavar="PATH", help=f"CA bundle for SSL verification {DAGGER}")
     conn.add_argument("--ssl-no-verify", action="store_true", help=f"disable SSL certificate verification {DAGGER}")
-    conn.add_argument("--term", metavar="TERM", help=f"terminal type to negotiate (default: $TERM) {DAGGER}")
+    conn.add_argument("--term", metavar="TERM", help="terminal type to negotiate (default: $TERM)")
     conn.add_argument("--typescript", metavar="FILE", help="record session to FILE")
     conn.add_argument(
         "--typescript-mode", choices=["append", "rewrite"], help="typescript write mode (default: append)"
@@ -156,7 +161,7 @@ def _build_help_parser() -> argparse.ArgumentParser:
         "--no-ice-colors", action="store_true", help="disable iCE color (blink as bright background) support"
     )
 
-    parser.epilog = f"{DAGGER} telnet-only option (not applicable to WebSocket connections)"
+    parser.epilog = f"{DAGGER} telnet-only; for WebSocket connections use wss:// for SSL instead"
 
     return parser
 
@@ -244,12 +249,22 @@ def main() -> None:
         parser = ws_client.build_parser()
         args = parser.parse_args()
         no_repl = args.no_repl or server_type == "bbs"
+        raw_mode: bool | None = True if args.raw_mode else (False if args.line_mode else None)
         _color_args = argparse.Namespace(
             colormatch=args.colormatch,
             color_brightness=args.color_brightness,
             color_contrast=args.color_contrast,
             background_color=args.background_color,
             no_ice_colors=args.no_ice_colors,
+        )
+        compression: bool | None = True if args.compression else (False if args.no_compression else None)
+        always_do = telnetlib3.client._parse_option_list(args.always_do)
+        always_will = telnetlib3.client._parse_option_list(args.always_will)
+        always_dont = telnetlib3.client._parse_option_list(args.always_dont)
+        always_wont = telnetlib3.client._parse_option_list(args.always_wont)
+        gmcp_modules = [m.strip() for m in args.gmcp_modules.split(",") if m.strip()] if args.gmcp_modules else None
+        send_environ = (
+            tuple(e.strip() for e in args.send_environ.split(",") if e.strip()) if args.send_environ else None
         )
         try:
             asyncio.run(
@@ -264,6 +279,22 @@ def main() -> None:
                     typescript_mode=args.typescript_mode,
                     encoding=args.encoding,
                     encoding_errors=args.encoding_errors,
+                    raw_mode=raw_mode,
+                    ansi_keys=args.ansi_keys,
+                    ascii_eol=args.ascii_eol,
+                    always_do=always_do,
+                    always_will=always_will,
+                    always_dont=always_dont,
+                    always_wont=always_wont,
+                    force_binary=args.force_binary,
+                    term=args.term,
+                    speed=args.speed,
+                    send_environ=send_environ,
+                    gmcp_modules=gmcp_modules,
+                    connect_minwait=args.connect_minwait,
+                    connect_maxwait=args.connect_maxwait,
+                    connect_timeout=args.connect_timeout,
+                    compression=compression,
                 )
             )
         except KeyboardInterrupt:

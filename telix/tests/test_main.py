@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -125,6 +126,51 @@ class TestServerTypePresets:
 
         assert captured == [True]
 
+    def test_raw_mode_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--raw-mode and --encoding are forwarded to run_ws_client for ws:// connections."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--encoding=cp437", "--raw-mode", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append((kwargs.get("encoding"), kwargs.get("raw_mode")))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [("cp437", True)]
+
+    def test_line_mode_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--line-mode maps to raw_mode=False for ws:// connections."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--line-mode", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append(kwargs.get("raw_mode"))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [False]
+
+    def test_ansi_keys_ascii_eol_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--ansi-keys and --ascii-eol are forwarded to run_ws_client."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--ansi-keys", "--ascii-eol", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append((kwargs.get("ansi_keys"), kwargs.get("ascii_eol")))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [(True, True)]
+
     def test_mud_ws_keeps_repl(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """--mud keeps no_repl=False for WebSocket connections."""
         monkeypatch.setattr(sys, "argv", ["telix", "--mud", "ws://mud.example.com"])
@@ -139,6 +185,85 @@ class TestServerTypePresets:
             main()
 
         assert captured == [False]
+
+    def test_always_do_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--always-do is parsed to a set of bytes and forwarded to run_ws_client."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--always-do", "GMCP", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append(kwargs.get("always_do"))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        import telnetlib3.telopt
+
+        assert captured == [{telnetlib3.telopt.GMCP}]
+
+    def test_compression_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--compression sets compression=True for ws:// connections."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--compression", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append(kwargs.get("compression"))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [True]
+
+    def test_no_compression_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--no-compression sets compression=False for ws:// connections."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--no-compression", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append(kwargs.get("compression"))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [False]
+
+    def test_term_speed_send_environ_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--term, --speed, and --send-environ are forwarded to run_ws_client."""
+        monkeypatch.setattr(
+            sys, "argv", ["telix", "--term=xterm-256color", "--speed=9600", "--send-environ=TERM", "wss://example.com"]
+        )
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append((kwargs.get("term"), kwargs.get("speed"), kwargs.get("send_environ")))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [("xterm-256color", 9600, ("TERM",))]
+
+    def test_gmcp_modules_forwarded_for_ws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--gmcp-modules is parsed to a list and forwarded to run_ws_client."""
+        monkeypatch.setattr(sys, "argv", ["telix", "--gmcp-modules=Core.Supports,Char.Vitals", "wss://example.com"])
+        captured = []
+
+        async def fake_run_ws(
+            url, shell, no_repl, loglevel, logfile, typescript, logfile_mode, typescript_mode, **kwargs
+        ):
+            captured.append(kwargs.get("gmcp_modules"))
+
+        with patch("telix.main.ws_client.run_ws_client", side_effect=fake_run_ws):
+            main()
+
+        assert captured == [["Core.Supports", "Char.Vitals"]]
 
     def test_bbs_flag_removed_from_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """--bbs is removed from sys.argv before telnetlib3 parses it."""
@@ -156,13 +281,13 @@ class TestDetectTerminalColors:
         mock_term.get_bgcolor.return_value = (40, 40, 40)
         mock_term.get_fgcolor.return_value = (200, 200, 200)
         monkeypatch.setattr("blessed.Terminal", lambda: mock_term)
+        monkeypatch.delenv("TELIX_DETECTED_BG", raising=False)
+        monkeypatch.delenv("TELIX_DETECTED_FG", raising=False)
 
-        main_mod._detected_bg = None
-        main_mod._detected_fg = None
         _detect_terminal_colors()
 
-        assert main_mod._detected_bg == (40, 40, 40)
-        assert main_mod._detected_fg == (200, 200, 200)
+        assert os.environ.get("TELIX_DETECTED_BG") == "40,40,40"
+        assert os.environ.get("TELIX_DETECTED_FG") == "200,200,200"
 
     def test_converts_sentinel_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mock_term = MagicMock()
@@ -171,13 +296,13 @@ class TestDetectTerminalColors:
         mock_term.get_bgcolor.return_value = (-1, -1, -1)
         mock_term.get_fgcolor.return_value = (-1, -1, -1)
         monkeypatch.setattr("blessed.Terminal", lambda: mock_term)
+        monkeypatch.setenv("TELIX_DETECTED_BG", "1,2,3")
+        monkeypatch.setenv("TELIX_DETECTED_FG", "4,5,6")
 
-        main_mod._detected_bg = (1, 2, 3)
-        main_mod._detected_fg = (4, 5, 6)
         _detect_terminal_colors()
 
-        assert main_mod._detected_bg is None
-        assert main_mod._detected_fg is None
+        assert "TELIX_DETECTED_BG" not in os.environ
+        assert "TELIX_DETECTED_FG" not in os.environ
 
     def test_called_before_tui(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "argv", ["telix"])

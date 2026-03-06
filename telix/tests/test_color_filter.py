@@ -132,8 +132,7 @@ def test_explicit_reset() -> None:
 def test_empty_reset() -> None:
     f = _make_filter(background_color=(0, 0, 0))
     result = f.filter("\x1b[m")
-    assert "\x1b[0m" in result
-    assert "48;2;0;0;0" in result
+    assert "0;48;2;0;0;0" in result
     assert "38;2;170;170;170" in result
 
 
@@ -493,16 +492,38 @@ def test_force_black_bg_flag() -> None:
     assert "48;2;0;0;0" in result
 
 
-def test_erase_eol_injection_raw_mode() -> None:
+def test_erase_eol_injection() -> None:
     out = "line1\r\nline2\r\n"
-    result = out.replace("\r\n", "\x1b[K\r\n")
-    assert result == "line1\x1b[K\r\nline2\x1b[K\r\n"
+    result = out.replace("\r\n", "\x1b[K\r\n\x1b[K")
+    assert result == "line1\x1b[K\r\n\x1b[Kline2\x1b[K\r\n\x1b[K"
 
 
-def test_erase_eol_injection_cooked_mode() -> None:
-    out = "line1\nline2\n"
-    result = out.replace("\n", "\x1b[K\n")
-    assert result == "line1\x1b[K\nline2\x1b[K\n"
+def test_empty_reset_produces_single_sequence() -> None:
+    f = _make_filter()
+    f.filter("x")
+    result = f.filter("\x1b[m")
+    assert result.count("\x1b[") == 1
+
+
+def test_sgr7_reverse_emits_explicit_swapped_colors() -> None:
+    bg = (10, 20, 30)
+    f = _make_filter(background_color=bg)
+    f.filter("x")
+    result = f.filter("\x1b[7m")
+    fg_rgb = PALETTES["vga"][7]
+    assert f"48;2;{fg_rgb[0]};{fg_rgb[1]};{fg_rgb[2]}" in result
+    assert f"38;2;{bg[0]};{bg[1]};{bg[2]}" in result
+
+
+def test_sgr27_reverse_off_restores_colors() -> None:
+    bg = (10, 20, 30)
+    f = _make_filter(background_color=bg)
+    f.filter("x")
+    f.filter("\x1b[7m")
+    result = f.filter("\x1b[27m")
+    fg_rgb = PALETTES["vga"][7]
+    assert f"38;2;{fg_rgb[0]};{fg_rgb[1]};{fg_rgb[2]}" in result
+    assert f"48;2;{bg[0]};{bg[1]};{bg[2]}" in result
 
 
 @pytest.mark.parametrize(

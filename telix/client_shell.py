@@ -15,6 +15,7 @@ the ``gmcp.mudstandards.org`` wire format.
 import io
 import os
 import sys
+import shlex
 import typing
 import asyncio
 import logging
@@ -47,6 +48,108 @@ log = logging.getLogger(__name__)
 __all__ = ("telix_client_shell", "ws_client_shell")
 
 
+def load_configs(ctx: "session_context.TelixSessionContext") -> None:
+    """
+    Create config/data directories and load all per-session config files into *ctx*.
+
+    Handles macros, autoreplies, highlights, progress bars, GMCP snapshot, chat, rooms, and history.  Missing files are
+    silently skipped so first-time connections start with empty defaults.
+
+    :param ctx: Session context to populate.
+    """
+    config_dir = str(paths.xdg_config_dir())
+    os.makedirs(config_dir, exist_ok=True)
+    os.makedirs(str(paths.xdg_data_dir()), exist_ok=True)
+
+    macros_path = os.path.join(config_dir, "macros.json")
+    ctx.macros_file = macros_path
+    if os.path.isfile(macros_path):
+        ctx.macro_defs = macros.load_macros(macros_path, ctx.session_key)
+    ctx.macro_defs = macros.ensure_builtin_macros(ctx.macro_defs)
+
+    disconnect = next((m for m in ctx.macro_defs if m.builtin_name == "disconnect" and m.enabled), None)
+    if disconnect is not None:
+        seq = macros.key_name_to_seq(disconnect.key)
+        if seq is not None:
+            ctx.keyboard_escape = seq
+
+    autoreplies_path = os.path.join(config_dir, "autoreplies.json")
+    ctx.autoreplies_file = autoreplies_path
+    if os.path.isfile(autoreplies_path):
+        ctx.autoreply_rules = autoreply.load_autoreplies(autoreplies_path, ctx.session_key)
+
+    highlights_path = os.path.join(config_dir, "highlights.json")
+    ctx.highlights_file = highlights_path
+    if os.path.isfile(highlights_path):
+        ctx.highlight_rules = highlighter.load_highlights(highlights_path, ctx.session_key)
+
+    progressbars_path = os.path.join(config_dir, "progressbars.json")
+    ctx.progressbars_file = progressbars_path
+    if os.path.isfile(progressbars_path):
+        ctx.progressbar_configs = progressbars.load_progressbars(progressbars_path, ctx.session_key)
+
+    ctx.gmcp_snapshot_file = paths.gmcp_snapshot_path(ctx.session_key)
+
+    chat_file = paths.chat_path(ctx.session_key)
+    ctx.chat_file = chat_file
+    if os.path.isfile(chat_file):
+        ctx.chat_messages = chat.load_chat(chat_file)
+    ctx.on_chat_text = lambda data: chat.append_chat_msg(ctx, data)
+    ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
+
+    rooms_file = rooms.rooms_path(ctx.session_key)
+    ctx.rooms_file = rooms_file
+    ctx.current_room_file = rooms.current_room_path(ctx.session_key)
+    ctx.room_graph = rooms.RoomStore(rooms_file)
+
+    def on_room_info(data: typing.Any) -> None:
+        num = str(data["num"])
+        ctx.previous_room_num = ctx.current_room_num
+        ctx.current_room_num = num
+        ctx.room_changed.set()
+        ctx.room_changed.clear()
+        ctx.room_graph.update_room(data)
+        rooms.write_current_room(ctx.current_room_file, num)
+
+    ctx.on_room_info = on_room_info
+    ctx.history_file = paths.history_path(ctx.session_key)
+
+
+class ColorFilteredWriter:
+    """
+    Wraps an ``asyncio.StreamWriter`` to apply the session color filter to all writes.
+
+    Used in raw-mode paths where :func:`telnetlib3.client_shell._raw_event_loop` writes
+    decoded server text as bytes directly to stdout, bypassing the REPL's filter step.
+
+    :param inner: The underlying ``asyncio.StreamWriter``.
+    :param ctx: Session context carrying ``color_filter`` and ``erase_eol``.
+    :param encoding: Character encoding for decoding bytes before filtering.
+    """
+
+    def __init__(
+        self, inner: asyncio.StreamWriter, ctx: session_context.TelixSessionContext, encoding: "str | None" = None
+    ) -> None:
+        self.inner = inner
+        self.ctx = ctx
+        self.encoding = encoding or ctx.encoding or "utf-8"
+
+    def write(self, data: bytes) -> None:
+        """Filter *data* through the color filter if one is active, then write."""
+        # XXX TODO: implement dynamically changing IncrementalDecoder like done in telnetlib3
+        cf = self.ctx.color_filter
+        if cf is not None:
+            text = data.decode(self.encoding, errors="replace")
+            text = cf.filter(text)
+            if self.ctx.erase_eol:
+                text = text.replace("\r\n", "\x1b[K\r\n\x1b[K")
+            data = text.encode(self.ctx.encoding, errors="replace")
+        self.inner.write(data)
+
+    def __getattr__(self, name: str) -> typing.Any:
+        return getattr(self.inner, name)
+
+
 def build_session_key(
     writer: (
         telnetlib3.stream_writer.TelnetWriter
@@ -72,102 +175,35 @@ def build_session_key(
         return ""
     _stderr_buf = io.StringIO()
     try:
+        from . import main as _main_mod
+
+        # Strip telix-specific args (e.g. --colormatch none) before passing to telnetlib3's parser
+        # so they don't get misread as the positional port argument.
+        stripped = _main_mod._build_telix_parser().parse_known_args(sys.argv[1:])[1]
         with contextlib.redirect_stderr(_stderr_buf):
-            args = telnetlib3.client._get_argument_parser().parse_known_args(sys.argv[1:])[0]
-        if args.host:
+            args = telnetlib3.client._get_argument_parser().parse_known_args(stripped)[0]
+        if args.host and not args.host.startswith(("ws://", "wss://")):
             return f"{args.host}:{args.port}"
     except (SystemExit, Exception):
         pass
     finally:
         lines = [line for line in _stderr_buf.getvalue().splitlines() if line.strip()]
         if lines:
-            log.error("stderr captured during argv parse:")
+            log.error("argv parse error (command: %s):", shlex.join(sys.argv))
             for line in lines:
                 log.error("%s", line)
+            # "required" errors mean argv lacks connection info; use peername fallback.
+            # "invalid" errors (wrong type, bad value) indicate a real misconfiguration.
+            if any("invalid" in line.lower() for line in lines):
+                sys.exit(1)
     peername = writer.get_extra_info("peername")
     if peername:
         return f"{peername[0]}:{peername[1]}"
     return ""
 
 
-def load_configs(ctx: session_context.SessionContext) -> None:
-    """
-    Load per-session config files into *ctx*.
-
-    Missing config files are silently skipped so first-time connections start with empty defaults.
-    """
-    session_key = ctx.session_key
-    config_dir = str(paths.xdg_config_dir())
-    os.makedirs(config_dir, exist_ok=True)
-    os.makedirs(str(paths.xdg_data_dir()), exist_ok=True)
-
-    # macros
-    macros_path = os.path.join(config_dir, "macros.json")
-    ctx.macros_file = macros_path
-    if os.path.isfile(macros_path):
-        ctx.macro_defs = macros.load_macros(macros_path, session_key)
-    ctx.macro_defs = macros.ensure_builtin_macros(ctx.macro_defs)
-
-    # resolve dynamic keyboard escape from disconnect builtin
-    disconnect = next((m for m in ctx.macro_defs if m.builtin_name == "disconnect" and m.enabled), None)
-    if disconnect is not None:
-        seq = macros.key_name_to_seq(disconnect.key)
-        if seq is not None:
-            ctx.keyboard_escape = seq
-
-    # autoreplies
-    autoreplies_path = os.path.join(config_dir, "autoreplies.json")
-    ctx.autoreplies_file = autoreplies_path
-    if os.path.isfile(autoreplies_path):
-        ctx.autoreply_rules = autoreply.load_autoreplies(autoreplies_path, session_key)
-
-    # highlights
-    highlights_path = os.path.join(config_dir, "highlights.json")
-    ctx.highlights_file = highlights_path
-    if os.path.isfile(highlights_path):
-        ctx.highlight_rules = highlighter.load_highlights(highlights_path, session_key)
-
-    # progress bars
-    progressbars_path = os.path.join(config_dir, "progressbars.json")
-    ctx.progressbars_file = progressbars_path
-    if os.path.isfile(progressbars_path):
-        ctx.progressbar_configs = progressbars.load_progressbars(progressbars_path, session_key)
-
-    # GMCP snapshot
-    ctx.gmcp_snapshot_file = paths.gmcp_snapshot_path(session_key)
-
-    # chat
-    chat_file = paths.chat_path(session_key)
-    ctx.chat_file = chat_file
-    if os.path.isfile(chat_file):
-        ctx.chat_messages = chat.load_chat(chat_file)
-
-    ctx.on_chat_text = lambda data: chat.append_chat_msg(ctx, data)
-    ctx.on_chat_channels = lambda data: setattr(ctx, "chat_channels", data)
-
-    # rooms
-    rooms_file = rooms.rooms_path(session_key)
-    ctx.rooms_file = rooms_file
-    ctx.current_room_file = rooms.current_room_path(session_key)
-    ctx.room_graph = rooms.RoomStore(rooms_file)
-
-    def on_room_info(data: dict[str, typing.Any]) -> None:
-        num = str(data["num"])
-        ctx.previous_room_num = ctx.current_room_num
-        ctx.current_room_num = num
-        ctx.room_changed.set()
-        ctx.room_changed.clear()
-        ctx.room_graph.update_room(data)
-        rooms.write_current_room(ctx.current_room_file, num)
-
-    ctx.on_room_info = on_room_info
-
-    # history
-    ctx.history_file = paths.history_path(session_key)
-
-
 def want_repl(
-    ctx: session_context.SessionContext,
+    ctx: session_context.TelixSessionContext,
     writer: (telnetlib3.stream_writer.TelnetWriter | telnetlib3.stream_writer.TelnetWriterUnicode),
 ) -> bool:
     """Return True when the REPL should be active."""
@@ -177,7 +213,7 @@ def want_repl(
 
 
 def _setup_color_filter(
-    ctx: session_context.SessionContext,
+    ctx: session_context.TelixSessionContext,
     writer: (
         telnetlib3.stream_writer.TelnetWriter
         | telnetlib3.stream_writer.TelnetWriterUnicode
@@ -233,19 +269,21 @@ def _setup_color_filter(
         bg_color = bg_str
     fg_color: tuple[int, int, int] | None = None
 
-    # Use terminal colors cached by main() before frameworks took stdin.
-    _main_mod = sys.modules.get("telix.main")
-    if _main_mod is not None:
-        if _main_mod._detected_bg is not None:
-            bg_color = _main_mod._detected_bg
-        if _main_mod._detected_fg is not None:
-            fg_color = _main_mod._detected_fg
+    # Terminal colors detected at startup (before any framework took stdin) are
+    # stored in env vars so subprocess connections inherit them automatically.
+    bg_env = os.environ.get("TELIX_DETECTED_BG")
+    if bg_env:
+        r, g, b = (int(x) for x in bg_env.split(","))
+        bg_color = (r, g, b)
+    fg_env = os.environ.get("TELIX_DETECTED_FG")
+    if fg_env:
+        r, g, b = (int(x) for x in fg_env.split(","))
+        fg_color = (r, g, b)
 
     force_black_bg = getattr(args, "force_black_bg", False)
     if force_black_bg:
         bg_color = (0, 0, 0)
         fg_color = None
-        ctx.erase_eol = True
 
     color_config = ColorConfig(
         palette_name=colormatch,
@@ -257,6 +295,7 @@ def _setup_color_filter(
         force_black_bg=force_black_bg,
     )
     ctx.color_filter = ColorFilter(color_config)
+    ctx.erase_eol = True
 
 
 async def telix_client_shell(
@@ -277,24 +316,17 @@ async def telix_client_shell(
     """
     # 1. Build SessionContext and attach to writer, preserving attributes
     #    that run_client() wrappers already set on the original ctx.
-    session_key = build_session_key(telnet_writer)
-    old_ctx = telnet_writer.ctx
-    ctx = session_context.SessionContext(session_key=session_key)
-    ctx.typescript_file = old_ctx.typescript_file
-    ctx.raw_mode = old_ctx.raw_mode
-    ctx.ascii_eol = old_ctx.ascii_eol
-    ctx.input_filter = old_ctx.input_filter
-    ctx.writer = telnet_writer
+    ctx = telnet_writer.ctx = session_context.TelixSessionContext.create_using_telnet_ctx(
+        writer=telnet_writer, session_key=build_session_key(telnet_writer), encoding=telnet_writer.environ_encoding
+    )
     ctx.repl_enabled = True
-    telnet_writer.ctx = ctx
 
-    # 2. Load per-session configs.
+    # 2. Load per-session configs, set up color filter from CLI arguments
     load_configs(ctx)
 
-    # 2b. Set up color filter from CLI args.
     _setup_color_filter(ctx, telnet_writer)
 
-    # 3. Override GMCP callback to dispatch ctx hooks after base storage.
+    # 3. Setup GMCP callbacks
     base_on_gmcp = telnet_writer._ext_callback.get(telnetlib3.telopt.GMCP)
 
     def on_gmcp(package: str, data: typing.Any) -> None:
@@ -404,12 +436,13 @@ async def telix_client_shell(
             state = telnetlib3.client_shell._RawLoopState(
                 switched_to_raw=switched_to_raw, last_will_echo=last_will_echo, local_echo=local_echo, linesep=linesep
             )
+            raw_stdout = ColorFilteredWriter(stdout, ctx) if ctx.color_filter is not None else stdout
             await telnetlib3.client_shell._raw_event_loop(
                 telnet_reader,
                 telnet_writer,
                 tty_shell,
                 stdin,
-                stdout,
+                raw_stdout,  # type: ignore[arg-type]
                 keyboard_escape,
                 state,
                 handle_close,
@@ -430,7 +463,7 @@ async def telix_client_shell(
         ctx.close()
 
 
-async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_transport.WebSocketWriter) -> None:
+async def ws_client_shell(ws_reader: ws_transport.WebSocketReader, ws_writer: ws_transport.WebSocketWriter) -> None:
     """
     Telix client shell for WebSocket connections.
 
@@ -446,99 +479,86 @@ async def ws_client_shell(reader: ws_transport.WebSocketReader, writer: ws_trans
     :param reader: :class:`WebSocketReader` fed by the receive loop.
     :param writer: :class:`WebSocketWriter` wrapping the WebSocket connection.
     """
-    # 1. Build SessionContext and attach to writer, preserving no_repl from initial ctx.
-    session_key = build_session_key(writer)
-    old_ctx = writer.ctx
-    ctx = session_context.SessionContext(session_key=session_key)
-    ctx.encoding = getattr(old_ctx, "encoding", "utf-8")
-    ctx.writer = writer
-    ctx.repl_enabled = not old_ctx.no_repl
-    typescript_path = getattr(old_ctx, "typescript_path", "")
-    typescript_mode = getattr(old_ctx, "typescript_mode", "append")
-    writer.ctx = ctx
+    # 1. Build SessionContext and attach to writer, preserving attributes from initial ctx.
+    no_repl = getattr(ws_writer.ctx, "no_repl", False)
+    ctx = ws_writer.ctx = session_context.TelixSessionContext.create_using_telnet_ctx(
+        session_key=build_session_key(ws_writer), writer=ws_writer, encoding=ws_writer.encoding
+    )
+    ctx.repl_enabled = not no_repl
 
-    ts_file = None
-    if typescript_path:
-        ts_file = open(typescript_path, "w" if typescript_mode == "rewrite" else "a", encoding="utf-8")
-        ctx.typescript_file = ts_file
+    # 2. Load per-session configs.
+    load_configs(ctx)
 
-    try:
-        # 2. Load per-session configs.
-        load_configs(ctx)
+    # 2b. Set up color filter from CLI args.
+    _setup_color_filter(ctx, ws_writer)
 
-        # 2b. Set up color filter from CLI args.
-        _setup_color_filter(ctx, writer)
+    # 3. Wire GMCP dispatch (no base callback -- WebSocket has none).
+    def on_gmcp(package: str, data: typing.Any) -> None:
+        if package == "Comm.Channel.Text":
+            if ctx.on_chat_text is not None:
+                ctx.on_chat_text(data)
+        elif package == "Comm.Channel.List":
+            if ctx.on_chat_channels is not None:
+                ctx.on_chat_channels(data)
+        elif package == "Room.Info":
+            if ctx.on_room_info is not None:
+                ctx.on_room_info(data)
 
-        # 3. Wire GMCP dispatch (no base callback -- WebSocket has none).
-        def on_gmcp(package: str, data: typing.Any) -> None:
-            if package == "Comm.Channel.Text":
-                if ctx.on_chat_text is not None:
-                    ctx.on_chat_text(data)
-            elif package == "Comm.Channel.List":
-                if ctx.on_chat_channels is not None:
-                    ctx.on_chat_channels(data)
-            elif package == "Room.Info":
-                if ctx.on_room_info is not None:
-                    ctx.on_room_info(data)
+    ws_writer.set_ext_callback(ws_transport.GMCP, on_gmcp)
 
-        writer.set_ext_callback(ws_transport.GMCP, on_gmcp)
+    keyboard_escape = ctx.keyboard_escape
 
-        keyboard_escape = ctx.keyboard_escape
+    # Terminal / repl_event_loop / _flush_color_filter are typed for
+    # TelnetWriter but accept any duck-compatible writer at runtime.
+    with telnetlib3.client_shell.Terminal(telnet_writer=ws_writer) as tty_shell:  # type: ignore[arg-type]
+        linesep = "\n"
+        stdout = await tty_shell.make_stdout()
+        tty_shell.setup_winch()
 
-        # Terminal / repl_event_loop / _flush_color_filter are typed for
-        # TelnetWriter but accept any duck-compatible writer at runtime.
-        with telnetlib3.client_shell.Terminal(telnet_writer=writer) as tty_shell:  # type: ignore[arg-type]
-            linesep = "\n"
-            stdout = await tty_shell.make_stdout()
-            tty_shell.setup_winch()
+        escape_name = telnetlib3.accessories.name_unicode(keyboard_escape)
+        banner_sep = "\r\n" if tty_shell._istty else linesep
+        stdout.write(f"Escape character is '{escape_name}'.{banner_sep}".encode())
 
-            escape_name = telnetlib3.accessories.name_unicode(keyboard_escape)
-            banner_sep = "\r\n" if tty_shell._istty else linesep
-            stdout.write(f"Escape character is '{escape_name}'.{banner_sep}".encode())
+        def handle_close(msg: str) -> None:
+            cf = ctx.color_filter
+            if cf is not None:
+                flush = cf.flush()
+                if flush:
+                    stdout.write(flush.encode())
+            stdout.write(f"\033[m{linesep}{msg}{linesep}".encode())
+            tty_shell.cleanup_winch()
 
-            def handle_close(msg: str) -> None:
-                cf = ctx.color_filter
-                if cf is not None:
-                    flush = cf.flush()
-                    if flush:
-                        stdout.write(flush.encode())
-                stdout.write(f"\033[m{linesep}{msg}{linesep}".encode())
-                tty_shell.cleanup_winch()
-
-            if tty_shell._istty and ctx.repl_enabled:
-                await client_repl.repl_event_loop(
-                    reader,  # type: ignore[arg-type]
-                    writer,  # type: ignore[arg-type]
-                    tty_shell,
-                    stdout,
-                    history_file=ctx.history_file,
-                )
-                handle_close("Connection closed.")
-            elif tty_shell._istty:
-                # Raw mode: byte-at-a-time I/O for BBS connections.
-                if tty_shell._save_mode is not None:
-                    tty_shell.set_mode(tty_shell._make_raw(tty_shell._save_mode, suppress_echo=True))
-                linesep = "\r\n"
-                stdin = await tty_shell.connect_stdin()  # pylint: disable=no-member
-                state = telnetlib3.client_shell._RawLoopState(
-                    switched_to_raw=True, last_will_echo=False, local_echo=not writer.will_echo, linesep=linesep
-                )
-                await telnetlib3.client_shell._raw_event_loop(
-                    reader,  # type: ignore[arg-type]
-                    writer,  # type: ignore[arg-type]
-                    tty_shell,
-                    stdin,
-                    stdout,
-                    keyboard_escape,
-                    state,
-                    handle_close,
-                    lambda: False,  # never switch back to REPL
-                )
-                tty_shell.disconnect_stdin(stdin)  # pylint: disable=no-member
-            else:
-                handle_close("Connection closed.")
-
-        ctx.close()
-    finally:
-        if ts_file is not None:
-            ts_file.close()
+        if tty_shell._istty and ctx.repl_enabled:
+            await client_repl.repl_event_loop(
+                ws_reader,  # type: ignore[arg-type]
+                ws_writer,  # type: ignore[arg-type]
+                tty_shell,
+                stdout,
+                history_file=ctx.history_file,
+            )
+            handle_close("Connection closed.")
+        elif tty_shell._istty:
+            # Raw mode: byte-at-a-time I/O for BBS connections.
+            if tty_shell._save_mode is not None:
+                tty_shell.set_mode(tty_shell._make_raw(tty_shell._save_mode, suppress_echo=True))
+            linesep = "\r\n"
+            stdin = await tty_shell.connect_stdin()  # pylint: disable=no-member
+            state = telnetlib3.client_shell._RawLoopState(
+                switched_to_raw=True, last_will_echo=False, local_echo=not ws_writer.will_echo, linesep=linesep
+            )
+            raw_stdout = ColorFilteredWriter(stdout, ctx) if ctx.color_filter is not None else stdout
+            await telnetlib3.client_shell._raw_event_loop(
+                ws_reader,  # type: ignore[arg-type]
+                ws_writer,  # type: ignore[arg-type]
+                tty_shell,
+                stdin,
+                raw_stdout,  # type: ignore[arg-type]
+                keyboard_escape,
+                state,
+                handle_close,
+                lambda: False,  # never switch back to REPL
+            )
+            tty_shell.disconnect_stdin(stdin)  # pylint: disable=no-member
+        else:
+            handle_close("Connection closed.")
+    ctx.close()

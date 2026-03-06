@@ -122,7 +122,7 @@ if TYPE_CHECKING:
 
     from . import client_shell
     from .macros import Macro
-    from .session_context import SessionContext
+    from .session_context import TelixSessionContext
 
 EDIT_THEME_RE = re.compile(r"^`edit\s+theme`$", re.IGNORECASE)
 
@@ -214,6 +214,7 @@ def terminal_cleanup() -> str:
     return (
         str(blessed_term.normal)
         + str(blessed_term.cursor_normal)
+        + "\x1b[r"  # DECSTBM -- reset scroll region before leaving alt screen
         + str(blessed_term.exit_fullscreen)
         + "\x1b[?1000l"  # xterm -- disable basic mouse
         + "\x1b[?1002l"  # xterm -- disable button-event mouse
@@ -222,7 +223,6 @@ def terminal_cleanup() -> str:
         + "\x1b[?1016l"  # xterm -- disable SGR-Pixel mouse ext
         + "\x1b[?2004l"  # xterm -- disable bracketed paste
         + "\x1b[?2048l"  # xterm -- disable in-band resize
-        + "\x1b[r"  # DECSTBM -- reset scroll region to default
         + CURSOR.COLOR_RESET_OSC  # OSC 112 -- reset cursor color
         + "\x1b[<u"  # kitty -- disable kitty keyboard protocol
     )
@@ -654,7 +654,7 @@ if sys.platform != "win32":
             """Register a handler for a raw character sequence."""
             self.by_seq[char] = handler
 
-        def set_macros(self, macros: "list[Macro]", ctx: "SessionContext", logger: logging.Logger) -> None:
+        def set_macros(self, macros: "list[Macro]", ctx: "TelixSessionContext", logger: logging.Logger) -> None:
             """Replace all macro bindings from a macro definition list."""
             macro_handlers = build_macro_dispatch(macros, ctx, logger)
             for key_name, handler in macro_handlers.items():
@@ -782,7 +782,7 @@ if sys.platform != "win32":
             self.history_file = history_file
             self.banner_lines = banner_lines
 
-            self.ctx: SessionContext = telnet_writer.ctx  # type: ignore[assignment]
+            self.ctx: TelixSessionContext = telnet_writer.ctx  # type: ignore[assignment]
             set_session_key(self.ctx.session_key)
             self.is_ssl = telnet_writer.get_extra_info("ssl_object") is not None
             self.conn_info = self.ctx.session_key + (" SSL" if self.is_ssl else "")
@@ -1454,7 +1454,7 @@ if sys.platform != "win32":
                 out = self.ctx.mslp_collector.filter(out)
                 out = telnetlib3.client_shell._transform_output(out, self.telnet_writer, True)
                 if self.ctx.erase_eol:
-                    out = out.replace("\r\n", "\x1b[K\r\n")
+                    out = out.replace("\r\n", "\x1b[K\r\n\x1b[K")
                 ts = self.ctx.typescript_file
                 if ts is not None:
                     ts.write(out)

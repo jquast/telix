@@ -49,6 +49,15 @@ def load_favorites() -> list[dict[str, typing.Any]]:
         if enc:
             enc = _ENCODING_ALIASES.get(enc, enc)
             entry["encoding"] = enc
+        mode = values.get("mode")
+        if mode in ("auto", "raw", "line"):
+            entry["mode"] = mode
+        protocol = values.get("protocol")
+        if protocol in ("telnet", "websocket"):
+            entry["protocol"] = protocol
+        ws_path = values.get("ws_path")
+        if ws_path:
+            entry["ws_path"] = ws_path
         entries.append(entry)
     return entries
 
@@ -58,8 +67,6 @@ def _apply_type_presets(cfg: client_tui_base.SessionConfig, entry_type: str) -> 
     if entry_type == "bbs":
         cfg.colormatch = "vga"
         cfg.ice_colors = True
-        cfg.mode = "raw"
-        cfg.no_repl = True
         cfg.compression = None  # passive
     elif entry_type == "mud":
         cfg.colormatch = "none"
@@ -82,6 +89,15 @@ def _entry_to_session(entry: dict[str, typing.Any]) -> client_tui_base.SessionCo
     entry_type = entry.get("type", "")
     _apply_type_presets(cfg, entry_type)
     cfg.server_type = entry_type
+    mode = entry.get("mode")
+    if mode in ("auto", "raw", "line"):
+        cfg.mode = mode
+    protocol = entry.get("protocol")
+    if protocol in ("telnet", "websocket"):
+        cfg.protocol = protocol
+    ws_path = entry.get("ws_path")
+    if ws_path:
+        cfg.ws_path = ws_path
     return cfg
 
 

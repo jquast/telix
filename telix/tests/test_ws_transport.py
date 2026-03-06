@@ -227,7 +227,7 @@ class TestWebSocketWriterEncoding:
         """Default writer encoding is UTF-8."""
         ws = MagicMock()
         writer = WebSocketWriter(ws)
-        assert writer._encoding == "utf-8"
+        assert writer.encoding == "utf-8"
 
     def test_write_bytes_bypass_encoding(self):
         """Write() with bytes skips encoding entirely."""

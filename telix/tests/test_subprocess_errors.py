@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from telix.client_tui_base import write_crash_file
-from telix.session_context import SessionContext
+from telix.session_context import TelixSessionContext
 from telix.client_repl_dialogs import (
     read_crash_file,
     handle_crash_file,
@@ -42,7 +42,7 @@ def stub_terminal(monkeypatch):
 
 
 def make_ctx():
-    ctx = SessionContext(session_key="host:1234")
+    ctx = TelixSessionContext(session_key="host:1234")
     ctx.macros_file = "/tmp/macros.json"
     ctx.autoreplies_file = "/tmp/autoreplies.json"
     ctx.highlights_file = "/tmp/highlights.json"
@@ -158,7 +158,7 @@ class TestLauncherCrashEnv:
         monkeypatch.setattr("sys.stderr", MagicMock(flush=MagicMock()))
         monkeypatch.setattr("sys.__stderr__", MagicMock(flush=MagicMock(), isatty=MagicMock(return_value=False)))
 
-        ctx_arg = [a for a in args if isinstance(a, SessionContext)]
+        ctx_arg = [a for a in args if isinstance(a, TelixSessionContext)]
         if ctx_arg:
             ctx_arg[0].room_graph = None
 

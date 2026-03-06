@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     import blessed
 
     from .autoreply import AutoreplyRule
-    from .session_context import SessionContext
+    from .session_context import TelixSessionContext
 
 # (start, end, highlight, stop_movement, rule_idx, match)
 Span = tuple[int, int, str, bool, int, re.Match[str] | None]
@@ -255,7 +255,7 @@ class HighlightEngine:
         rules: list[HighlightRule],
         autoreply_rules: list["AutoreplyRule"],
         term: "blessed.Terminal",
-        ctx: "SessionContext | None" = None,
+        ctx: "TelixSessionContext | None" = None,
         autoreply_highlight: str = DEFAULT_AUTOREPLY_HIGHLIGHT,
         autoreply_enabled: bool = True,
     ) -> None:

@@ -17,7 +17,7 @@ from .client_repl_commands import TRAVEL_RE, COMMAND_DELAY
 if TYPE_CHECKING:
     from .rooms import RoomGraph
     from .autoreply import AutoreplyEngine
-    from .session_context import SessionContext
+    from .session_context import TelixSessionContext
 
 DEFAULT_WALK_LIMIT = 999
 STANDARD_DIRS = frozenset(
@@ -33,7 +33,7 @@ SETTLE_YIELD_DELAY = 0.05
 
 async def fast_travel(
     steps: list[tuple[str, str]],
-    ctx: "SessionContext",
+    ctx: "TelixSessionContext",
     log: logging.Logger,
     destination: str = "",
     correct_names: bool = True,
@@ -377,7 +377,7 @@ async def fast_travel(
 
 
 async def autodiscover(
-    ctx: "SessionContext",
+    ctx: "TelixSessionContext",
     log: logging.Logger,
     limit: int = DEFAULT_WALK_LIMIT,
     resume: bool = False,
@@ -639,7 +639,7 @@ async def autodiscover(
 
 
 async def randomwalk(
-    ctx: "SessionContext",
+    ctx: "TelixSessionContext",
     log: logging.Logger,
     limit: int = DEFAULT_WALK_LIMIT,
     resume: bool = False,
@@ -992,7 +992,7 @@ async def randomwalk(
         ctx.active_command = None
 
 
-async def handle_travel_commands(parts: list[str], ctx: "SessionContext", log: logging.Logger) -> list[str]:
+async def handle_travel_commands(parts: list[str], ctx: "TelixSessionContext", log: logging.Logger) -> list[str]:
     """
     Scan *parts* for travel commands, execute them, and return remaining parts.
 
