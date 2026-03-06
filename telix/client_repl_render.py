@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     import blessed
     import blessed.line_editor
 
-    from . import autoreply as autoreply_mod, progressbars
+    from . import autoreply as autoreply_mod
+    from . import progressbars
     from .session_context import TelixSessionContext
 
 # 3rd party
@@ -1181,7 +1182,11 @@ class ToolbarRenderer:
         return needs_reflash
 
     def config_driven_bars(
-        self, gmcp_data: dict[str, Any], bar_configs: "list[progressbars.BarConfig]", now: float, slots: list[ToolbarSlot]
+        self,
+        gmcp_data: dict[str, Any],
+        bar_configs: "list[progressbars.BarConfig]",
+        now: float,
+        slots: list[ToolbarSlot],
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
         from . import progressbars  # circular
@@ -1355,7 +1360,12 @@ class ToolbarRenderer:
             )
 
     def right_slot(
-        self, engine: "autoreply_mod.AutoreplyEngine | None", ar_active: bool, discover_active: bool, randomwalk_active: bool, slots: list[ToolbarSlot]
+        self,
+        engine: "autoreply_mod.AutoreplyEngine | None",
+        ar_active: bool,
+        discover_active: bool,
+        randomwalk_active: bool,
+        slots: list[ToolbarSlot],
     ) -> None:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:

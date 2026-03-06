@@ -36,7 +36,7 @@ import textual.css.query
 import textual.containers
 
 # local
-from . import terminal, util, paths, rooms
+from . import util, paths, rooms, terminal
 
 log = logging.getLogger(__name__)
 

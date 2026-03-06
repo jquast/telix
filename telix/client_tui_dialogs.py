@@ -2020,6 +2020,7 @@ def tui_main() -> None:
         app.run()
     except BaseException:
         import traceback
+
         client_tui_base.pause_before_exit()
         sys.stdout.write(client_tui_base.TERMINAL_CLEANUP)
         sys.stdout.flush()

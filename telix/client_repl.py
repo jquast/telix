@@ -439,9 +439,9 @@ class ScrollRegion:
         """
         Increase the reserved bottom area and reapply scroll region.
 
-        Emits newlines inside the current scroll region first so that any server text on the rows about to be
-        claimed is scrolled up rather than silently overwritten (e.g. a password prompt arriving just as the GMCP
-        status bar appears).
+        Emits newlines inside the current scroll region first so that any server text on the rows about to be claimed is
+        scrolled up rather than silently overwritten (e.g. a password prompt arriving just as the GMCP status bar
+        appears).
         """
         if new_reserve <= self.reserve:
             return
@@ -493,9 +493,7 @@ class ScrollRegion:
         self.stdout.write(blessed_term.change_scroll_region(0, bottom).encode())
         dmz = bottom + 1
         if dmz < self.input_row:
-            self.stdout.write(
-                (blessed_term.move_yx(dmz, 0) + blessed_term.clear_eol + dmz_line(self.cols)).encode()
-            )
+            self.stdout.write((blessed_term.move_yx(dmz, 0) + blessed_term.clear_eol + dmz_line(self.cols)).encode())
         self.stdout.write(blessed_term.move_yx(bottom, 0).encode())
 
     def reset_scroll_region(self) -> None:
@@ -524,6 +522,7 @@ class ScrollRegion:
         self.reset_scroll_region()
         blessed_term = get_term()
         self.stdout.write(blessed_term.move_yx(self.rows - 1, 0).encode())
+
 
 @contextlib.asynccontextmanager
 async def repl_scaffold(
@@ -580,6 +579,7 @@ async def repl_scaffold(
         if orig_send_naws is not None:
             telnet_writer.handle_send_naws = orig_send_naws  # type: ignore[method-assign]
 
+
 async def run_repl_tasks(server_coro: "typing.Any", input_coro: "typing.Any") -> None:
     """Run server and input coroutines; cancel the other when one finishes."""
     server_task = asyncio.ensure_future(server_coro)
@@ -591,6 +591,7 @@ async def run_repl_tasks(server_coro: "typing.Any", input_coro: "typing.Any") ->
             await task
         except asyncio.CancelledError:
             pass
+
 
 class KeyDispatch:
     """Route blessed keystrokes to hotkey handlers before the line editor."""
@@ -627,7 +628,8 @@ class KeyDispatch:
         return None
 
     def lookup_ansi(self, key: "blessed.keyboard.Keystroke") -> str | None:
-        """Return the ANSI escape sequence for *key* if one is mapped, else ``None``.
+        """
+        Return the ANSI escape sequence for *key* if one is mapped, else ``None``.
 
         Used when ``ansi_keys`` is enabled to transmit raw sequences for
         navigation keys on platforms where blessed returns named keystrokes
@@ -643,7 +645,9 @@ class KeyDispatch:
             return macros_mod.key_name_to_ansi_seq(name)
         return None
 
+
 LINE_HOLD_TIMEOUT = 0.15
+
 
 class LineHoldBuffer:
     r"""
@@ -666,8 +670,8 @@ class LineHoldBuffer:
         Accept new server text, return ``(emit_now, held_back)``.
 
         Complete lines (everything up to and including the last ``\n``) are run through the highlight engine and
-        returned as *emit_now*. The trailing incomplete fragment is stored internally and returned as *held_back*
-        (for the caller to decide whether to schedule a timer).
+        returned as *emit_now*. The trailing incomplete fragment is stored internally and returned as *held_back* (for
+        the caller to decide whether to schedule a timer).
         """
         combined = self._pending + text
         nl_pos = combined.rfind("\n")
@@ -718,6 +722,7 @@ class LineHoldBuffer:
                 highlighted, matched = engine.process_line(part)
                 result.append(highlighted)
         return "\n".join(result)
+
 
 class ReplSession:
     """
@@ -1125,9 +1130,7 @@ class ReplSession:
             self.toolbar.last_ar_bg = active
             dmz_row = self.scroll.scroll_bottom + 1
             if dmz_row < self.scroll.input_row:
-                self.stdout.write(
-                    (self.blessed_term.move_yx(dmz_row, 0) + dmz_line(self.scroll.cols, active)).encode()
-                )
+                self.stdout.write((self.blessed_term.move_yx(dmz_row, 0) + dmz_line(self.scroll.cols, active)).encode())
             ac_age = time.monotonic() - self.ctx.active_command_time
             cmd_visible = self.ctx.command_queue is not None or (
                 self.ctx.active_command is not None and ac_age < FLASH.DURATION
@@ -1497,13 +1500,7 @@ class ReplSession:
             elif self.mslp_index is not None:
                 mslp_cmd = self.ctx.mslp_collector.available[self.mslp_index].command
                 cursor_col = render_active_command(
-                    mslp_cmd,
-                    scroll,
-                    self.stdout,
-                    hint=self.hint_text(),
-                    progress=prog,
-                    base_bg_sgr=bg,
-                    autoreply=ar,
+                    mslp_cmd, scroll, self.stdout, hint=self.hint_text(), progress=prog, base_bg_sgr=bg, autoreply=ar
                 )
             else:
                 self.update_input_style()
@@ -1788,6 +1785,7 @@ class ReplSession:
                 self.cleanup()
 
         return self.mode_switched
+
 
 async def repl_event_loop(
     telnet_reader: "telnetlib3.TelnetReader | telnetlib3.TelnetReaderUnicode",

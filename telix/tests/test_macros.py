@@ -17,9 +17,9 @@ from telix.macros import (
     Macro,
     load_macros,
     save_macros,
-    key_name_to_ansi_seq,
     key_name_to_seq,
     build_macro_dispatch,
+    key_name_to_ansi_seq,
     ensure_builtin_macros,
 )
 

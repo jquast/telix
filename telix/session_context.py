@@ -10,7 +10,7 @@ import telnetlib3._session_context  # pylint: disable=no-name-in-module
 from . import mslp, macros, autoreply, ws_transport, gmcp_snapshot
 
 if TYPE_CHECKING:
-    from . import highlighter, progressbars, rooms, client_repl_render
+    from . import rooms, highlighter, progressbars, client_repl_render
 
 
 class CommandQueue:
