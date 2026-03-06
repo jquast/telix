@@ -48,12 +48,12 @@ wcwidth_, and textual_::
                 |
                 +--> wcwidth
 
-wcwidth_ is depended on by each of Telix, telnetlib3_, blessed_, and rich_.  wcwidth_ to measure the
-width of strings containing sequences and complex unicode. blessed_ is depended on for general
-terminal support for access to terminal sequence, feature detection, and keyboard handling, and to
-provide the repl for MUD connections. telnetlib3_ also requires blessed for the same, and, textual_
-is used for all complex TUIs, which depends on its core library rich_.  For Windows systems, jinxed_
-is used by both Telix and telnetlib3_ for msvcrt keyboard routines.
+wcwidth_ is depended on by each of Telix, telnetlib3_, blessed_, and rich_.  wcwidth_ is used to
+measure the width of strings containing sequences and complex unicode. blessed_ is depended on for
+general terminal support for access to terminal sequence, feature detection, and keyboard handling,
+and to provide the repl for MUD connections. telnetlib3_ also requires blessed for the same, and,
+textual_ is used for all complex TUIs, which depends on its core library rich_.  For Windows
+systems, jinxed_ is used by both Telix and telnetlib3_ for msvcrt keyboard routines.
 
 Telix code file overview::
 
