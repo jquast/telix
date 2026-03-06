@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     import blessed
     import blessed.line_editor
 
+    from . import autoreply as autoreply_mod, progressbars
     from .session_context import TelixSessionContext
 
 # 3rd party
@@ -138,7 +139,7 @@ DISPLAY = DisplayChars()
 CANCEL_SUFFIX = "  [return to cancel]"
 
 
-def activity_hint(engine: Any, cols: int = 0) -> str:
+def activity_hint(engine: "autoreply_mod.AutoreplyEngine | None", cols: int = 0) -> str:
     """
     Build a short autoreply status hint from *engine*.
 
@@ -172,7 +173,7 @@ def activity_hint(engine: Any, cols: int = 0) -> str:
     return status + CANCEL_SUFFIX
 
 
-def until_progress(engine: Any) -> float | None:
+def until_progress(engine: "autoreply_mod.AutoreplyEngine | None") -> float | None:
     """
     Return the until timer progress fraction, or ``None``.
 
@@ -1021,7 +1022,7 @@ class ToolbarRenderer:
 
     CURSOR_SHOW_DELAY = 0.05
 
-    def is_autoreply_bg(self, engine: Any) -> bool:
+    def is_autoreply_bg(self, engine: "autoreply_mod.AutoreplyEngine | None") -> bool:
         """Return whether the input row should use the autoreply background."""
         ar = engine is not None and (engine.exclusive_active or engine.reply_pending)
         return self.ctx.discover_active or self.ctx.randomwalk_active or ar
@@ -1062,7 +1063,7 @@ class ToolbarRenderer:
 
         self.cursor_show_handle = loop.call_later(self.CURSOR_SHOW_DELAY, do_show)
 
-    def render(self, autoreply_engine: Any) -> bool:
+    def render(self, autoreply_engine: "autoreply_mod.AutoreplyEngine | None") -> bool:
         """
         Render GMCP vitals toolbar at ``scroll.input_row + 1``.
 
@@ -1102,7 +1103,7 @@ class ToolbarRenderer:
 
     def build_slots(
         self,
-        engine: Any,
+        engine: "autoreply_mod.AutoreplyEngine | None",
         ar_active: bool,
         discover_active: bool,
         randomwalk_active: bool,
@@ -1180,7 +1181,7 @@ class ToolbarRenderer:
         return needs_reflash
 
     def config_driven_bars(
-        self, gmcp_data: dict[str, Any], bar_configs: list[Any], now: float, slots: list[ToolbarSlot]
+        self, gmcp_data: dict[str, Any], bar_configs: "list[progressbars.BarConfig]", now: float, slots: list[ToolbarSlot]
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
         from . import progressbars  # circular
@@ -1354,7 +1355,7 @@ class ToolbarRenderer:
             )
 
     def right_slot(
-        self, engine: Any, ar_active: bool, discover_active: bool, randomwalk_active: bool, slots: list[ToolbarSlot]
+        self, engine: "autoreply_mod.AutoreplyEngine | None", ar_active: bool, discover_active: bool, randomwalk_active: bool, slots: list[ToolbarSlot]
     ) -> None:
         """Append the right-side slot (walk mode, autoreply, or room name)."""
         if randomwalk_active:
@@ -1544,7 +1545,7 @@ class ToolbarRenderer:
     def schedule_flash(
         self,
         loop: asyncio.AbstractEventLoop,
-        autoreply_engine: Any,
+        autoreply_engine: "autoreply_mod.AutoreplyEngine | None",
         editor: "blessed.line_editor.LiveLineEditor",
         bt: "blessed.Terminal",
     ) -> None:
@@ -1644,7 +1645,7 @@ class ToolbarRenderer:
     def schedule_eta_refresh(
         self,
         loop: asyncio.AbstractEventLoop,
-        autoreply_engine: Any,
+        autoreply_engine: "autoreply_mod.AutoreplyEngine | None",
         editor: "blessed.line_editor.LiveLineEditor",
         bt: "blessed.Terminal",
     ) -> None:
@@ -1691,7 +1692,7 @@ class ToolbarRenderer:
     def schedule_until_progress(
         self,
         loop: asyncio.AbstractEventLoop,
-        autoreply_engine: Any,
+        autoreply_engine: "autoreply_mod.AutoreplyEngine | None",
         editor: "blessed.line_editor.LiveLineEditor",
         bt: "blessed.Terminal",
     ) -> None:

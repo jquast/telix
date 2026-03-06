@@ -10,7 +10,7 @@ import telnetlib3._session_context  # pylint: disable=no-name-in-module
 from . import mslp, macros, autoreply, ws_transport, gmcp_snapshot
 
 if TYPE_CHECKING:
-    from .session_context import TelixSessionContext
+    from . import highlighter, progressbars, rooms, client_repl_render
 
 
 class CommandQueue:
@@ -48,7 +48,7 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         autoreply_engine: Any | None = None,
         autoreply_wait_fn: Callable[..., Awaitable[None]] | None = None,
         typescript_file: IO[str] | None = None,
-        gmcp_data: "dict[str, Any] | None" = None,
+        gmcp_data: dict[str, Any] | None = None,
     ):
         """Initialize session context with default state."""
         super().__init__()
@@ -62,7 +62,7 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.session_key: str = session_key
 
         # room / navigation
-        self.room_graph: Any = None
+        self.room_graph: rooms.RoomStore | None = None
         self.rooms_file: str = ""
         self.current_room_file: str = ""
         self.current_room_num: str = ""
@@ -100,15 +100,15 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.command_queue: CommandQueue | None = None
 
         # macros & autoreplies (autoreply_engine inherited from base)
-        self.macro_defs: list[Any] = []
+        self.macro_defs: list[macros.Macro] = []
         self.macros_file: str = ""
-        self.autoreply_rules: list[Any] = []
+        self.autoreply_rules: list[autoreply.AutoreplyRule] = []
         self.autoreplies_file: str = ""
 
         # highlighters
-        self.highlight_rules: list[Any] = []
+        self.highlight_rules: list[highlighter.HighlightRule] = []
         self.highlights_file: str = ""
-        self.highlight_engine: Any | None = None
+        self.highlight_engine: highlighter.HighlightEngine | None = None
 
         # prompt / GA pacing
         self.wait_for_prompt: Callable[..., Awaitable[None]] | None = None
@@ -122,7 +122,7 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.gmcp_dirty: bool = False
 
         # progress bars
-        self.progressbar_configs: list[Any] = []
+        self.progressbar_configs: list[progressbars.BarConfig] = []
         self.progressbars_file: str = ""
 
         # highlight captures
@@ -151,9 +151,9 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.history_file: str | None = None
 
         # modem activity dots (set by REPL, used by send_chained et al.)
-        self.rx_dot: Any | None = None
-        self.tx_dot: Any | None = None
-        self.cx_dot: Any | None = None
+        self.rx_dot: client_repl_render.ActivityDot | None = None
+        self.tx_dot: client_repl_render.ActivityDot | None = None
+        self.cx_dot: client_repl_render.ActivityDot | None = None
 
         # REPL internals
         self.key_dispatch: Any | None = None
@@ -174,8 +174,8 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         cls,
         writer: (telnetlib3.stream_writer.TelnetWriterUnicode | ws_transport.WebSocketWriter),
         session_key: str,
-        encoding,
-    ) -> TelixSessionContext:
+        encoding: str,
+    ) -> "TelixSessionContext":
         # writer: ws_transport.WebSocketWriter
         """Class factory method, makes TelixSessionContext from TelnetSessionContext."""
         return cls(

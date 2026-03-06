@@ -18,10 +18,14 @@ import asyncio
 import logging
 import datetime
 import dataclasses
+from typing import TYPE_CHECKING
 
 import blessed.line_editor
 
 from . import paths
+
+if TYPE_CHECKING:
+    from .session_context import TelixSessionContext
 
 __all__ = (
     "BUILTIN_MACROS",
@@ -238,7 +242,7 @@ def ensure_builtin_macros(macros: list[Macro]) -> list[Macro]:
     return result
 
 
-def build_macro_dispatch(macros: list[Macro], ctx: typing.Any, log: logging.Logger) -> dict[str, typing.Any]:
+def build_macro_dispatch(macros: list[Macro], ctx: "TelixSessionContext", log: logging.Logger) -> dict[str, typing.Any]:
     """
     Build a blessed key name to handler mapping from macro defs.
 

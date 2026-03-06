@@ -21,6 +21,7 @@ import json
 import typing
 import asyncio
 import logging
+from collections.abc import Callable
 
 import telnetlib3.telopt
 import websockets.exceptions
@@ -64,7 +65,7 @@ def parse_gmcp_frame(text: str) -> tuple[str, typing.Any]:
         return (package, raw)
 
 
-IacEvent = tuple[str, ...]
+IacEvent = tuple[str, bytes] | tuple[str, bytes, bytes]
 """
 Type alias for IAC events returned by :func:`extract_iac`.
 
@@ -284,7 +285,7 @@ class NullOptionSet:
     """Stub for ``telnet_writer.local_option`` / ``remote_option``."""
 
     @staticmethod
-    def enabled(key: typing.Any) -> bool:
+    def enabled(key: object) -> bool:
         """Return ``False`` for all telnet options."""
         return False
 
@@ -314,9 +315,9 @@ class WebSocketWriter:
         self._ws = ws
         self._closing = False
         self._peername = peername
-        self._ext_callback: dict[bytes, typing.Any] = {}
-        self._iac_callback: dict[bytes, typing.Any] = {}
-        self._send_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
+        self._ext_callback: dict[bytes, Callable[..., object]] = {}
+        self._iac_callback: dict[bytes, Callable[..., object]] = {}
+        self._send_queue: asyncio.Queue[bytes | str | None] = asyncio.Queue()
         self.encoding = encoding
         self.ctx: TelixSessionContext = None
         self.log = logging.getLogger("telix.ws_transport")
@@ -327,7 +328,7 @@ class WebSocketWriter:
         self.local_option = NullOptionSet()
         self.remote_option = NullOptionSet()
         self.client: bool = True
-        self.handle_send_naws: typing.Any = None
+        self.handle_send_naws: Callable[[], None] | None = None
 
     def write(self, text: str | bytes) -> None:
         """
@@ -362,7 +363,7 @@ class WebSocketWriter:
         """Return ``True`` if :meth:`close` has been called."""
         return self._closing
 
-    def get_extra_info(self, name: str, default: typing.Any = None) -> typing.Any:
+    def get_extra_info(self, name: str, default: object = None) -> object:
         """
         Return transport metadata.
 
@@ -375,7 +376,7 @@ class WebSocketWriter:
             return None
         return default
 
-    def set_ext_callback(self, key: bytes, callback: typing.Any) -> None:
+    def set_ext_callback(self, key: bytes, callback: Callable[..., object]) -> None:
         r"""
         Register an extension callback (e.g. GMCP).
 
@@ -384,7 +385,7 @@ class WebSocketWriter:
         """
         self._ext_callback[key] = callback
 
-    def set_iac_callback(self, key: bytes, callback: typing.Any) -> None:
+    def set_iac_callback(self, key: bytes, callback: Callable[..., object]) -> None:
         r"""
         Register an IAC callback (e.g. GA, EOR).
 

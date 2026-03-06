@@ -9,9 +9,13 @@ import os
 import json
 import typing
 import datetime
+from typing import TYPE_CHECKING
 
 # local
 from . import paths
+
+if TYPE_CHECKING:
+    from .session_context import TelixSessionContext
 
 #: Maximum number of chat messages persisted to disk.
 CHAT_FILE_CAP = 1000
@@ -47,7 +51,7 @@ def persist_chat(path: str, msg: dict[str, typing.Any]) -> None:
     paths.atomic_write(path, json.dumps(msgs, ensure_ascii=False) + "\n")
 
 
-def append_chat_msg(ctx: typing.Any, data: dict[str, typing.Any]) -> None:
+def append_chat_msg(ctx: "TelixSessionContext", data: dict[str, typing.Any]) -> None:
     """
     Append a GMCP ``Comm.Channel.Text`` message to chat state and disk.
 
