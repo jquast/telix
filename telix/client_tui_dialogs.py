@@ -308,6 +308,8 @@ class RoomBrowserPane(textual.containers.Vertical):
             return False
         # Force tree line rebuild so node.line values are current.
         _ = tree._tree_lines
+        # Suppress on_tree_node_selected travel triggered by programmatic selection.
+        self.cursor_just_moved = True
         tree.select_node(target)
         tree.focus()
         return True
@@ -854,6 +856,8 @@ class CapsPane(textual.containers.Vertical):
         textual.binding.Binding("f10", "close", "Close", show=False),
         textual.binding.Binding("q", "close", "Close", show=False),
         textual.binding.Binding("f1", "toggle_keys", "Keys", show=True),
+        textual.binding.Binding("up", "prev_channel", "Prev", show=False),
+        textual.binding.Binding("down", "next_channel", "Next", show=False),
         textual.binding.Binding("tab", "next_channel", "Next Channel", show=True),
         textual.binding.Binding("shift+tab", "prev_channel", "Prev Channel", show=True, priority=True),
     ]
@@ -862,16 +866,28 @@ class CapsPane(textual.containers.Vertical):
     CapsPane {
         width: 100%; height: 100%;
     }
-    #chat-header {
-        height: 1;
+    #chat-sidebar {
+        width: 16;
+        height: 100%;
         background: $surface;
-        padding: 0 1;
     }
-    #chat-channel-bar {
+    #chat-sidebar Button {
+        width: 100%;
         height: 1;
+        margin: 0;
+        padding: 0 1;
+        border: none;
+        background: $surface-lighten-1;
+        color: $text-muted;
+    }
+    #chat-sidebar Button.active-channel {
+        background: $accent;
+        color: $text;
+        text-style: bold;
     }
     #chat-log {
-        height: 1fr;
+        height: 100%;
+        width: 1fr;
         background: $surface;
         padding: 0 1;
     }
@@ -900,17 +916,18 @@ class CapsPane(textual.containers.Vertical):
         self.capture_log: dict[str, list[dict[str, typing.Any]]] = {}
 
     def compose(self) -> textual.app.ComposeResult:
-        """Build the chat viewer layout."""
-        with textual.containers.Vertical(id="chat-header"):
-            yield textual.widgets.Static("", id="chat-channel-bar")
-        yield textual.widgets.RichLog(highlight=False, markup=False, wrap=True, id="chat-log")
+        """Build the chat viewer layout with a vertical channel sidebar."""
+        with textual.containers.Horizontal():
+            with textual.containers.Vertical(id="chat-sidebar"):
+                pass
+            yield textual.widgets.RichLog(highlight=False, markup=False, wrap=True, id="chat-log")
 
     def on_mount(self) -> None:
         """Load chat file, select initial channel, and populate the log."""
         self.load_messages()
         if self.initial_channel and self.initial_channel in self.channels:
             self.filter_idx = self.channels.index(self.initial_channel) + 1
-        self.update_channel_bar()
+        self.rebuild_sidebar()
         self.populate_log()
 
     def load_messages(self) -> None:
@@ -946,18 +963,25 @@ class CapsPane(textual.containers.Vertical):
             return ""
         return labels[self.filter_idx]
 
-    def update_channel_bar(self) -> None:
-        """Rebuild the horizontal channel bar with the active channel highlighted."""
-        labels = self.channel_labels()
-        channel_bar = rich.text.Text("Channel (TAB changes): ")
-        for i, name in enumerate(labels):
-            if i > 0:
-                channel_bar.append("  ")
+    def rebuild_sidebar(self) -> None:
+        """Rebuild the channel sidebar buttons to match current channel list."""
+        sidebar = self.query_one("#chat-sidebar", textual.containers.Vertical)
+        sidebar.remove_children()
+        for i, name in enumerate(self.channel_labels()):
+            display = name if len(name) <= 14 else name[:14] + "\u2026"
+            btn = textual.widgets.Button(display, id=f"ch-btn-{i}")
             if i == self.filter_idx:
-                channel_bar.append(f" {name} ", style="reverse bold")
+                btn.add_class("active-channel")
+            sidebar.mount(btn)
+
+    def update_channel_sidebar(self) -> None:
+        """Update active-channel class on sidebar buttons without rebuilding."""
+        for btn in self.query("#chat-sidebar Button"):
+            btn_idx = int((btn.id or "ch-btn-0").split("-")[-1])
+            if btn_idx == self.filter_idx:
+                btn.add_class("active-channel")
             else:
-                channel_bar.append(name, style="dim")
-        self.query_one("#chat-channel-bar", textual.widgets.Static).update(channel_bar)
+                btn.remove_class("active-channel")
 
     def populate_log(self, channel_filter: str = "") -> None:
         """Fill the RichLog with chat and capture messages, optionally filtered."""
@@ -1033,13 +1057,21 @@ class CapsPane(textual.containers.Vertical):
         else:
             self.app.action_show_help_panel()
 
+    def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
+        """Handle channel sidebar button clicks."""
+        btn_id = event.button.id or ""
+        if btn_id.startswith("ch-btn-"):
+            self.filter_idx = int(btn_id.split("-")[-1])
+            self.update_channel_sidebar()
+            self.populate_log()
+
     def action_next_channel(self) -> None:
         """Cycle forward through channel filters."""
         if not self.channels:
             return
         labels = self.channel_labels()
         self.filter_idx = (self.filter_idx + 1) % len(labels)
-        self.update_channel_bar()
+        self.update_channel_sidebar()
         self.populate_log()
 
     def action_prev_channel(self) -> None:
@@ -1048,7 +1080,7 @@ class CapsPane(textual.containers.Vertical):
             return
         labels = self.channel_labels()
         self.filter_idx = (self.filter_idx - 1) % len(labels)
-        self.update_channel_bar()
+        self.update_channel_sidebar()
         self.populate_log()
 
 
@@ -1098,7 +1130,7 @@ EDITOR_TABS: list[tuple[str, str]] = [
     ("Rooms", "rooms"),
     ("Macros", "macros"),
     ("Autoreplies", "autoreplies"),
-    ("Caps & Chats", "captures"),
+    ("Chats", "captures"),
     ("Bars", "bars"),
     ("Theme", "theme"),
 ]
@@ -1112,6 +1144,8 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
     BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
         textual.binding.Binding("escape", "close_or_back", "Close", priority=True),
         textual.binding.Binding("f1", "show_help", "Help", show=False, priority=True),
+        textual.binding.Binding("left", "prev_tab", "Prev Tab", show=False),
+        textual.binding.Binding("right", "next_tab", "Next Tab", show=False),
     ]
 
     CSS = """
@@ -1236,6 +1270,20 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
     def action_show_help(self) -> None:
         """Open the keybindings help screen."""
         self.app.push_screen(client_tui_base.CommandHelpScreen(topic="keybindings"))
+
+    def action_next_tab(self) -> None:
+        """Switch to the next tab (wraps around)."""
+        ids = [tid for _, tid in self.visible_tabs()]
+        current = self.query_one("#te-content", textual.widgets.ContentSwitcher).current or ""
+        idx = ids.index(current) if current in ids else 0
+        self.action_switch_tab(ids[(idx + 1) % len(ids)])
+
+    def action_prev_tab(self) -> None:
+        """Switch to the previous tab (wraps around)."""
+        ids = [tid for _, tid in self.visible_tabs()]
+        current = self.query_one("#te-content", textual.widgets.ContentSwitcher).current or ""
+        idx = ids.index(current) if current in ids else 0
+        self.action_switch_tab(ids[(idx - 1) % len(ids)])
 
     def action_switch_tab(self, tab_id: str) -> None:
         """Switch to *tab_id*, loading it lazily if needed."""
