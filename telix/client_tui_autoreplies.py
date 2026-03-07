@@ -49,8 +49,8 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
     #autoreply-form .form-label { width: 12; }
     #autoreply-form .form-label-mid { width: 9; }
     #autoreply-form .insert-btn { margin: 0; padding: 0 1; }
-    #autoreply-cond-source { width: 25; }
-    #autoreply-cond-vital { width: 18; }
+    #autoreply-cond-source { width: 22; }
+    #autoreply-cond-vital { width: 23; }
     #autoreply-cond-op { width: 8; }
     #autoreply-cond-val { width: 9; border: tall grey; }
     #autoreply-cond-val:focus { border: tall $accent; }
@@ -341,13 +341,14 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
                 if "hp%" in fields:
                     cond_vital = "hp%"
         source_sel = self.query_one("#autoreply-cond-source", textual.widgets.Select)
-        source_sel.value = cond_source
         field_sel = self.query_one("#autoreply-cond-vital", textual.widgets.Select)
-        field_sel.set_options(self.gmcp_field_choices(cond_source))
-        field_sel.value = cond_vital
-        field_sel.disabled = not cond_source
-        self.query_one("#autoreply-cond-op", textual.widgets.Select).value = cond_op
-        self.query_one("#autoreply-cond-val", textual.widgets.Input).value = cond_val
+        with self.prevent(textual.widgets.Select.Changed):
+            source_sel.value = cond_source
+            field_sel.set_options(self.gmcp_field_choices(cond_source))
+            field_sel.value = cond_vital
+            field_sel.disabled = not cond_source
+            self.query_one("#autoreply-cond-op", textual.widgets.Select).value = cond_op
+            self.query_one("#autoreply-cond-val", textual.widgets.Input).value = cond_val
         cond_none = not cond_vital
         self.query_one("#autoreply-cond-op", textual.widgets.Select).disabled = cond_none
         self.query_one("#autoreply-cond-val", textual.widgets.Input).disabled = cond_none
