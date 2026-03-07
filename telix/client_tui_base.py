@@ -314,8 +314,10 @@ class SessionConfig:
     # Connection
     host: str = ""
     port: int = 23
-    protocol: str = "telnet"  # "telnet" or "websocket"
+    protocol: str = "telnet"  # "telnet", "websocket", or "ssh"
     ws_path: str = ""  # path appended to WebSocket URL (e.g. "/ws")
+    ssh_username: str = ""  # empty = os.getlogin() at runtime
+    ssh_key_file: str = ""  # path to private key; empty = password auth
     ssl: bool = False
     ssl_cafile: str = ""
     ssl_no_verify: bool = False
@@ -444,6 +446,8 @@ def build_command(config: SessionConfig) -> list[str]:
     """
     if config.protocol == "websocket":
         return build_ws_command(config)
+    if config.protocol == "ssh":
+        return build_ssh_command(config)
     return build_telnet_command(config)
 
 
@@ -576,6 +580,39 @@ def build_ws_command(config: SessionConfig) -> list[str]:
                 cmd.extend([flag, opt])
     if not getattr(config, "ice_colors", True):
         cmd.append("--no-ice-colors")
+    return cmd
+
+
+def build_ssh_command(config: SessionConfig) -> list[str]:
+    """
+    Build ``telix-ssh`` CLI arguments from *config*.
+
+    SSH connections always use BBS mode (raw, VGA palette, iCE colors);
+    those flags are applied automatically by :func:`~telix.ssh_client.main`.
+    """
+    cmd = [sys.executable, "-c", "from telix.ssh_client import main; main()", config.host]
+    if config.port != 22:
+        cmd += ["--port", str(config.port)]
+    if config.ssh_username:
+        cmd += ["--username", config.ssh_username]
+    if config.ssh_key_file:
+        cmd += ["--key-file", config.ssh_key_file]
+    if config.colormatch != "vga":
+        cmd += ["--colormatch", config.colormatch]
+    if not config.ice_colors:
+        cmd.append("--no-ice-colors")
+    if config.background_color != "#000000":
+        cmd += ["--background-color", config.background_color]
+    if config.color_brightness != 1.0:
+        cmd += ["--color-brightness", str(config.color_brightness)]
+    if config.color_contrast != 1.0:
+        cmd += ["--color-contrast", str(config.color_contrast)]
+    if config.loglevel != "warn":
+        cmd += ["--loglevel", config.loglevel]
+    if config.logfile:
+        cmd += ["--logfile", config.logfile]
+    if config.typescript:
+        cmd += ["--typescript", config.typescript]
     return cmd
 
 
@@ -1244,15 +1281,23 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         height: auto;
     }
     #ssl-col {
-        width: 22;
+        width: 20;
         height: auto;
         padding-left: 2;
     }
     #ws-path {
-        width: 17;
+        width: 14;
         display: none;
     }
     #ws-path.visible {
+        display: block;
+    }
+    #ssh-col {
+        width: 1fr;
+        height: auto;
+        display: none;
+    }
+    #ssh-col.visible {
         display: block;
     }
     #ssl-compress-row {
@@ -1272,9 +1317,12 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         height: auto;
     }
     #ssl-label {
-        width: 9;
+        width: 7;
         text-align: right;
         padding-top: 1;
+    }
+    #ssl {
+        margin-left: 1;
     }
     #connect-timeout {
         max-width: 13;
@@ -1387,7 +1435,9 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                 textual.widgets.Input(value=cfg.host, placeholder="hostname", id="host", classes="field-input"),
                 textual.widgets.Label("Port", id="port-label"),
                 textual.widgets.Input(
-                    value=str(cfg.port), placeholder="443" if cfg.protocol == "websocket" else "23", id="port"
+                    value=str(cfg.port),
+                    placeholder="22" if cfg.protocol == "ssh" else ("443" if cfg.protocol == "websocket" else "23"),
+                    id="port",
                 ),
                 classes="field-row",
                 id="host-row",
@@ -1397,14 +1447,26 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                     yield textual.widgets.Label("Protocol", classes="conn-label")
                     with textual.widgets.RadioSet(id="protocol-radio"):
                         yield textual.widgets.RadioButton(
-                            "Telnet", value=cfg.protocol != "websocket", id="proto-telnet"
+                            "Telnet", value=cfg.protocol in {"telnet", ""}, id="proto-telnet"
                         )
                         yield textual.widgets.RadioButton(
                             "WebSocket", value=cfg.protocol == "websocket", id="proto-websocket"
                         )
+                        yield textual.widgets.RadioButton(
+                            "SSH", value=cfg.protocol == "ssh", id="proto-ssh"
+                        )
                 yield textual.widgets.Input(
                     value=cfg.ws_path, placeholder="/ws", id="ws-path", tooltip="WebSocket path appended to URL"
                 )
+                with textual.containers.Vertical(id="ssh-col"):
+                    yield textual.widgets.Input(
+                        value=cfg.ssh_username, placeholder="username", id="ssh-username",
+                        tooltip="SSH login username (empty = system login)"
+                    )
+                    yield textual.widgets.Input(
+                        value=cfg.ssh_key_file, placeholder="path to private key", id="ssh-key-file",
+                        tooltip="Path to SSH private key file (empty = password auth)"
+                    )
                 with textual.containers.Horizontal(id="ssl-col"):
                     yield textual.widgets.Label("SSL/TLS", id="ssl-label")
                     yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
@@ -1589,14 +1651,27 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                 radio_set._selected = idx
         self.apply_ssl_compression(self.config.ssl)
         if not self.is_defaults:
-            self.apply_protocol_visibility(self.config.protocol == "websocket")
+            self.apply_protocol_visibility(self.config.protocol)
+            if self.config.protocol == "ssh":
+                try:
+                    self.query_one("#server-type-radio", textual.widgets.RadioSet).disabled = True
+                except textual.css.query.NoMatches:
+                    pass
 
     def on_radio_set_changed(self, event: textual.widgets.RadioSet.Changed) -> None:
         """Handle radio-set changes for server type, protocol, and terminal mode."""
         if event.radio_set.id == "server-type-radio":
             self.apply_server_type(event.pressed.id)
         elif event.radio_set.id == "protocol-radio":
-            self.apply_protocol_visibility(event.pressed.id == "proto-websocket")
+            protocol = event.pressed.id.removeprefix("proto-")
+            self.apply_protocol_visibility(protocol)
+            server_type_radio = self.query_one("#server-type-radio", textual.widgets.RadioSet)
+            if protocol == "ssh":
+                self.apply_server_type("type-bbs")
+                self.select_radio("server-type-radio", "type-bbs")
+                server_type_radio.disabled = True
+            else:
+                server_type_radio.disabled = False
         elif event.radio_set.id == "mode-radio":
             is_raw = event.pressed.id == "mode-raw"
             repl_switch = self.query_one("#use-repl", textual.widgets.Switch)
@@ -1676,15 +1751,26 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             if self.query_one("#compress-no", textual.widgets.RadioButton).value:
                 self.select_radio("compression-radio", "compress-passive")
 
-    def apply_protocol_visibility(self, is_ws: bool) -> None:
-        """Toggle visibility of telnet-only and websocket-only widgets."""
+    def apply_protocol_visibility(self, protocol: str) -> None:
+        """Toggle visibility of protocol-specific widgets."""
+        is_ws = protocol == "websocket"
+        is_ssh = protocol == "ssh"
         self.query_one("#ws-path").set_class(is_ws, "visible")
+        self.query_one("#ssh-col").set_class(is_ssh, "visible")
+        self.query_one("#ssl-col").display = not is_ssh
         port_input = self.query_one("#port", textual.widgets.Input)
-        port_input.placeholder = "443" if is_ws else "23"
+        if is_ssh:
+            port_input.placeholder = "22"
+        elif is_ws:
+            port_input.placeholder = "443"
+        else:
+            port_input.placeholder = "23"
         port_val = int_val(port_input.value, 0)
-        if is_ws and port_val == 23:
+        if is_ssh and port_val == 23:
+            port_input.value = "22"
+        elif is_ws and port_val in (23, 22):
             port_input.value = "443"
-        elif (not is_ws and port_val == 443) or (not is_ws and port_val == 80):
+        elif not is_ssh and not is_ws and port_val in (443, 80, 22):
             port_input.value = "23"
 
     def on_select_changed(self, event: textual.widgets.Select.Changed) -> None:
@@ -1842,8 +1928,12 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             cfg.host = self.query_one("#host", textual.widgets.Input).value.strip()
             cfg.port = int_val(self.query_one("#port", textual.widgets.Input).value, 23)
             cfg.ws_path = self.query_one("#ws-path", textual.widgets.Input).value.strip()
+            cfg.ssh_username = self.query_one("#ssh-username", textual.widgets.Input).value.strip()
+            cfg.ssh_key_file = self.query_one("#ssh-key-file", textual.widgets.Input).value.strip()
             if self.query_one("#proto-websocket", textual.widgets.RadioButton).value:
                 cfg.protocol = "websocket"
+            elif self.query_one("#proto-ssh", textual.widgets.RadioButton).value:
+                cfg.protocol = "ssh"
             else:
                 cfg.protocol = "telnet"
         else:

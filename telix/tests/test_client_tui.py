@@ -49,6 +49,7 @@ from telix.client_tui import (
     save_sessions,
     build_tooltips,
     get_help_topic,
+    build_ssh_command,
     normalize_encoding,
     read_primary_selection,
 )
@@ -359,6 +360,87 @@ def test_build_command_telnet_logfile_mode_rewrite() -> None:
     cmd = build_command(cfg)
     assert "--logfile-mode" in cmd
     assert "rewrite" in cmd
+
+
+def test_session_config_ssh_field_defaults() -> None:
+    cfg = SessionConfig()
+    assert cfg.ssh_username == ""
+    assert cfg.ssh_key_file == ""
+    assert cfg.protocol == "telnet"
+
+
+def test_session_config_ssh_roundtrip() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, protocol="ssh", ssh_username="user", ssh_key_file="/key")
+    restored = SessionConfig(**asdict(cfg))
+    assert restored.ssh_username == "user"
+    assert restored.ssh_key_file == "/key"
+    assert restored.protocol == "ssh"
+
+
+def test_build_command_dispatches_ssh() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, protocol="ssh")
+    cmd = build_command(cfg)
+    assert "ssh_client" in cmd[2]
+
+
+def test_build_command_dispatches_telnet() -> None:
+    cfg = SessionConfig(host="example.com", port=23, protocol="telnet")
+    cmd = build_command(cfg)
+    assert "telix.main" in cmd[2]
+
+
+def test_build_command_dispatches_websocket() -> None:
+    cfg = SessionConfig(host="example.com", port=443, protocol="websocket", ssl=True)
+    cmd = build_command(cfg)
+    assert "wss://example.com" in cmd
+
+
+def test_build_ssh_command_minimal() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22)
+    cmd = build_ssh_command(cfg)
+    assert "ssh_client" in cmd[2]
+    assert "bbs.example.com" in cmd
+    assert "--port" not in cmd
+
+
+def test_build_ssh_command_non_default_port() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=2222)
+    cmd = build_ssh_command(cfg)
+    assert "--port" in cmd
+    assert "2222" in cmd
+
+
+def test_build_ssh_command_with_username() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, ssh_username="sysop")
+    cmd = build_ssh_command(cfg)
+    assert "--username" in cmd
+    assert "sysop" in cmd
+
+
+def test_build_ssh_command_without_username_omits_flag() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, ssh_username="")
+    cmd = build_ssh_command(cfg)
+    assert "--username" not in cmd
+
+
+def test_build_ssh_command_with_key_file() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, ssh_key_file="/home/user/.ssh/id_ed25519")
+    cmd = build_ssh_command(cfg)
+    assert "--key-file" in cmd
+    assert "/home/user/.ssh/id_ed25519" in cmd
+
+
+def test_build_ssh_command_without_key_file_omits_flag() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, ssh_key_file="")
+    cmd = build_ssh_command(cfg)
+    assert "--key-file" not in cmd
+
+
+def test_build_ssh_command_username_and_key() -> None:
+    cfg = SessionConfig(host="bbs.example.com", port=22, ssh_username="user", ssh_key_file="/key")
+    cmd = build_ssh_command(cfg)
+    assert "--username" in cmd
+    assert "--key-file" in cmd
 
 
 def test_macro_screen_loads_empty(tmp_path) -> None:

@@ -1297,6 +1297,8 @@ class ReplSession:
             self.tty_shell.on_resize(new_rows, new_cols)
         if self.telnet_writer.local_option.enabled(telnetlib3.telopt.NAWS) and not self.telnet_writer.is_closing():
             self.telnet_writer._send_naws()
+        elif hasattr(self.telnet_writer, "change_terminal_size"):
+            self.telnet_writer.change_terminal_size(new_cols, new_rows)
         self.toolbar.hide_cursor()
         self.update_input_style()
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
@@ -1537,6 +1539,9 @@ class ReplSession:
                     if self.tty_shell._resize_pending.is_set():
                         self.tty_shell._resize_pending.clear()
                         self.fire_resize()
+                    if self.telnet_writer.mode != "local":
+                        self.mode_switched = True
+                        self.server_done = True
                     continue
 
                 if self.tty_shell._resize_pending.is_set():
@@ -1613,6 +1618,16 @@ class ReplSession:
 
                 if result.line is not None:
                     line = result.line
+
+                    if hasattr(self.telnet_writer, "pending_auth") and self.telnet_writer.pending_auth:
+                        self.telnet_writer.auth_response_queue.put_nowait(line)
+                        self.toolbar.hide_cursor()
+                        self.update_input_style()
+                        self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
+                        self.toolbar.render(self.autoreply_engine)
+                        cursor_col = self.editor_cursor()
+                        self.show_cursor_or_light(scroll.input_row, cursor_col)
+                        continue
 
                     cq = self.ctx.command_queue
                     if cq is not None and not cq.cancelled:

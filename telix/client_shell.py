@@ -40,12 +40,13 @@ from . import (
     highlighter,
     progressbars,
     ws_transport,
+    ssh_transport,
     session_context,
 )
 
 log = logging.getLogger(__name__)
 
-__all__ = ("telix_client_shell", "ws_client_shell")
+__all__ = ("ssh_client_shell", "telix_client_shell", "ws_client_shell")
 
 
 def load_configs(ctx: "session_context.TelixSessionContext") -> None:
@@ -155,6 +156,7 @@ def build_session_key(
         telnetlib3.stream_writer.TelnetWriter
         | telnetlib3.stream_writer.TelnetWriterUnicode
         | ws_transport.WebSocketWriter
+        | ssh_transport.SSHWriter
     ),
 ) -> str:
     """
@@ -165,10 +167,10 @@ def build_session_key(
     session-specific files (history, rooms, macros, etc.) are keyed by
     the human-readable hostname used to connect.
 
-    For WebSocket writers, falls through directly to peername since the
-    hostname is already set by the WebSocket client.
+    For WebSocket and SSH writers, falls through directly to peername since the
+    hostname is already set by the respective client.
     """
-    if isinstance(writer, ws_transport.WebSocketWriter):
+    if isinstance(writer, (ws_transport.WebSocketWriter, ssh_transport.SSHWriter)):
         peername = writer.get_extra_info("peername")
         if peername:
             return f"{peername[0]}:{peername[1]}"
@@ -481,6 +483,77 @@ async def telix_client_shell(
             break
 
         ctx.close()
+
+
+async def ssh_client_shell(ssh_reader: ssh_transport.SSHReader, ssh_writer: ssh_transport.SSHWriter) -> None:
+    """
+    Telix client shell for SSH connections.
+
+    SSH connections are always BBS/raw mode -- no telnet negotiation occurs, so
+    there is no REPL line-mode switching.  Creates a
+    :class:`~telix.session_context.TelixSessionContext`, loads configs, and
+    runs a single raw event-loop pass.
+
+    :param ssh_reader: :class:`~telix.ssh_transport.SSHReader` fed by the receive loop.
+    :param ssh_writer: :class:`~telix.ssh_transport.SSHWriter` wrapping the SSH process.
+    """
+    import telnetlib3._session_context
+
+    ssh_writer.ctx = telnetlib3._session_context.TelnetSessionContext(
+        raw_mode=True, autoreply_engine=None, autoreply_wait_fn=None, typescript_file=None
+    )
+
+    ctx = ssh_writer.ctx = session_context.TelixSessionContext.create_using_telnet_ctx(
+        session_key=build_session_key(ssh_writer), writer=ssh_writer, encoding=ssh_writer.encoding
+    )
+    ctx.repl_enabled = False
+    ctx.raw_mode = True
+
+    load_configs(ctx)
+    _setup_color_filter(ctx, ssh_writer)
+
+    keyboard_escape = ctx.keyboard_escape
+
+    with telnetlib3.client_shell.Terminal(telnet_writer=ssh_writer) as tty_shell:  # type: ignore[arg-type]
+        linesep = "\r\n"
+        stdout = await tty_shell.make_stdout()
+        tty_shell.setup_winch()
+
+        escape_name = telnetlib3.accessories.name_unicode(keyboard_escape)
+        stdout.write(f"Escape character is '{escape_name}'.{linesep}".encode())
+
+        def handle_close(msg: str) -> None:
+            cf = ctx.color_filter
+            if cf is not None:
+                flush = cf.flush()
+                if flush:
+                    stdout.write(flush.encode())
+            stdout.write(f"\033[m{linesep}{msg}{linesep}".encode())
+            tty_shell.cleanup_winch()
+
+        if tty_shell._istty:
+            if tty_shell._save_mode is not None:
+                tty_shell.set_mode(tty_shell._make_raw(tty_shell._save_mode, suppress_echo=True))
+            stdin = await tty_shell.connect_stdin()  # pylint: disable=no-member
+            state = telnetlib3.client_shell._RawLoopState(
+                switched_to_raw=True, last_will_echo=False, local_echo=not ssh_writer.will_echo, linesep=linesep
+            )
+            raw_stdout = ColorFilteredWriter(stdout, ctx) if ctx.color_filter is not None else stdout
+            await telnetlib3.client_shell._raw_event_loop(
+                ssh_reader,  # type: ignore[arg-type]
+                ssh_writer,  # type: ignore[arg-type]
+                tty_shell,
+                stdin,
+                raw_stdout,  # type: ignore[arg-type]
+                keyboard_escape,
+                state,
+                handle_close,
+                lambda: False,
+            )
+            tty_shell.disconnect_stdin(stdin)  # pylint: disable=no-member
+        else:
+            handle_close("Connection closed.")
+    ctx.close()
 
 
 async def ws_client_shell(ws_reader: ws_transport.WebSocketReader, ws_writer: ws_transport.WebSocketWriter) -> None:

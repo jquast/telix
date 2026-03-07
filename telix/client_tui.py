@@ -38,6 +38,7 @@ from .client_tui_base import (  # noqa: F401
     build_tooltips,
     get_help_topic,
     run_editor_app,
+    build_ssh_command,
     pause_before_exit,
     normalize_encoding,
     restore_blocking_fds,

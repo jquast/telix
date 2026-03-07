@@ -1989,3 +1989,50 @@ async def test_resume_inherits_noreply(monkeypatch: pytest.MonkeyPatch, fast_sle
     await handle_travel_commands(parts, writer.ctx, logging.getLogger("test"))
 
     assert captured_noreply == [True]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_read_input_sets_mode_switched_on_kludge_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_input detects kludge mode change during inkey timeout and sets mode_switched."""
+    import contextlib
+
+    pytest.importorskip("blessed")
+
+    class FalseKey:
+        name = None
+
+        def __bool__(self):
+            return False
+
+    async def fake_inkey(timeout=None):
+        return FalseKey()
+
+    @contextlib.contextmanager
+    def noop_ctx():
+        yield
+
+    stdout, _ = mock_stdout()
+
+    repl = object.__new__(ReplSession)
+    repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
+    repl.blessed_term = types.SimpleNamespace(
+        raw=noop_ctx,
+        notify_on_resize=noop_ctx,
+        async_inkey=fake_inkey,
+    )
+    repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
+    repl.stdout = stdout
+    repl.server_done = False
+    repl.mode_switched = False
+    repl.telnet_writer = types.SimpleNamespace(mode="kludge", will_echo=False)
+    repl.tty_shell = types.SimpleNamespace(_resize_pending=types.SimpleNamespace(is_set=lambda: False))
+
+    monkeypatch.setattr(ReplSession, "update_input_style", lambda self: None)
+    monkeypatch.setattr(ReplSession, "render_editor", lambda self, *args: "")
+    monkeypatch.setattr(ReplSession, "input_width", lambda self: 80)
+
+    await repl.read_input()
+
+    assert repl.mode_switched is True
+    assert repl.server_done is True
