@@ -2669,8 +2669,8 @@ def log_child_diagnostics() -> None:
         "child env: %s terminal_size=%s fd0_blocking=%s fd2_blocking=%s",
         env,
         tsize_str,
-        os.get_blocking(0),
-        os.get_blocking(2),
+        getattr(os, "get_blocking", lambda fd: None)(0),
+        getattr(os, "get_blocking", lambda fd: None)(2),
     )
     os.environ["TEXTUAL_DEBUG"] = "1"
 

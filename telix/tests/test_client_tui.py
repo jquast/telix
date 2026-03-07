@@ -957,7 +957,7 @@ class TestActionConnectScreenRefresh:
         with (
             patch("telix.client_tui_base.subprocess.Popen") as mock_popen,
             patch("telix.client_tui_base.os.get_terminal_size") as mock_ts,
-            patch("telix.client_tui_base.os.set_blocking"),
+            patch("telix.client_tui_base.os.set_blocking", create=True),
             patch("telix.client_tui_base.sys.stdout"),
         ):
             mock_ts.return_value = MagicMock(lines=24, columns=80)
@@ -995,7 +995,7 @@ class TestActionConnectScreenRefresh:
         with (
             patch("telix.client_tui_base.subprocess.Popen", return_value=mock_proc),
             patch("telix.client_tui_base.os.get_terminal_size", return_value=MagicMock(lines=24, columns=80)),
-            patch("telix.client_tui_base.os.set_blocking"),
+            patch("telix.client_tui_base.os.set_blocking", create=True),
             patch("telix.client_tui_base.sys.stdout"),
         ):
             with pytest.raises(subprocess.CalledProcessError):

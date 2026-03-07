@@ -539,9 +539,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
         table.add_column("Reply", width=col_w, key="reply")
         table.add_column("Flags", width=8, key="flags")
         table.add_column("Last", width=8, key="last")
-        self.query_one("#autoreply-cond-vital", textual.widgets.Select).set_options(
-            self.gmcp_condition_choices()
-        )
+        self.query_one("#autoreply-cond-vital", textual.widgets.Select).set_options(self.gmcp_condition_choices())
         self.load_from_file()
         self.refresh_table()
         self.query_one("#autoreply-form").display = False
@@ -720,8 +718,7 @@ class AutoreplyEditScreen(client_tui_base.EditListScreen):
     ) -> None:
         super().__init__()
         self.pane = AutoreplyEditPane(
-            path=path, session_key=session_key, select_pattern=select_pattern,
-            gmcp_snapshot_path=gmcp_snapshot_path,
+            path=path, session_key=session_key, select_pattern=select_pattern, gmcp_snapshot_path=gmcp_snapshot_path
         )
 
 
@@ -1787,8 +1784,7 @@ def edit_autoreplies_main(
     """Launch standalone autoreply editor TUI."""
     client_tui_base.launch_editor(
         AutoreplyEditScreen(
-            path=path, session_key=session_key, select_pattern=select_pattern,
-            gmcp_snapshot_path=gmcp_snapshot_path,
+            path=path, session_key=session_key, select_pattern=select_pattern, gmcp_snapshot_path=gmcp_snapshot_path
         ),
         session_key=session_key,
         logfile=logfile,

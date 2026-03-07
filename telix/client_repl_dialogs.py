@@ -173,9 +173,9 @@ def confirm_dialog(title: str, body: str, warning: str = "", replay_buf: Any | N
         "confirm_dialog: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s "
         "TERM=%s COLORTERM=%s terminal_size=%s",
-        os.get_blocking(0),
-        os.get_blocking(1),
-        os.get_blocking(2),
+        getattr(os, "get_blocking", lambda fd: None)(0),
+        getattr(os, "get_blocking", lambda fd: None)(1),
+        getattr(os, "get_blocking", lambda fd: None)(2),
         sys.stdin.isatty(),
         sys.__stderr__.isatty(),
         os.environ.get("TERM", ""),
@@ -719,9 +719,9 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
         "tui_editor: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s editor_type=%s "
         "TERM=%s COLORTERM=%s terminal_size=%s",
-        os.get_blocking(0),
-        os.get_blocking(1),
-        os.get_blocking(2),
+        getattr(os, "get_blocking", lambda fd: None)(0),
+        getattr(os, "get_blocking", lambda fd: None)(1),
+        getattr(os, "get_blocking", lambda fd: None)(2),
         sys.stdin.isatty(),
         sys.__stderr__.isatty(),
         editor_type,
@@ -891,9 +891,9 @@ def launch_room_browser(ctx: "TelixSessionContext", replay_buf: Any | None = Non
         "room_browser: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s "
         "TERM=%s COLORTERM=%s terminal_size=%s",
-        os.get_blocking(0),
-        os.get_blocking(1),
-        os.get_blocking(2),
+        getattr(os, "get_blocking", lambda fd: None)(0),
+        getattr(os, "get_blocking", lambda fd: None)(1),
+        getattr(os, "get_blocking", lambda fd: None)(2),
         sys.stdin.isatty(),
         sys.__stderr__.isatty(),
         os.environ.get("TERM", ""),
