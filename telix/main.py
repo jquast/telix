@@ -16,6 +16,22 @@ import telnetlib3.client
 # local
 from . import mtts, directory, ws_client, client_tui_base, client_tui_dialogs
 
+
+def _parse_option_list(values: list[str]) -> set[bytes]:
+    """
+    Parse a list of option arguments, splitting comma-separated values.
+
+    :param values: List of option strings, each may be comma-separated.
+    :returns: Set of parsed option bytes.
+    """
+    result: set[bytes] = set()
+    for v in values:
+        for item in v.split(","):
+            item = item.strip()
+            if item:
+                result.add(telnetlib3.client._parse_option_arg(item))
+    return result
+
 # Module-level store for telix-specific args, set by main() before
 # telnetlib3 starts the shell.  Read by client_shell._setup_color_filter().
 _color_args: argparse.Namespace | None = None
@@ -258,10 +274,10 @@ def main() -> None:
             no_ice_colors=args.no_ice_colors,
         )
         compression: bool | None = True if args.compression else (False if args.no_compression else None)
-        always_do = telnetlib3.client._parse_option_list(args.always_do)
-        always_will = telnetlib3.client._parse_option_list(args.always_will)
-        always_dont = telnetlib3.client._parse_option_list(args.always_dont)
-        always_wont = telnetlib3.client._parse_option_list(args.always_wont)
+        always_do = _parse_option_list(args.always_do)
+        always_will = _parse_option_list(args.always_will)
+        always_dont = _parse_option_list(args.always_dont)
+        always_wont = _parse_option_list(args.always_wont)
         gmcp_modules = [m.strip() for m in args.gmcp_modules.split(",") if m.strip()] if args.gmcp_modules else None
         send_environ = (
             tuple(e.strip() for e in args.send_environ.split(",") if e.strip()) if args.send_environ else None

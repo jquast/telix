@@ -1042,6 +1042,7 @@ class SessionListScreen(textual.screen.Screen[None]):
                 _t0 = time.monotonic()
                 proc = subprocess.Popen(cmd, env=env)
                 proc.wait()
+                proc.check_returncode()
                 _elapsed = time.monotonic() - _t0
                 if proc.returncode != 0 or _elapsed < 4:
                     # if there was a logfile, hopefully the error is there, otherwise maybe its on the screen.

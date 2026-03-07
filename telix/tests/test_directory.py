@@ -97,7 +97,7 @@ class TestLoadFavorites:
         by_name = {e["name"]: e for e in entries}
         cryosphere = by_name["Cryosphere"]
         assert cryosphere["protocol"] == "websocket"
-        assert cryosphere["ws_path"] == "/telnet"
+        assert cryosphere["ws_path"] == "/telnet/"
         assert cryosphere["ssl"] is True
 
 
@@ -133,7 +133,7 @@ class TestDirectoryToSessions:
         sessions = directory_to_sessions()
         cfg = sessions["dev.cryosphere.org:4443"]
         assert cfg.protocol == "websocket"
-        assert cfg.ws_path == "/telnet"
+        assert cfg.ws_path == "/telnet/"
         assert cfg.ssl is True
         assert cfg.bookmarked is True
 
