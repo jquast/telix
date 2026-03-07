@@ -121,15 +121,15 @@ def get_theme_colors() -> dict[str, str]:
 
 
 # Standard HP/MP/XP field aliases from Char.Vitals and Char.Status.
-HP_ALIASES = {"hp": ("maxhp", "maxHP", "max_hp"), "HP": ("maxHP", "maxhp", "max_hp")}
-MP_ALIASES = {
+HP_ALIASES: dict[str, tuple[str, ...]] = {"hp": ("maxhp", "maxHP", "max_hp"), "HP": ("maxHP", "maxhp", "max_hp")}
+MP_ALIASES: dict[str, tuple[str, ...]] = {
     "mp": ("maxmp", "maxMP", "max_mp", "maxsp", "maxSP"),
     "MP": ("maxMP", "maxmp", "max_mp"),
     "mana": ("maxmana", "max_mana"),
     "sp": ("maxsp", "maxSP", "max_sp"),
     "SP": ("maxSP", "maxsp", "max_sp"),
 }
-XP_ALIASES = {
+XP_ALIASES: dict[str, tuple[str, ...]] = {
     "xp": ("maxxp", "maxXP", "max_xp", "maxexp"),
     "XP": ("maxXP", "maxxp", "max_xp"),
     "experience": ("maxexp", "max_experience", "maxexperience"),

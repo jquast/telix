@@ -28,11 +28,9 @@ TOKEN_MAP: dict[str, str] = {
     "dmz_inactive": "panel",
     "cursor_color": "foreground",
     "cursor_ar_color": "warning-lighten-1",
-    "active_cmd": "primary-darken-1",
     "bar_text_fill": "background",
     "bar_text_empty": "secondary",
     "bar_empty_bg": "surface",
-    "pending_cmd": "secondary-darken-1",
 }
 
 # Hardcoded fallback palette when theme resolution fails entirely.
@@ -57,15 +55,58 @@ FALLBACK: dict[str, str] = {
     "dmz_inactive": "#3a3a3a",
     "cursor_color": "#e5ffff",
     "cursor_ar_color": "#e5edff",
-    "active_cmd": "#786050",
     "bar_text_fill": "#101010",
     "bar_text_empty": "#666666",
     "bar_empty_bg": "#2a2a2a",
-    "pending_cmd": "#787878",
 }
 
 # Cache: theme_name -> palette dict.
 cache: dict[str, dict[str, str]] = {}
+
+
+def invert_hex(hexcolor: str) -> str:
+    """
+    Return the RGB inverse of *hexcolor*.
+
+    :param hexcolor: Color string like ``#1a0000``.
+    :returns: Inverted color as ``#rrggbb``.
+    """
+    r, g, b = hex_to_rgb(hexcolor)
+    return f"#{255 - r:02x}{255 - g:02x}{255 - b:02x}"
+
+
+def blend_hex(c1: str, c2: str, t: float) -> str:
+    """
+    Linearly blend *c1* towards *c2* by fraction *t*.
+
+    :param c1: Start color as ``#rrggbb``.
+    :param c2: End color as ``#rrggbb``.
+    :param t: Blend fraction in ``[0, 1]`` (0 = c1, 1 = c2).
+    :returns: Blended color as ``#rrggbb``.
+    """
+    r1, g1, b1 = hex_to_rgb(c1)
+    r2, g2, b2 = hex_to_rgb(c2)
+    r = round(r1 + (r2 - r1) * t)
+    g = round(g1 + (g2 - g1) * t)
+    b = round(b1 + (b2 - b1) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def compute_derived(palette: dict[str, str]) -> None:
+    """
+    Compute contrast-derived palette entries in-place from ``input_ar_bg``.
+
+    ``active_cmd``, ``pending_cmd``, and ``input_ar_suggestion`` are set to
+    blends of the autoreply background toward its RGB inverse so they are
+    always readable regardless of theme.
+
+    :param palette: Partially-resolved palette dict; modified in place.
+    """
+    ar_bg = palette.get("input_ar_bg", "#000000")
+    ar_inv = invert_hex(ar_bg)
+    palette["active_cmd"] = ar_inv
+    palette["pending_cmd"] = blend_hex(ar_bg, ar_inv, 0.6)
+    palette["input_ar_suggestion"] = blend_hex(ar_bg, ar_inv, 0.35)
 
 
 def resolve_theme(theme_name: str) -> dict[str, str]:
@@ -120,8 +161,10 @@ def get_repl_palette(session_key: str = "") -> dict[str, str]:
 
     generated = resolve_theme(theme_name)
     if not generated:
-        cache[theme_name] = dict(FALLBACK)
-        return cache[theme_name]
+        fallback = dict(FALLBACK)
+        compute_derived(fallback)
+        cache[theme_name] = fallback
+        return fallback
 
     # Resolve background first — needed to blend alpha-bearing hex values.
     bg_token = TOKEN_MAP["background"]
@@ -144,6 +187,7 @@ def get_repl_palette(session_key: str = "") -> dict[str, str]:
         else:
             palette[semantic] = FALLBACK.get(semantic, "#888888")
 
+    compute_derived(palette)
     cache[theme_name] = palette
     return palette
 

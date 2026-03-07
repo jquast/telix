@@ -113,7 +113,7 @@ class RoomTree(textual.widgets.Tree[str]):
 class RoomBrowserPane(textual.containers.Vertical):
     """Pane widget for GMCP room graph browsing."""
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("escape", "close", "Close", priority=True),
         textual.binding.Binding("f1", "show_help", "Help", show=True),
         textual.binding.Binding("enter", "fast_travel", "Travel", show=True),
@@ -829,7 +829,7 @@ class RoomPickerPane(RoomBrowserPane):
         num = self.get_selected_room_num()
         if num is None:
             return
-        self.request_close(num)
+        self.request_close(num)  # type: ignore[arg-type]
 
 
 class RoomPickerScreen(textual.screen.Screen["str | None"]):
@@ -852,7 +852,7 @@ class RoomPickerScreen(textual.screen.Screen["str | None"]):
 class CapsPane(textual.containers.Vertical):
     """Pane widget for captures and chats viewing."""
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("escape", "close", "Close", show=True),
         textual.binding.Binding("f10", "close", "Close", show=False),
         textual.binding.Binding("q", "close", "Close", show=False),
@@ -1092,7 +1092,7 @@ class CapsPane(textual.containers.Vertical):
 
     def action_toggle_keys(self) -> None:
         """Toggle the Textual keys help panel."""
-        if self.app.help_panel:
+        if self.app.help_panel:  # type: ignore[attr-defined]
             self.app.action_hide_help_panel()
         else:
             self.app.action_show_help_panel()
@@ -1152,7 +1152,7 @@ def chat_viewer_main(
     client_tui_base.log_child_diagnostics()
     client_tui_base.patch_writer_thread_queue()
     app = client_tui_base.EditorApp(
-        ChatViewerScreen(
+        ChatViewerScreen(  # type: ignore[arg-type]
             chat_file=chat_file, session_key=session_key, initial_channel=initial_channel, capture_file=capture_file
         ),
         session_key=session_key,
@@ -1181,7 +1181,7 @@ GLOBAL_TABS: set[str] = {"theme"}
 class TabbedEditorScreen(textual.screen.Screen[None]):
     """Full-screen tabbed editor combining all editor panes."""
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("escape", "close_or_back", "Close", priority=True),
         textual.binding.Binding("f1", "show_help", "Help", show=False, priority=True),
     ]
@@ -1275,7 +1275,12 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
         ),
         "autoreplies": (
             client_tui_editors.AutoreplyEditPane,
-            {"path": "autoreplies_file", "session_key": "session_key", "select_pattern": "select_pattern"},
+            {
+                "path": "autoreplies_file",
+                "session_key": "session_key",
+                "select_pattern": "select_pattern",
+                "gmcp_snapshot_path": "gmcp_snapshot_file",
+            },
         ),
         "captures": (
             CapsPane,
@@ -1299,7 +1304,7 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
         kwargs = {k: self.params.get(v, "") for k, v in param_map.items()}
         pane = cls(**kwargs)
         pane.id = tab_id
-        return pane
+        return pane  # type: ignore[no-any-return]
 
     def on_mount(self) -> None:
         """Mark the initial tab as loaded."""
@@ -1401,7 +1406,7 @@ def unified_editor_main() -> None:
 
     screen = TabbedEditorScreen(params)
     session_key = params.get("session_key", "")
-    app = client_tui_base.EditorApp(screen, session_key=session_key)
+    app = client_tui_base.EditorApp(screen, session_key=session_key)  # type: ignore[arg-type]
     client_tui_base.run_editor_app(app)
 
 
@@ -1464,7 +1469,7 @@ class ConfirmDialogScreen(textual.screen.Screen[bool]):
     def compose(self) -> textual.app.ComposeResult:
         """Build the confirm dialog layout."""
         with textual.containers.Vertical(id="confirm-dialog"):
-            yield textual.widgets.Static(self.title, id="confirm-title")
+            yield textual.widgets.Static(self.title, id="confirm-title")  # type: ignore[arg-type]
             yield textual.widgets.Static(self.body, id="confirm-body")
             if self.warning:
                 yield textual.widgets.Static(self.warning, id="confirm-warning")
@@ -1505,7 +1510,7 @@ def confirm_dialog_main(title: str, body: str, warning: str = "", result_file: s
     client_tui_base.log_child_diagnostics()
     client_tui_base.patch_writer_thread_queue()
     screen = ConfirmDialogScreen(title=title, body=body, warning=warning, result_file=result_file)
-    app = client_tui_base.EditorApp(screen)
+    app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
     client_tui_base.run_editor_app(app)
 
 
@@ -1538,6 +1543,13 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
         text-align: center;
     }
     #rw-body {
+        margin-bottom: 1;
+    }
+    #rw-warning {
+        color: $error;
+        margin-bottom: 1;
+    }
+    #rw-hint {
         margin-bottom: 1;
     }
     #rw-options-col {
@@ -1626,6 +1638,16 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
                 "visited the "
                 "required number of times.",
                 id="rw-body",
+            )
+            yield textual.widgets.Static(
+                "WARNING: This can lead to dangerous "
+                "areas, death traps, or aggressive "
+                "monsters! Your character may die. "
+                "Use with caution.",
+                id="rw-warning",
+            )
+            yield textual.widgets.Static(
+                "Tip: Use the Block button in the Rooms screen to exclude dangerous areas.", id="rw-hint"
             )
             with textual.containers.Vertical(id="rw-options-col"), textual.containers.Horizontal(classes="rw-option"):
                 lbl = textual.widgets.Label("Visit level:")
@@ -1778,7 +1800,7 @@ def randomwalk_dialog_main(
         default_auto_survey=(default_auto_survey == "1"),
         default_autoreplies=(default_autoreplies == "1"),
     )
-    app = client_tui_base.EditorApp(screen)
+    app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
     client_tui_base.run_editor_app(app)
 
 
@@ -1816,6 +1838,9 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
     }
     #ad-warning {
         color: $error;
+        margin-bottom: 1;
+    }
+    #ad-hint {
         margin-bottom: 1;
     }
     #ad-strategy-row {
@@ -1895,6 +1920,9 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
                 "Your "
                 "character may die. Use with caution.",
                 id="ad-warning",
+            )
+            yield textual.widgets.Static(
+                "Tip: Use the Block button in the Rooms screen to exclude dangerous areas.", id="ad-hint"
             )
             with textual.containers.Horizontal(id="ad-strategy-row"), textual.widgets.RadioSet(id="ad-strategy-set"):
                 yield textual.widgets.RadioButton(
@@ -2043,7 +2071,7 @@ def autodiscover_dialog_main(
         default_auto_survey=(default_auto_survey == "1"),
         default_autoreplies=(default_autoreplies == "1"),
     )
-    app = client_tui_base.EditorApp(screen)
+    app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
     client_tui_base.run_editor_app(app)
 
 

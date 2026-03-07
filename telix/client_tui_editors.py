@@ -19,6 +19,7 @@ import rich.text
 import textual.app
 import textual.theme
 import textual.events
+import textual.widget
 import textual.binding
 import textual.widgets
 import textual.css.query
@@ -74,7 +75,7 @@ class MacroEditPane(client_tui_base.EditListPane):
         margin: 1 0 0 1;
         background: $surface-darken-1; color: $text;
     }
-    #macro-key-label.capturing { color: $warning; }
+    #macro-key-label.capturing { background: $error; color: $background; }
     #macro-capture { width: auto; min-width: 13; margin-left: 1; }
     #macro-capture-status { width: 1fr; height: 1; color: $error; padding: 0 1; }
     #macro-form .form-gap { width: 10; }
@@ -294,12 +295,8 @@ class MacroEditPane(client_tui_base.EditListPane):
         rejected = ""
         with self.app.suspend():
             os.set_blocking(sys.stdin.fileno(), True)
-            sys.stdout.write("\r\nPress a key to capture (Esc to cancel) ... ")
-            sys.stdout.flush()
             with bt.raw():
                 key = bt.inkey()
-            sys.stdout.write("\r\n")
-            sys.stdout.flush()
             if key.name == "KEY_ESCAPE":
                 pass
             elif key.name:
@@ -314,12 +311,11 @@ class MacroEditPane(client_tui_base.EditListPane):
                 rejected = f"Rejected: '{key}' -- use F-keys, Ctrl+key, or Alt+key"
             else:
                 rejected = "Rejected: unknown key"
-        self.screen.refresh()
+        label = self.query_one("#macro-key-label", textual.widgets.Static)
+        label.remove_class("capturing")
         if result_key:
             self.captured_key = result_key
-            label = self.query_one("#macro-key-label", textual.widgets.Static)
             label.update(result_display)
-            label.remove_class("capturing")
             self.query_one("#macro-capture-status", textual.widgets.Static).update("")
         elif rejected:
             self.query_one("#macro-capture-status", textual.widgets.Static).update(rejected)
@@ -329,9 +325,11 @@ class MacroEditPane(client_tui_base.EditListPane):
         if suffix == "fast-travel":
             self.pick_room_for_travel()
         elif suffix == "capture":
+            label = self.query_one("#macro-key-label", textual.widgets.Static)
+            label.add_class("capturing")
             self._blessed_capture()
         else:
-            super()._on_extra_button(suffix, btn)
+            super().do_extra_button(suffix, btn)
 
     def save_to_file(self) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -392,7 +390,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
     #autoreply-form .form-label { width: 12; }
     #autoreply-form .form-label-mid { width: 9; }
     #autoreply-form .insert-btn { margin: 0; padding: 0 1; }
-    #autoreply-cond-vital { width: 14; }
+    #autoreply-cond-vital { width: 20; }
     #autoreply-cond-op { width: 8; }
     #autoreply-cond-val { width: 9; border: tall grey; }
     #autoreply-cond-val:focus { border: tall $accent; }
@@ -400,12 +398,15 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
     """
     )
 
-    def __init__(self, path: str, session_key: str = "", select_pattern: str = "") -> None:
+    def __init__(
+        self, path: str, session_key: str = "", select_pattern: str = "", gmcp_snapshot_path: str = ""
+    ) -> None:
         """Initialize autoreply editor with file path and session key."""
         super().__init__()
         self.path = path
         self.session_key = session_key
         self.select_pattern = select_pattern
+        self.gmcp_snapshot_path = gmcp_snapshot_path
         self.rules: list[AutoreplyTuple] = []
         self.sort_mode: str = ""
         self.rooms_path = os.path.join(os.path.dirname(path), "rooms.json")
@@ -506,6 +507,27 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Button("OK", variant="success", id="autoreply-ok")
                     yield textual.widgets.Static("", id="autoreply-count")
 
+    def gmcp_condition_choices(self) -> list[tuple[str, str]]:
+        """Build Select choices for the condition field, including GMCP numeric keys."""
+        fixed = [("(none)", ""), ("HP%", "HP%"), ("MP%", "MP%"), ("HP", "HP"), ("MP", "MP")]
+        if not self.gmcp_snapshot_path or not os.path.exists(self.gmcp_snapshot_path):
+            return fixed
+        with open(self.gmcp_snapshot_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        packages = data.get("packages", {}) if isinstance(data, dict) else {}
+        fixed_vals = {"HP%", "MP%", "HP", "MP", ""}
+        seen: set[str] = set()
+        for pkg_info in packages.values():
+            pkg_data = pkg_info.get("data", {}) if isinstance(pkg_info, dict) else {}
+            if not isinstance(pkg_data, dict):
+                continue
+            for k, v in pkg_data.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and k not in fixed_vals:
+                    seen.add(k)
+        if not seen:
+            return fixed
+        return fixed + [(k, k) for k in sorted(seen)]
+
     def on_mount(self) -> None:
         """Load autoreplies from file and populate table."""
         table = self.query_one("#autoreply-table", textual.widgets.DataTable)
@@ -517,6 +539,9 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
         table.add_column("Reply", width=col_w, key="reply")
         table.add_column("Flags", width=8, key="flags")
         table.add_column("Last", width=8, key="last")
+        self.query_one("#autoreply-cond-vital", textual.widgets.Select).set_options(
+            self.gmcp_condition_choices()
+        )
         self.load_from_file()
         self.refresh_table()
         self.query_one("#autoreply-form").display = False
@@ -635,7 +660,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
         cond_op = self.query_one("#autoreply-cond-op", textual.widgets.Select).value
         cond_val = self.query_one("#autoreply-cond-val", textual.widgets.Input).value.strip()
         when: dict[str, str] | None = None
-        if cond_vital and isinstance(cond_vital, str) and cond_vital in ("HP%", "MP%", "HP", "MP"):
+        if cond_vital and isinstance(cond_vital, str):
             try:
                 int(cond_val or "99")
             except ValueError:
@@ -663,7 +688,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
         if suffix == "fast-travel":
             self.pick_room_for_travel()
         else:
-            super()._on_extra_button(suffix, btn)
+            super().do_extra_button(suffix, btn)
 
     def save_to_file(self) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -690,9 +715,14 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
 class AutoreplyEditScreen(client_tui_base.EditListScreen):
     """Thin screen wrapper for the autoreply editor."""
 
-    def __init__(self, path: str, session_key: str = "", select_pattern: str = "") -> None:
+    def __init__(
+        self, path: str, session_key: str = "", select_pattern: str = "", gmcp_snapshot_path: str = ""
+    ) -> None:
         super().__init__()
-        self.pane = AutoreplyEditPane(path=path, session_key=session_key, select_pattern=select_pattern)
+        self.pane = AutoreplyEditPane(
+            path=path, session_key=session_key, select_pattern=select_pattern,
+            gmcp_snapshot_path=gmcp_snapshot_path,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1070,7 @@ class HighlightEditPane(client_tui_base.EditListPane):
             return
         if "capture-remove" in (event.button.classes or set()):
             row = event.button.parent
-            if row is not None:
+            if isinstance(row, textual.widget.Widget):
                 row.remove()
             return
         super().on_button_pressed(event)
@@ -1385,7 +1415,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         display_order: int = 0,
         side: str = "left",
     ) -> None:
-        is_travel = name == progressbars.TRAVEL_BAR_NAME or (name and not gmcp_package)
+        is_travel = bool(name == progressbars.TRAVEL_BAR_NAME or (name and not gmcp_package))
         self.populating_form = True
         self.query_one("#pb-name", textual.widgets.Input).value = name
         self.query_one("#pb-enabled", textual.widgets.Switch).value = enabled
@@ -1751,10 +1781,15 @@ def edit_macros_main(
     )
 
 
-def edit_autoreplies_main(path: str, session_key: str = "", select_pattern: str = "", logfile: str = "") -> None:
+def edit_autoreplies_main(
+    path: str, session_key: str = "", select_pattern: str = "", gmcp_snapshot_path: str = "", logfile: str = ""
+) -> None:
     """Launch standalone autoreply editor TUI."""
     client_tui_base.launch_editor(
-        AutoreplyEditScreen(path=path, session_key=session_key, select_pattern=select_pattern),
+        AutoreplyEditScreen(
+            path=path, session_key=session_key, select_pattern=select_pattern,
+            gmcp_snapshot_path=gmcp_snapshot_path,
+        ),
         session_key=session_key,
         logfile=logfile,
     )

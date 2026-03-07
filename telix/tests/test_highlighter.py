@@ -131,11 +131,11 @@ class TestCompiledRuleSet:
         ]
         rs = CompiledRuleSet([], ar_rules, "black_on_beige", True)
         spans = rs.finditer("foo and quux but not baz")
-        highlights = [(s, e, hl) for s, e, hl, *_ in spans]
-        assert ("foo", "black_on_beige") in [("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights]
-        assert ("quux", "black_on_beige") in [("foo and quux but not baz"[s:e], hl) for s, e, hl in highlights]
-        matched_texts = {"foo and quux but not baz"[s:e] for s, e, hl in highlights}
-        assert "baz" not in matched_texts
+        text = "foo and quux but not baz"
+        matched = [(text[sp.start : sp.end], sp.highlight) for sp in spans]
+        assert ("foo", "black_on_beige") in matched
+        assert ("quux", "black_on_beige") in matched
+        assert "baz" not in {t for t, _ in matched}
 
     def test_empty_rules(self):
         rs = CompiledRuleSet([], [], "black_on_beige", True)
@@ -152,15 +152,15 @@ class TestCompiledRuleSet:
         rs = CompiledRuleSet(hl_rules, ar_rules, "black_on_beige", True)
         spans = rs.finditer("a monster has dynamite")
         assert len(spans) == 2
-        assert spans[0][2] == "black_on_beige"
-        assert spans[1][2] == "bold_red"
+        assert spans[0].highlight == "black_on_beige"
+        assert spans[1].highlight == "bold_red"
 
     def test_overlap_first_wins(self):
         hl_rules = [make_rule("abc", "bold_red"), make_rule("bc", "black_on_beige")]
         rs = CompiledRuleSet(hl_rules, [], "black_on_beige", True)
         spans = rs.finditer("xabcx")
         assert len(spans) == 1
-        assert spans[0][2] == "bold_red"
+        assert spans[0].highlight == "bold_red"
 
 
 class TestHighlightEngineProcessLine:

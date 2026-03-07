@@ -208,7 +208,7 @@ async def fast_travel(
                     ctx.cx_dot.trigger()
                 if ctx.tx_dot is not None:
                     ctx.tx_dot.trigger()
-                ctx.writer.write(direction + "\r\n")  # type: ignore[arg-type]
+                ctx.writer.write(direction + "\r\n")
 
                 if wait_fn is not None:
                     await wait_fn()

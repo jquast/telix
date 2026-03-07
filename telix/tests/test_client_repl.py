@@ -49,7 +49,7 @@ from telix.client_repl import (
     handle_travel_commands,
 )
 from telix.session_context import CommandQueue, TelixSessionContext
-from telix.client_repl_render import SEXTANT, SCRAMBLE_LEN, idle_rgb, idle_ar_rgb, scramble_password
+from telix.client_repl_render import SEXTANT, idle_rgb, idle_ar_rgb, scramble_password
 from telix.client_repl_travel import MAX_STUCK_RETRIES
 from telix.client_repl_commands import (
     StepResult,
@@ -1822,7 +1822,8 @@ def test_echo_autoreply_writes_typescript(tmp_path: Any) -> None:
     repl.echo_autoreply("look")
     ts_file.close()
 
-    content = ts_path.read_text(encoding="utf-8", newline="")
+    with ts_path.open(encoding="utf-8", newline="") as fh:
+        content = fh.read()
     assert content == "look\r\n"
 
 
@@ -1871,17 +1872,19 @@ def test_echo_autoreply_masks_when_will_echo(tmp_path: Any) -> None:
     repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
     repl.telnet_writer = types.SimpleNamespace(will_echo=True)
 
-    repl.echo_autoreply("secret123")
+    cmd = "secret123"
+    repl.echo_autoreply(cmd)
     ts_file.close()
 
-    ts_content = ts_path.read_text(encoding="utf-8", newline="")
+    with ts_path.open(encoding="utf-8", newline="") as fh:
+        ts_content = fh.read()
     assert ts_content == "\r\n"
 
     display_output = bytes(stdout_buf.data).decode()
-    assert "secret123" not in display_output
+    assert cmd not in display_output
     sextant_set = set(SEXTANT[1:])
     masked = [ch for ch in display_output if ch in sextant_set]
-    assert len(masked) == SCRAMBLE_LEN
+    assert len(masked) == len(cmd)
 
     replay = b"".join(repl.replay_buf).decode()
     assert "secret123" not in replay
@@ -1905,7 +1908,8 @@ def test_typescript_will_echo_writes_bare_crlf(tmp_path: Any) -> None:
     ts_file.flush()
     ts_file.close()
 
-    content = ts_path.read_text(encoding="utf-8", newline="")
+    with ts_path.open(encoding="utf-8", newline="") as fh:
+        content = fh.read()
     assert "Password: \r\nWelcome" in content
 
 
@@ -2019,11 +2023,7 @@ async def test_read_input_sets_mode_switched_on_kludge_timeout(monkeypatch: pyte
 
     repl = object.__new__(ReplSession)
     repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
-    repl.blessed_term = types.SimpleNamespace(
-        raw=noop_ctx,
-        notify_on_resize=noop_ctx,
-        async_inkey=fake_inkey,
-    )
+    repl.blessed_term = types.SimpleNamespace(raw=noop_ctx, notify_on_resize=noop_ctx, async_inkey=fake_inkey)
     repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
     repl.stdout = stdout
     repl.server_done = False
@@ -2080,13 +2080,7 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
     repl = object.__new__(ReplSession)
     repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
     repl.blessed_term = types.SimpleNamespace(
-        raw=noop_ctx,
-        notify_on_resize=noop_ctx,
-        async_inkey=fake_inkey,
-        restore="",
-        save="",
-        yellow="",
-        normal="",
+        raw=noop_ctx, notify_on_resize=noop_ctx, async_inkey=fake_inkey, restore="", save="", yellow="", normal=""
     )
     repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
     repl.stdout = stdout
@@ -2104,12 +2098,7 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
         written.append(data)
         repl.server_done = True
 
-    repl.telnet_writer = types.SimpleNamespace(
-        mode="normal",
-        will_echo=True,
-        write=fake_write,
-        close=lambda: None,
-    )
+    repl.telnet_writer = types.SimpleNamespace(mode="normal", will_echo=True, write=fake_write, close=lambda: None)
     repl.dispatch = types.SimpleNamespace(lookup=lambda key: None, lookup_ansi=lambda key: None)
 
     def fake_feed_key(key):
@@ -2117,16 +2106,8 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
             return types.SimpleNamespace(line=password, changed=True, interrupt=False, eof=False)
         return types.SimpleNamespace(line=None, changed=False, interrupt=False, eof=True)
 
-    repl.editor = types.SimpleNamespace(
-        password_mode=True,
-        _buf=list(password),
-        feed_key=fake_feed_key,
-    )
-    repl.toolbar = types.SimpleNamespace(
-        render=lambda *a, **kw: False,
-        hide_cursor=lambda: None,
-        flash_active=False,
-    )
+    repl.editor = types.SimpleNamespace(password_mode=True, _buf=list(password), feed_key=fake_feed_key)
+    repl.toolbar = types.SimpleNamespace(render=lambda *a, **kw: False, hide_cursor=lambda: None, flash_active=False)
 
     monkeypatch.setattr(ReplSession, "update_input_style", lambda self: None)
     monkeypatch.setattr(ReplSession, "render_editor", lambda self, *args: "")

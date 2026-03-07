@@ -41,10 +41,7 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self,
         session_key: str = "",
         writer: (
-            telnetlib3.stream_writer.TelnetWriterUnicode
-            | ws_transport.WebSocketWriter
-            | ssh_transport.SSHWriter
-            | None
+            telnetlib3.stream_writer.TelnetWriterUnicode | ws_transport.WebSocketWriter | ssh_transport.SSHWriter | None
         ) = None,
         encoding: str = "",
         raw_mode: bool | None = None,

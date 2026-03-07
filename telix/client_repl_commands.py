@@ -382,7 +382,7 @@ def collapse_runs(commands: list[str], start: int = 0) -> list[tuple[str, int, i
 
 def active_cmd_fg() -> str:
     """Return the active command foreground color from the palette."""
-    return get_repl_palette(session_key)["secondary"]
+    return get_repl_palette(session_key)["active_cmd"]
 
 
 def pending_cmd_rgb() -> tuple[int, int, int]:
@@ -609,7 +609,7 @@ async def send_chained(
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
                 ctx.tx_dot.trigger()
-            ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
+            ctx.writer.write(cmd + "\r\n")
             ts = ctx.typescript_file
             if ts is not None and ctx.writer is not None and not ctx.writer.will_echo:
                 ts.write(cmd + "\r\n")
@@ -641,7 +641,7 @@ async def send_chained(
                 ctx.cx_dot.trigger()
             if ctx.tx_dot is not None:
                 ctx.tx_dot.trigger()
-            ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
+            ctx.writer.write(cmd + "\r\n")
             ts = ctx.typescript_file
             if ts is not None and ctx.writer is not None and not ctx.writer.will_echo:
                 ts.write(cmd + "\r\n")
@@ -700,7 +700,7 @@ def macro_send(ctx: "TelixSessionContext", log: logging.Logger, cmd: str) -> Non
         ctx.cx_dot.trigger()
     if ctx.tx_dot is not None:
         ctx.tx_dot.trigger()
-    ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
+    ctx.writer.write(cmd + "\r\n")
 
 
 def _dispatch_repl_action(cmd: str, ctx: "TelixSessionContext", log: logging.Logger) -> bool:

@@ -6,7 +6,7 @@ interface to telnetlib3's reader/writer so that the REPL can operate over an
 SSH transport without modification.
 
 :class:`SSHReader` is a queue-based reader fed by the asyncssh receive loop.
-:class:`SSHWriter` wraps an :class:`asyncssh.SSHClientProcess` for writing and
+:class:`SSHWriter` wraps an :class:`asyncssh.SSHClientProcess[str]` for writing and
 carries the auth coordination state used by :class:`~telix.ssh_client.SSHTelix`.
 """
 
@@ -111,9 +111,7 @@ class SSHWriter:
     """
 
     def __init__(
-        self,
-        process: "asyncssh.SSHClientProcess | None" = None,
-        peername: tuple[str, int] | None = None,
+        self, process: "asyncssh.SSHClientProcess[str] | None" = None, peername: tuple[str, int] | None = None
     ) -> None:
         """
         Initialise the writer.
@@ -122,7 +120,7 @@ class SSHWriter:
             later once the connection is established.
         :param peername: ``(host, port)`` tuple for ``get_extra_info("peername")``.
         """
-        self._process: asyncssh.SSHClientProcess | None = process
+        self._process: asyncssh.SSHClientProcess[str] | None = process
         self._peername = peername
         self._closing = False
         self._ext_callback: dict[bytes, Callable[..., object]] = {}
@@ -144,12 +142,12 @@ class SSHWriter:
         self.auth_response_queue: asyncio.Queue[str] = asyncio.Queue()
 
     @property
-    def process(self) -> "asyncssh.SSHClientProcess | None":
+    def process(self) -> "asyncssh.SSHClientProcess[str] | None":
         """Return the underlying asyncssh process, or ``None`` before connect."""
         return self._process
 
     @process.setter
-    def process(self, value: "asyncssh.SSHClientProcess | None") -> None:
+    def process(self, value: "asyncssh.SSHClientProcess[str] | None") -> None:
         self._process = value
 
     def write(self, text: str | bytes) -> None:

@@ -61,7 +61,7 @@ def _prepare_terminal() -> None:
 
     blessed_term = get_term()
     sys.stdout.write(terminal_cleanup())
-    sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))
+    sys.stdout.write(blessed_term.change_scroll_region(0, blessed_term.height - 1))  # type: ignore[arg-type]
     sys.stdout.flush()
     sys.stderr.flush()
     sys.__stderr__.flush()
@@ -81,7 +81,7 @@ def _run_subprocess(
     env: dict[str, str] | None = None,
     crash_path: str = "",
     cleanup_files: list[str] | None = None,
-) -> subprocess.CompletedProcess | None:
+) -> "subprocess.CompletedProcess[bytes] | None":
     """
     Run a TUI subprocess with terminal and editor-active flag management.
 
@@ -101,7 +101,7 @@ def _run_subprocess(
     if env is not None:
         run_kwargs["env"] = env
     subprocess_is_active = True
-    result: subprocess.CompletedProcess | None = None
+    result: subprocess.CompletedProcess[bytes] | None = None
     try:
         with blocking_fds():
             result = subprocess.run(wrapped, check=False, **run_kwargs)
@@ -261,7 +261,7 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
             return None
         if session_key:
             save_data = load_prefs(session_key)
-            save_data["randomwalk_visit_level"] = int(data.get("visit_level", default_visit_level))
+            save_data["randomwalk_visit_level"] = int(data.get("visit_level", default_visit_level))  # type: ignore[assignment]
             save_data["randomwalk_auto_search"] = bool(data.get("auto_search", default_auto_search))
             save_data["randomwalk_auto_evaluate"] = bool(data.get("auto_evaluate", default_auto_evaluate))
             save_data["randomwalk_auto_survey"] = bool(data.get("auto_survey", default_auto_survey))
@@ -435,7 +435,7 @@ def read_crash_file(crash_path: str) -> dict[str, Any] | None:
     """
     try:
         with open(crash_path, encoding="utf-8") as fh:
-            return json.load(fh)
+            return dict(json.load(fh))
     except (OSError, ValueError):
         return None
 
@@ -495,7 +495,7 @@ def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, r
             replay_buf.append(banner.encode("utf-8"))
 
 
-def most_recent_channel(chat_messages: list, capture_log: dict) -> str:
+def most_recent_channel(chat_messages: list[Any], capture_log: dict[str, Any]) -> str:
     """Return the channel with the most recent activity across chat and captures."""
     best_ts = ""
     best_ch = ""
@@ -694,6 +694,10 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
         ]
     else:
         path = ctx.autoreplies_file or os.path.join(config_dir, "autoreplies.json")
+        snap = ctx.gmcp_snapshot_file or ""
+        if snap and ctx.gmcp_data:
+            save_gmcp_snapshot(snap, session_key, ctx.gmcp_data)
+            ctx.gmcp_dirty = False
         engine = ctx.autoreply_engine
         select = getattr(engine, "last_matched_pattern", "") if engine else ""
         cmd = [
@@ -701,10 +705,11 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
             "-c",
             "import sys; from telix.client_tui_editors import edit_autoreplies_main; "
             "edit_autoreplies_main(sys.argv[1], sys.argv[2],"
-            " select_pattern=sys.argv[3], logfile=sys.argv[4])",
+            " select_pattern=sys.argv[3], gmcp_snapshot_path=sys.argv[4], logfile=sys.argv[5])",
             path,
             session_key,
             select,
+            snap,
             logfile,
         ]
 

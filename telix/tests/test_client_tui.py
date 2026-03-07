@@ -961,7 +961,7 @@ class TestActionConnectScreenRefresh:
             patch("telix.client_tui_base.sys.stdout"),
         ):
             mock_ts.return_value = MagicMock(lines=24, columns=80)
-            mock_popen.return_value = MagicMock()
+            mock_popen.return_value = MagicMock(returncode=0)
 
             screen.action_connect()
 
@@ -991,7 +991,6 @@ class TestActionConnectScreenRefresh:
 
         mock_proc = MagicMock()
         mock_proc.returncode = 1
-        mock_proc.check_returncode.side_effect = subprocess.CalledProcessError(1, ["telix"])
 
         with (
             patch("telix.client_tui_base.subprocess.Popen", return_value=mock_proc),

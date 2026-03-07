@@ -977,7 +977,7 @@ class AutoreplyEngine:
                 if self.echo_fn is not None:
                     self.echo_fn(consider_cmd)
                 assert self.ctx.writer is not None
-                self.ctx.writer.write(consider_cmd + "\r\n")  # type: ignore[arg-type]
+                self.ctx.writer.write(consider_cmd + "\r\n")
         self.log.info("autoreply: sending %r", cmd)
         self.sent_commands.add(cmd.strip())
         if len(self.sent_commands) > self.sent_commands_max:
@@ -995,7 +995,7 @@ class AutoreplyEngine:
         if self.ctx.tx_dot is not None:
             self.ctx.tx_dot.trigger()
         assert self.ctx.writer is not None
-        self.ctx.writer.write(cmd + "\r\n")  # type: ignore[arg-type]
+        self.ctx.writer.write(cmd + "\r\n")
 
     def on_prompt(self) -> None:
         """

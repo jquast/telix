@@ -185,7 +185,7 @@ class WSTelnetTransport(asyncio.Transport):
         self._send_queue = send_queue
         self._closing = False
 
-    def write(self, data: bytes) -> None:
+    def write(self, data: bytes) -> None:  # type: ignore[override]
         """Enqueue *data* for sending as a binary WebSocket frame."""
         if not self._closing and data:
             self._send_queue.put_nowait(data)
@@ -319,7 +319,7 @@ class WebSocketWriter:
         self._iac_callback: dict[bytes, Callable[..., object]] = {}
         self._send_queue: asyncio.Queue[bytes | str | None] = asyncio.Queue()
         self.encoding = encoding
-        self.ctx: TelixSessionContext = None
+        self.ctx: TelixSessionContext = None  # type: ignore[assignment]
         self.log = logging.getLogger("telix.ws_transport")
         self.will_echo: bool = False
         self.mode: str = "local"

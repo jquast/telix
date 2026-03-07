@@ -1556,7 +1556,7 @@ class ToolbarRenderer:
         self,
         loop: asyncio.AbstractEventLoop,
         autoreply_engine: "autoreply_mod.AutoreplyEngine | None",
-        editor: "blessed.line_editor.LiveLineEditor",
+        editor: "blessed.line_editor.LineEditor",
         bt: "blessed.Terminal",
     ) -> None:
         """Schedule repeating flash animation frames via ``loop.call_later``."""
@@ -1596,6 +1596,7 @@ class ToolbarRenderer:
                         autoreply=is_ar_bg,
                     )
                 else:
+                    assert ac is not None
                     cursor_col = client_repl_commands.render_active_command(
                         ac,
                         self.scroll,
@@ -1625,8 +1626,7 @@ class ToolbarRenderer:
                     raw = editor.render(bt, input_row, edit_w)
                     if editor.password_mode and editor._buf:
                         raw = "".join(
-                            random.choice(SEXTANT_VISIBLE) if ch == editor.password_char else ch
-                            for ch in raw
+                            random.choice(SEXTANT_VISIBLE) if ch == editor.password_char else ch for ch in raw
                         )
                     self.out.write(raw.encode())
                 prog = None
@@ -1662,7 +1662,7 @@ class ToolbarRenderer:
         self,
         loop: asyncio.AbstractEventLoop,
         autoreply_engine: "autoreply_mod.AutoreplyEngine | None",
-        editor: "blessed.line_editor.LiveLineEditor",
+        editor: "blessed.line_editor.LineEditor",
         bt: "blessed.Terminal",
     ) -> None:
         """
@@ -1709,7 +1709,7 @@ class ToolbarRenderer:
         self,
         loop: asyncio.AbstractEventLoop,
         autoreply_engine: "autoreply_mod.AutoreplyEngine | None",
-        editor: "blessed.line_editor.LiveLineEditor",
+        editor: "blessed.line_editor.LineEditor",
         bt: "blessed.Terminal",
     ) -> None:
         """

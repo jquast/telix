@@ -19,6 +19,7 @@ import shutil
 import asyncio
 import logging
 import argparse
+from collections.abc import Callable, Sequence, Awaitable
 
 import asyncssh
 
@@ -29,7 +30,7 @@ log = logging.getLogger(__name__)
 
 class SSHTelix(asyncssh.SSHClient):
     """
-    asyncssh client subclass that routes auth callbacks through the REPL.
+    Asyncssh client subclass that routes auth callbacks through the REPL.
 
     :param reader: :class:`~telix.ssh_transport.SSHReader` fed by the receive loop.
     :param writer: :class:`~telix.ssh_transport.SSHWriter` wrapping the process.
@@ -77,11 +78,7 @@ class SSHTelix(asyncssh.SSHClient):
         return ""
 
     async def kbdint_challenge_received(
-        self,
-        name: str,
-        instructions: str,
-        lang: str,
-        prompts: list[tuple[str, bool]],
+        self, name: str, instructions: str, lang: str, prompts: Sequence[tuple[str, bool]]
     ) -> list[str]:
         """
         Collect responses to keyboard-interactive challenge prompts.
@@ -111,12 +108,7 @@ class SSHTelix(asyncssh.SSHClient):
 
 
 async def run_ssh_client(
-    host: str,
-    port: int,
-    username: str,
-    key_file: str,
-    term_type: str,
-    shell: "object",
+    host: str, port: int, username: str, key_file: str, term_type: str, shell: Callable[..., Awaitable[None]]
 ) -> None:
     """
     Connect to an SSH server and run the telix shell.
@@ -171,12 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     conn.add_argument("--port", type=int, default=22, metavar="N", help="SSH port (default: 22)")
     conn.add_argument("--username", default="", metavar="USER", help="login username (default: system login)")
     conn.add_argument("--key-file", default="", dest="key_file", metavar="FILE", help="path to private key file")
-    conn.add_argument(
-        "--term",
-        default="",
-        metavar="TERM",
-        help="terminal type to negotiate (default: $TERM)",
-    )
+    conn.add_argument("--term", default="", metavar="TERM", help="terminal type to negotiate (default: $TERM)")
     conn.add_argument(
         "--loglevel",
         default="warn",
@@ -188,10 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     telix = parser.add_argument_group("Telix options")
     telix.add_argument(
-        "--colormatch",
-        default="vga",
-        metavar="PALETTE",
-        help="color palette for remapping (default: vga)",
+        "--colormatch", default="vga", metavar="PALETTE", help="color palette for remapping (default: vga)"
     )
     telix.add_argument(
         "--no-ice-colors",

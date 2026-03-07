@@ -49,7 +49,7 @@ def load_gmcp_snapshot(path: str) -> dict[str, typing.Any]:
     :returns: The ``packages`` dict, or empty dict if file is missing.
     """
     data = load_raw(path)
-    return data.get("packages", {})
+    return dict(data.get("packages", {}))
 
 
 def load_raw(path: str) -> dict[str, typing.Any]:
@@ -57,4 +57,4 @@ def load_raw(path: str) -> dict[str, typing.Any]:
     if not os.path.exists(path):
         return {}
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return dict(json.load(f))

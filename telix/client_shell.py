@@ -173,7 +173,7 @@ def build_session_key(
     if isinstance(writer, (ws_transport.WebSocketWriter, ssh_transport.SSHWriter)):
         peername = writer.get_extra_info("peername")
         if peername:
-            return f"{peername[0]}:{peername[1]}"
+            return f"{peername[0]}:{peername[1]}"  # type: ignore[index]
         return ""
     _stderr_buf = io.StringIO()
     try:
@@ -336,7 +336,7 @@ async def telix_client_shell(
     # 1. Build SessionContext and attach to writer, preserving attributes
     #    that run_client() wrappers already set on the original ctx.
     ctx = telnet_writer.ctx = session_context.TelixSessionContext.create_using_telnet_ctx(
-        writer=telnet_writer,
+        writer=telnet_writer,  # type: ignore[arg-type]
         session_key=build_session_key(telnet_writer),
         encoding=telnet_writer.fn_encoding(incoming=True),
     )
@@ -499,18 +499,18 @@ async def ssh_client_shell(ssh_reader: ssh_transport.SSHReader, ssh_writer: ssh_
     """
     import telnetlib3._session_context
 
-    ssh_writer.ctx = telnetlib3._session_context.TelnetSessionContext(
-        raw_mode=True, autoreply_engine=None, autoreply_wait_fn=None, typescript_file=None
-    )
+    ssh_writer.ctx = telnetlib3._session_context.TelnetSessionContext()  # type: ignore[assignment]
 
     ctx = ssh_writer.ctx = session_context.TelixSessionContext.create_using_telnet_ctx(
-        session_key=build_session_key(ssh_writer), writer=ssh_writer, encoding=ssh_writer.encoding
+        session_key=build_session_key(ssh_writer),
+        writer=ssh_writer,  # type: ignore[arg-type]
+        encoding=ssh_writer.encoding,
     )
     ctx.repl_enabled = False
     ctx.raw_mode = True
 
     load_configs(ctx)
-    _setup_color_filter(ctx, ssh_writer)
+    _setup_color_filter(ctx, ssh_writer)  # type: ignore[arg-type]
 
     keyboard_escape = ctx.keyboard_escape
 

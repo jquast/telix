@@ -27,8 +27,18 @@ if TYPE_CHECKING:
     from .autoreply import AutoreplyRule
     from .session_context import TelixSessionContext
 
-# (start, end, highlight, stop_movement, rule_idx, match)
-Span = tuple[int, int, str, bool, int, re.Match[str] | None]
+
+@dataclasses.dataclass
+class Span:
+    """A single highlight match region within a line of text."""
+
+    start: int
+    end: int
+    highlight: str
+    stop_movement: bool
+    rule_idx: int
+    match: re.Match[str] | None
+
 
 __all__ = ("HighlightEngine", "HighlightRule", "load_highlights", "save_highlights", "validate_highlight")
 
@@ -217,7 +227,7 @@ class CompiledRuleSet:
                 self.combined = None
 
     def finditer(self, text: str) -> list[Span]:
-        """Return non-overlapping :data:`Span` tuples."""
+        """Return non-overlapping :class:`Span` instances."""
         if self.combined is None:
             return []
         spans: list[Span] = []
@@ -228,9 +238,9 @@ class CompiledRuleSet:
             idx = int(gname[2:])
             hl, stop, rule_idx = self.group_map[idx]
             start, end = m.start(), m.end()
-            if spans and start < spans[-1][1]:
+            if spans and start < spans[-1].end:
                 continue
-            spans.append((start, end, hl, stop, rule_idx, m))
+            spans.append(Span(start, end, hl, stop, rule_idx, m))
         return spans
 
 
@@ -310,13 +320,23 @@ class HighlightEngine:
         :meth:`finditer` over all patterns.  Remaps ``rule_idx`` from the
         single-line subset back to the full ``rules`` list.
 
-        :returns: List of :data:`Span` tuples sorted by start position,
+        :returns: List of :class:`Span` instances sorted by start position,
             with overlaps resolved (first rule wins).
         """
         spans = self.ruleset.finditer(plain)
         if not self.sl_indices:
             return spans
-        return [(s, e, hl, stop, (self.sl_indices[ri] if ri >= 0 else ri), m) for s, e, hl, stop, ri, m in spans]
+        return [
+            Span(
+                sp.start,
+                sp.end,
+                sp.highlight,
+                sp.stop_movement,
+                self.sl_indices[sp.rule_idx] if sp.rule_idx >= 0 else sp.rule_idx,
+                sp.match,
+            )
+            for sp in spans
+        ]
 
     def extract_captures(self, spans: list[Span], plain: str) -> None:
         r"""
@@ -338,12 +358,13 @@ class HighlightEngine:
             return
 
         group_ref = re.compile(r"\\(\d+)")
-        for _s, _e, _hl, _stop, rule_idx, match in spans:
-            if rule_idx < 0 or match is None:
+        for span in spans:
+            if span.rule_idx < 0 or span.match is None:
                 continue
-            if rule_idx >= len(self.rules):
+            if span.rule_idx >= len(self.rules):
                 continue
-            rule = self.rules[rule_idx]
+            rule = self.rules[span.rule_idx]
+            match = span.match
             if not rule.captured:
                 continue
             # Re-match with the rule's own pattern to get correct group
@@ -383,8 +404,8 @@ class HighlightEngine:
         if ctx is None:
             return None
         cancelled: list[str] = []
-        for _s, _e, _hl, stop, _ri, _m in spans:
-            if not stop:
+        for span in spans:
+            if not span.stop_movement:
                 continue
             if ctx.discover_active and ctx.discover_task is not None:
                 ctx.discover_task.cancel()
@@ -434,16 +455,16 @@ class HighlightEngine:
 
             for grapheme in wcwidth.iter_graphemes(segment):
                 if span_idx < len(spans):
-                    s_start, s_end, hl_name, _stop, _ri, _m = spans[span_idx]
+                    span = spans[span_idx]
 
-                    if not in_highlight and plain_pos >= s_start:
+                    if not in_highlight and plain_pos >= span.start:
                         saved_sgr = sgr_state
-                        hl_seq = self.get_highlight_seq(hl_name)
+                        hl_seq = self.get_highlight_seq(span.highlight)
                         if hl_seq:
                             output.append(hl_seq)
                         in_highlight = True
 
-                    if in_highlight and plain_pos >= s_end:
+                    if in_highlight and plain_pos >= span.end:
                         output.append("\x1b[0m")
                         restore = wcwidth.sgr_state._sgr_state_to_sequence(saved_sgr)
                         if restore:
@@ -452,10 +473,10 @@ class HighlightEngine:
                         span_idx += 1
 
                         if span_idx < len(spans):
-                            s_start, s_end, hl_name, _stop, _ri, _m = spans[span_idx]
-                            if plain_pos >= s_start:
+                            span = spans[span_idx]
+                            if plain_pos >= span.start:
                                 saved_sgr = sgr_state
-                                hl_seq = self.get_highlight_seq(hl_name)
+                                hl_seq = self.get_highlight_seq(span.highlight)
                                 if hl_seq:
                                     output.append(hl_seq)
                                 in_highlight = True
@@ -521,18 +542,18 @@ class HighlightEngine:
         combined = re.compile("|".join(parts), RE_FLAGS)
         spans: list[Span] = []
         for m in combined.finditer(normalized):
-            gname = m.lastgroup
-            if gname is None:
+            mgname = m.lastgroup
+            if mgname is None:
                 continue
-            idx = int(gname[2:])
+            idx = int(mgname[2:])
             hl, stop, rule_idx = group_map[idx]
             n_start, n_end = m.start(), m.end()
             # Remap positions back through the \r-stripped pos_map.
             orig_start = pos_map[n_start] if n_start < len(pos_map) else len(plain)
             orig_end = pos_map[n_end - 1] + 1 if n_end > 0 and n_end - 1 < len(pos_map) else len(plain)
-            if spans and orig_start < spans[-1][1]:
+            if spans and orig_start < spans[-1].end:
                 continue
-            spans.append((orig_start, orig_end, hl, stop, rule_idx, m))
+            spans.append(Span(orig_start, orig_end, hl, stop, rule_idx, m))
 
         if not spans:
             return block, False

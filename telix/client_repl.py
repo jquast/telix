@@ -120,7 +120,6 @@ from .client_repl_commands import execute_macro_commands as execute_macro_comman
 if TYPE_CHECKING:
     import blessed.keyboard
 
-    from . import client_shell
     from .macros import Macro
     from .session_context import TelixSessionContext
 
@@ -320,7 +319,7 @@ def restore_after_subprocess(replay_buf: "OutputRingBuffer | None", reserve: int
         tsize = os.terminal_size((80, 24))
     scroll_bottom = max(0, tsize.lines - reserve - 2)
     sys.stdout.write(blessed_term.clear + blessed_term.home)
-    sys.stdout.write(blessed_term.change_scroll_region(0, scroll_bottom))
+    sys.stdout.write(blessed_term.change_scroll_region(0, scroll_bottom))  # type: ignore[arg-type]
     sys.stdout.write(blessed_term.move_yx(0, 0))
     if replay_buf is not None:
         data = replay_buf.replay()
@@ -366,7 +365,7 @@ def repaint_screen(
         scroll_bottom = max(0, tsize.lines - reserve - 2)
         sys.stdout.write(blessed_term.hide_cursor)
         sys.stdout.write(blessed_term.clear + blessed_term.home)
-        sys.stdout.write(blessed_term.change_scroll_region(0, scroll_bottom))
+        sys.stdout.write(blessed_term.change_scroll_region(0, scroll_bottom))  # type: ignore[arg-type]
         sys.stdout.write(blessed_term.move_yx(0, 0))
         if replay_buf is not None:
             data = replay_buf.replay()
@@ -490,7 +489,7 @@ class ScrollRegion:
         """Write DECSTBM escape sequence to set scroll region."""
         blessed_term = get_term()
         bottom = self.scroll_bottom
-        self.stdout.write(blessed_term.change_scroll_region(0, bottom).encode())
+        self.stdout.write(blessed_term.change_scroll_region(0, bottom).encode())  # type: ignore[arg-type]
         dmz = bottom + 1
         if dmz < self.input_row:
             self.stdout.write((blessed_term.move_yx(dmz, 0) + blessed_term.clear_eol + dmz_line(self.cols)).encode())
@@ -499,7 +498,7 @@ class ScrollRegion:
     def reset_scroll_region(self) -> None:
         """Reset scroll region to full terminal height."""
         blessed_term = get_term()
-        self.stdout.write(blessed_term.change_scroll_region(0, self.rows - 1).encode())
+        self.stdout.write(blessed_term.change_scroll_region(0, self.rows - 1).encode())  # type: ignore[arg-type]
 
     def save_and_goto_input(self) -> None:
         """Save cursor, move to input line, clear it."""
@@ -527,7 +526,7 @@ class ScrollRegion:
 @contextlib.asynccontextmanager
 async def repl_scaffold(
     telnet_writer: "telnetlib3.TelnetWriter | telnetlib3.TelnetWriterUnicode",
-    tty_shell: "client_shell.Terminal",
+    tty_shell: "telnetlib3.client_shell.Terminal",
     stdout: asyncio.StreamWriter,
     reserve_bottom: int = 1,
     on_resize: "Callable[[int, int], None] | None" = None,
@@ -744,7 +743,7 @@ class ReplSession:
         self,
         telnet_reader: "telnetlib3.TelnetReader | telnetlib3.TelnetReaderUnicode",
         telnet_writer: "telnetlib3.TelnetWriter | telnetlib3.TelnetWriterUnicode",
-        tty_shell: "client_shell.Terminal",
+        tty_shell: "telnetlib3.client_shell.Terminal",
         stdout: asyncio.StreamWriter,
         history_file: str | None = None,
         banner_lines: list[str] | None = None,
@@ -817,7 +816,7 @@ class ReplSession:
             max_width=term_cols,
             limit=1024,
             keymap={},
-            **editor_style,
+            **editor_style,  # type: ignore[arg-type]
         )
 
     def init_ui(self) -> None:
@@ -837,7 +836,7 @@ class ReplSession:
         """Echo an autoreply command into the scroll region."""
         assert self.scroll is not None
         is_pw = self.telnet_writer.will_echo
-        display_cmd = scramble_password() if is_pw else cmd
+        display_cmd = scramble_password(len(cmd)) if is_pw else cmd
         self.stdout.write(self.blessed_term.restore.encode())
         colored = f"{self.blessed_term.cyan}{display_cmd}{self.blessed_term.normal}\r\n"
         self.stdout.write(colored.encode())
@@ -1044,7 +1043,7 @@ class ReplSession:
         cmd = autodiscover_dialog(replay_buf=self.replay_buf, session_key=self.ctx.session_key)
         if cmd is None:
             return
-        task = asyncio.ensure_future(handle_travel_commands([cmd], self.ctx, self.telnet_writer.log))
+        task = asyncio.ensure_future(handle_travel_commands([cmd], self.ctx, self.telnet_writer.log))  # type: ignore[arg-type]
         task.add_done_callback(self.on_walk_done)
         self.ctx.discover_task = task
 
@@ -1101,7 +1100,7 @@ class ReplSession:
         cmd = randomwalk_dialog(replay_buf=self.replay_buf, session_key=self.ctx.session_key)
         if cmd is None:
             return
-        task = asyncio.ensure_future(handle_travel_commands([cmd], self.ctx, self.telnet_writer.log))
+        task = asyncio.ensure_future(handle_travel_commands([cmd], self.ctx, self.telnet_writer.log))  # type: ignore[arg-type]
         task.add_done_callback(self.on_walk_done)
         self.ctx.randomwalk_task = task
 
@@ -1348,7 +1347,7 @@ class ReplSession:
         scroll = self.scroll
         q = CommandQueue(
             commands,
-            render=lambda: render_command_queue(
+            render=lambda: render_command_queue(  # type: ignore[arg-type]
                 self.ctx.command_queue,
                 scroll,
                 self.stdout,
@@ -1552,7 +1551,7 @@ class ReplSession:
                 if action is None and self.ctx.ansi_keys:
                     seq = self.dispatch.lookup_ansi(key)
                     if seq is not None:
-                        self.telnet_writer.write(seq)
+                        self.telnet_writer.write(seq)  # type: ignore[arg-type]
                         continue
                 if action is not None:
                     result = action()
@@ -1589,7 +1588,7 @@ class ReplSession:
                         self.replay_buf.append(colored.encode())
                         self.stdout.write(bt.save.encode())
                         tx_dot.trigger()
-                        self.telnet_writer.write(cmd + "\r\n")
+                        self.telnet_writer.write(cmd + "\r\n")  # type: ignore[arg-type]
                         if self.ga_detected:
                             self.prompt_ready.clear()
                         self.toolbar.hide_cursor()
@@ -1620,7 +1619,7 @@ class ReplSession:
                     line = result.line
 
                     if hasattr(self.telnet_writer, "pending_auth") and self.telnet_writer.pending_auth:
-                        self.telnet_writer.auth_response_queue.put_nowait(line)
+                        self.telnet_writer.auth_response_queue.put_nowait(line)  # type: ignore[attr-defined]
                         self.toolbar.hide_cursor()
                         self.update_input_style()
                         self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
@@ -1650,7 +1649,7 @@ class ReplSession:
                         ts.flush()
 
                     is_pw = self.telnet_writer.will_echo
-                    echo = scramble_password() if is_pw else line
+                    echo = scramble_password(len(line)) if is_pw else line
                     self.stdout.write(bt.restore.encode())
                     colored = f"{bt.yellow}{echo}{bt.normal}\r\n"
                     self.stdout.write(colored.encode())
@@ -1811,7 +1810,7 @@ class ReplSession:
 async def repl_event_loop(
     telnet_reader: "telnetlib3.TelnetReader | telnetlib3.TelnetReaderUnicode",
     telnet_writer: "telnetlib3.TelnetWriter | telnetlib3.TelnetWriterUnicode",
-    tty_shell: "client_shell.Terminal",
+    tty_shell: "telnetlib3.client_shell.Terminal",
     stdout: asyncio.StreamWriter,
     history_file: str | None = None,
     banner_lines: list[str] | None = None,

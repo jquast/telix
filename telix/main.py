@@ -32,6 +32,7 @@ def _parse_option_list(values: list[str]) -> set[bytes]:
                 result.add(telnetlib3.client._parse_option_arg(item))
     return result
 
+
 # Module-level store for telix-specific args, set by main() before
 # telnetlib3 starts the shell.  Read by client_shell._setup_color_filter().
 _color_args: argparse.Namespace | None = None
@@ -301,7 +302,6 @@ def main() -> None:
                     always_will=always_will,
                     always_dont=always_dont,
                     always_wont=always_wont,
-                    force_binary=True,
                     term=args.term,
                     speed=args.speed,
                     send_environ=send_environ,

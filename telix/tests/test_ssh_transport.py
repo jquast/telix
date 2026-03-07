@@ -103,37 +103,37 @@ class TestSSHWriter:
         return SSHWriter(process=process, **kwargs)
 
     def test_write_calls_process_stdin(self):
-        """write() delegates to process.stdin.write."""
+        """Write() delegates to process.stdin.write."""
         writer = self._make_writer()
         writer.write("hello\r\n")
         writer._process.stdin.write.assert_called_once_with("hello\r\n")
 
     def test_write_decodes_bytes(self):
-        """write() decodes bytes to str before writing."""
+        """Write() decodes bytes to str before writing."""
         writer = self._make_writer()
         writer.write(b"hello")
         writer._process.stdin.write.assert_called_once_with("hello")
 
     def test_write_no_process_is_noop(self):
-        """write() is a no-op when process is None."""
+        """Write() is a no-op when process is None."""
         writer = SSHWriter(process=None)
         writer.write("hello")  # should not raise
 
     def test_close_closes_stdin(self):
-        """close() closes the process stdin."""
+        """Close() closes the process stdin."""
         writer = self._make_writer()
         writer.close()
         writer._process.stdin.close.assert_called_once()
 
     def test_close_sets_is_closing(self):
-        """close() marks the writer as closing."""
+        """Close() marks the writer as closing."""
         writer = self._make_writer()
         assert writer.is_closing() is False
         writer.close()
         assert writer.is_closing() is True
 
     def test_close_idempotent(self):
-        """close() called twice only closes stdin once."""
+        """Close() called twice only closes stdin once."""
         writer = self._make_writer()
         writer.close()
         writer.close()
@@ -145,7 +145,7 @@ class TestSSHWriter:
         assert writer.will_echo is False
 
     def test_mode_default_local(self):
-        """mode defaults to 'local' for REPL compatibility."""
+        """Mode defaults to 'local' for REPL compatibility."""
         writer = SSHWriter()
         assert writer.mode == "local"
 
@@ -186,7 +186,7 @@ class TestSSHWriter:
         assert writer.get_extra_info("nonexistent", "fallback") == "fallback"
 
     def test_process_property_setter(self):
-        """process property setter updates the underlying process."""
+        """Process property setter updates the underlying process."""
         writer = SSHWriter()
         assert writer.process is None
         mock_proc = MagicMock()
@@ -210,7 +210,7 @@ class TestSSHWriter:
         assert isinstance(writer.remote_option, NullOptionSet)
 
     def test_client_flag_is_true(self):
-        """client attribute is True for REPL compatibility."""
+        """Client attribute is True for REPL compatibility."""
         writer = SSHWriter()
         assert writer.client is True
 

@@ -53,7 +53,13 @@ class TestGetReplPalette:
         monkeypatch.setattr("telix.repl_theme.saved_theme_name", lambda sk: "nonexistent")
         monkeypatch.setattr("telix.repl_theme.resolve_theme", lambda name: {})
         palette = get_repl_palette()
-        assert palette == FALLBACK
+        computed_keys = {"active_cmd", "pending_cmd", "input_ar_suggestion"}
+        for key, value in FALLBACK.items():
+            if key not in computed_keys:
+                assert palette[key] == value
+        assert "active_cmd" in palette
+        assert "pending_cmd" in palette
+        assert "input_ar_suggestion" in palette
 
     def test_session_key_forwarded(self, monkeypatch):
         captured = []

@@ -29,6 +29,7 @@ import websockets.typing
 import websockets.exceptions
 import telnetlib3.accessories
 import telnetlib3.client_base
+import websockets.asyncio.client
 import telnetlib3._session_context
 
 from . import ws_transport
@@ -37,7 +38,7 @@ log = logging.getLogger(__name__)
 
 GMCP_SUBPROTOCOL = "gmcp.mudstandards.org"
 TELNET_SUBPROTOCOL = "telnet.mudstandards.org"
-WS_SUBPROTOCOLS = [websockets.typing.Subprotocol(GMCP_SUBPROTOCOL), websockets.typing.Subprotocol(TELNET_SUBPROTOCOL)]
+WS_SUBPROTOCOLS = [websockets.typing.Subprotocol(GMCP_SUBPROTOCOL), websockets.typing.Subprotocol(TELNET_SUBPROTOCOL)]  # type: ignore[attr-defined]
 
 
 async def run_ws_client(
@@ -141,7 +142,6 @@ async def run_ws_client(
                 port=port,
                 encoding=encoding,
                 encoding_errors=encoding_errors,
-                force_binary=True,
                 term=term or "",
                 speed=speed,
                 send_environ=send_environ or (),
@@ -180,7 +180,7 @@ async def run_ws_client(
 
 
 async def _run_telnet_over_ws(
-    ws: "websockets.WebSocketClientProtocol",
+    ws: "websockets.asyncio.client.ClientConnection",
     host: str,
     port: int,
     encoding: str,
@@ -216,13 +216,13 @@ async def _run_telnet_over_ws(
     raw_mode_val = True if no_repl else raw_mode
 
     async def wrapped_shell(reader: "object", writer: "object") -> None:
-        ctx = writer.ctx  # type: ignore[union-attr]
+        ctx = writer.ctx  # type: ignore[attr-defined]
         ctx.raw_mode = raw_mode_val
         ctx.ansi_keys = ansi_keys
         if typescript:
             ctx.typescript_file = open(typescript, "w" if typescript_mode == "rewrite" else "a", encoding="utf-8")
         try:
-            await shell_fn(reader, writer)  # type: ignore[arg-type]
+            await shell_fn(reader, writer)
         finally:
             if ctx.typescript_file is not None:
                 ctx.typescript_file.close()
@@ -230,7 +230,7 @@ async def _run_telnet_over_ws(
 
     # Build telnetlib3 client with all connection options.
     client_cls = (
-        telnetlib3.client_base.TelnetClient
+        telnetlib3.client.TelnetClient
         if sys.platform == "win32" or not sys.stdin.isatty()
         else telnetlib3.client.TelnetTerminalClient
     )
@@ -257,12 +257,12 @@ async def _run_telnet_over_ws(
             return
         writer.always_will = always_will
         writer.always_do = always_do
-        writer.always_wont = always_wont
-        writer.always_dont = always_dont
+        writer.always_wont = always_wont  # type: ignore[attr-defined]
+        writer.always_dont = always_dont  # type: ignore[attr-defined]
         writer.passive_do = {telnetlib3.telopt.GMCP}
         writer._encoding_explicit = encoding not in ("utf8", "utf-8", False)
         if gmcp_modules:
-            writer.ctx.gmcp_modules = gmcp_modules
+            writer.ctx.gmcp_modules = gmcp_modules  # type: ignore[attr-defined]
 
     client.connection_made = patched_connection_made  # type: ignore[method-assign]
 
@@ -323,7 +323,7 @@ async def _run_telnet_over_ws(
 
 
 async def _run_gmcp_ws(
-    ws: "websockets.WebSocketClientProtocol",
+    ws: "websockets.asyncio.client.ClientConnection",
     host: str,
     port: int,
     encoding: str,
@@ -349,10 +349,9 @@ async def _run_gmcp_ws(
 
     # Create a faux telnet context; no IAC negotiation occurs over this WebSocket subprotocol.
     # ws_client_shell will replace this with a TelixSessionContext and call load_configs().
-    writer.ctx = telnetlib3._session_context.TelnetSessionContext(
-        raw_mode=raw_mode, autoreply_engine=None, autoreply_wait_fn=None, typescript_file=None
-    )
-    writer.ctx.no_repl = no_repl
+    writer.ctx = telnetlib3._session_context.TelnetSessionContext()  # type: ignore[assignment]
+    writer.ctx.raw_mode = raw_mode
+    writer.ctx.no_repl = no_repl  # type: ignore[attr-defined]
     writer.ctx.ascii_eol = ascii_eol
     writer.ctx.ansi_keys = ansi_keys
 

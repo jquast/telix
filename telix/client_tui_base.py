@@ -82,7 +82,7 @@ def install_crash_hook(crash_path: str) -> None:
     """
     import traceback as tb_mod
 
-    def hook(exc_type, exc_value, exc_tb):
+    def hook(exc_type, exc_value, exc_tb):  # type: ignore[no-untyped-def]
         text = "".join(tb_mod.format_exception(exc_type, exc_value, exc_tb))
         write_crash_file(crash_path, text, "exception")
         sys.__excepthook__(exc_type, exc_value, exc_tb)
@@ -204,7 +204,7 @@ FLAG_TO_WIDGET: dict[str, str] = {
 
 
 def handle_arrow_navigation(
-    screen: textual.screen.Screen,
+    screen: "textual.screen.Screen[object]",
     event: textual.events.Key,
     button_col_selector: str,
     table_selector: str,
@@ -236,7 +236,7 @@ def handle_arrow_navigation(
                 if isinstance(w, (textual.widgets.Input, textual.widgets.Switch, textual.widgets.Button))
             ]
             if focused in form_fields:
-                idx = form_fields.index(focused)
+                idx = form_fields.index(focused)  # type: ignore[arg-type]
                 if event.key == "up" and idx > 0:
                     form_fields[idx - 1].focus()
                     event.prevent_default()
@@ -624,7 +624,7 @@ def relative_time(iso_str: str) -> str:
 class SessionListScreen(textual.screen.Screen[None]):
     """Main screen: table of saved sessions with action buttons."""
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("q", "quit_app", "Quit"),
         textual.binding.Binding("n", "new_session", "New"),
         textual.binding.Binding("e", "edit_session", "Edit"),
@@ -758,7 +758,7 @@ class SessionListScreen(textual.screen.Screen[None]):
         # Button col(12) + padding/borders(6) + column gutters(11)
         fixed = 40 + 12 + 6 + 11
         name_w = max(16, self.app.size.width - fixed)
-        col = table.columns.get("name")
+        col = table.columns.get("name")  # type: ignore[call-overload]
         if col is not None:
             col.width = name_w
 
@@ -790,7 +790,7 @@ class SessionListScreen(textual.screen.Screen[None]):
             parts.append("ts")
         return " ".join(parts)
 
-    def add_rows(self, table: textual.widgets.DataTable, items: list[tuple[str, SessionConfig]]) -> None:
+    def add_rows(self, table: "textual.widgets.DataTable[object]", items: list[tuple[str, SessionConfig]]) -> None:
         """Add a list of ``(key, cfg)`` pairs as rows to *table*."""
         for key, cfg in items:
             table.add_row(
@@ -906,7 +906,7 @@ class SessionListScreen(textual.screen.Screen[None]):
                 table.move_cursor(row=row)
                 event.prevent_default()
         elif event.key in ("up", "down", "left", "right"):
-            handle_arrow_navigation(self, event, "#button-col", "#session-table")
+            handle_arrow_navigation(self, event, "#button-col", "#session-table")  # type: ignore[arg-type]
 
     def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Dispatch button press to the appropriate action."""
@@ -997,7 +997,8 @@ class SessionListScreen(textual.screen.Screen[None]):
                 self.notify(f"Deleted {key}")
 
         self.app.push_screen(
-            ConfirmDialogScreen(title="Delete Session", body=f"Delete session '{key}'?"), callback=do_confirm
+            ConfirmDialogScreen(title="Delete Session", body=f"Delete session '{key}'?"),
+            callback=do_confirm,  # type: ignore[arg-type]
         )
 
     def action_toggle_bookmark(self) -> None:
@@ -1073,9 +1074,10 @@ class SessionListScreen(textual.screen.Screen[None]):
                 _t0 = time.monotonic()
                 proc = subprocess.Popen(cmd, env=env)
                 proc.wait()
-                proc.check_returncode()
                 _elapsed = time.monotonic() - _t0
-                if proc.returncode != 0 or _elapsed < 4:
+                if proc.returncode:
+                    raise subprocess.CalledProcessError(proc.returncode, cmd)
+                if _elapsed < 4:
                     # if there was a logfile, hopefully the error is there, otherwise maybe its on the screen.
                     sys.stdout.write(
                         f"\r\n\x1b[1;31mProcess exited with code {proc.returncode} "
@@ -1139,10 +1141,10 @@ class SessionListScreen(textual.screen.Screen[None]):
                 break
 
 
-class ThemePickerScreen(textual.screen.Screen[str | None]):  # type: ignore[misc]
+class ThemePickerScreen(textual.screen.Screen[str | None]):
     """Modal screen wrapping ThemeEditPane for standalone theme selection."""
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("escape", "cancel", "Cancel", priority=True)
     ]
 
@@ -1179,7 +1181,7 @@ class ThemePickerScreen(textual.screen.Screen[str | None]):  # type: ignore[misc
         self.dismiss(None)
 
 
-class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: ignore[misc]
+class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
     """Full-screen form for adding or editing a session."""
 
     CSS = """
@@ -1452,20 +1454,22 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
                         yield textual.widgets.RadioButton(
                             "WebSocket", value=cfg.protocol == "websocket", id="proto-websocket"
                         )
-                        yield textual.widgets.RadioButton(
-                            "SSH", value=cfg.protocol == "ssh", id="proto-ssh"
-                        )
+                        yield textual.widgets.RadioButton("SSH", value=cfg.protocol == "ssh", id="proto-ssh")
                 yield textual.widgets.Input(
                     value=cfg.ws_path, placeholder="/ws", id="ws-path", tooltip="WebSocket path appended to URL"
                 )
                 with textual.containers.Vertical(id="ssh-col"):
                     yield textual.widgets.Input(
-                        value=cfg.ssh_username, placeholder="username", id="ssh-username",
-                        tooltip="SSH login username (empty = system login)"
+                        value=cfg.ssh_username,
+                        placeholder="username",
+                        id="ssh-username",
+                        tooltip="SSH login username (empty = system login)",
                     )
                     yield textual.widgets.Input(
-                        value=cfg.ssh_key_file, placeholder="path to private key", id="ssh-key-file",
-                        tooltip="Path to SSH private key file (empty = password auth)"
+                        value=cfg.ssh_key_file,
+                        placeholder="path to private key",
+                        id="ssh-key-file",
+                        tooltip="Path to SSH private key file (empty = password auth)",
                     )
                 with textual.containers.Horizontal(id="ssl-col"):
                     yield textual.widgets.Label("SSL/TLS", id="ssl-label")
@@ -1528,14 +1532,14 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
 
     def compose_display_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Display tab pane."""
-        has_detected = self.detected_bg is not None
         yield textual.containers.Horizontal(
             textual.widgets.Label("Color Palette", classes="field-label"),
             textual.widgets.Select([(v, v) for v in ("vga", "xterm", "none")], value=cfg.colormatch, id="colormatch"),
             textual.widgets.Static("", id="palette-preview"),
             classes="field-row",
         )
-        if has_detected:
+        has_detected = self.detected_bg is not None
+        if self.detected_bg is not None:
             r, g, b = self.detected_bg
             hex_color = f"#{r:02x}{g:02x}{b:02x}"
             yield textual.containers.Horizontal(
@@ -1661,7 +1665,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
     def on_radio_set_changed(self, event: textual.widgets.RadioSet.Changed) -> None:
         """Handle radio-set changes for server type, protocol, and terminal mode."""
         if event.radio_set.id == "server-type-radio":
-            self.apply_server_type(event.pressed.id)
+            self.apply_server_type(event.pressed.id)  # type: ignore[arg-type]
         elif event.radio_set.id == "protocol-radio":
             protocol = event.pressed.id.removeprefix("proto-")
             self.apply_protocol_visibility(protocol)
@@ -1808,10 +1812,10 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
             return
         brightness = self._parse_pct("#color-brightness", 100) / 100.0
         contrast = self._parse_pct("#color-contrast", 100) / 100.0
-        palette = [_adjust_color(r, g, b, brightness, contrast) for r, g, b in PALETTES[palette_name]]
+        palette = [_adjust_color(r, g, b, brightness, contrast) for r, g, b in PALETTES[palette_name]]  # type: ignore[index]
         force_black = self.query_one("#force-black-bg", textual.widgets.Switch).value
         if not force_black and self.detected_bg is not None:
-            palette[0] = self.detected_bg
+            palette[0] = self.detected_bg  # type: ignore[assignment]
         ice = self.query_one("#ice-colors", textual.widgets.Switch).value
         block = "\u2588"
         fg_blocks = "".join(f"[rgb({r},{g},{b})]{block}[/]" for r, g, b in palette)
@@ -1946,8 +1950,8 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         cfg.bookmarked = self.config.bookmarked
 
         cfg.term = self.query_one("#term", textual.widgets.Input).value.strip()
-        cfg.encoding = self.query_one("#encoding", textual.widgets.Select).value
-        cfg.encoding_errors = self.query_one("#encoding-errors", textual.widgets.Select).value
+        cfg.encoding = self.query_one("#encoding", textual.widgets.Select).value  # type: ignore[assignment]
+        cfg.encoding_errors = self.query_one("#encoding-errors", textual.widgets.Select).value  # type: ignore[assignment]
 
         if self.query_one("#mode-raw", textual.widgets.RadioButton).value:
             cfg.mode = "raw"
@@ -1959,7 +1963,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         cfg.ansi_keys = self.query_one("#ansi-keys", textual.widgets.Switch).value
         cfg.ascii_eol = self.query_one("#ascii-eol", textual.widgets.Switch).value
 
-        cfg.colormatch = self.query_one("#colormatch", textual.widgets.Select).value
+        cfg.colormatch = self.query_one("#colormatch", textual.widgets.Select).value  # type: ignore[assignment]
         cfg.color_brightness = self._parse_pct("#color-brightness", 100) / 100.0
         cfg.color_contrast = self._parse_pct("#color-contrast", 100) / 100.0
         cfg.ice_colors = self.query_one("#ice-colors", textual.widgets.Switch).value
@@ -1986,7 +1990,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):  # type: i
         )
         cfg.always_will = self.config.always_will
         cfg.always_do = self.config.always_do
-        cfg.loglevel = self.query_one("#loglevel", textual.widgets.Select).value
+        cfg.loglevel = self.query_one("#loglevel", textual.widgets.Select).value  # type: ignore[assignment]
         cfg.logfile = self.query_one("#logfile", textual.widgets.Input).value.strip()
         cfg.logfile_mode = (
             "rewrite" if self.query_one("#logfile-mode", textual.widgets.RadioSet).pressed_index == 1 else "append"
@@ -2082,7 +2086,7 @@ class HelpPane(textual.containers.Vertical):
 class CommandHelpScreen(textual.screen.Screen[None]):
     """Scrollable help screen with context-specific documentation."""
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("escape", "close", "Exit"),
         textual.binding.Binding("q", "close", "Exit", show=False),
     ]
@@ -2141,7 +2145,7 @@ class EditListPane(textual.containers.Vertical):
     .form-btn-spacer { width: 1; }
     """
 
-    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
+    BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [  # type: ignore[assignment]
         textual.binding.Binding("escape", "cancel_or_close", "Cancel", priority=True),
         textual.binding.Binding("f1", "show_help", "Help", show=True),
         textual.binding.Binding("plus", "reorder_hint", "Change Priority", key_display="+/=/-", show=True),
@@ -2392,7 +2396,7 @@ class EditListPane(textual.containers.Vertical):
                 ConfirmDialogScreen(
                     title=f"Delete {self.noun}", body=f"Delete {self.noun.lower()} '{label}'?", show_dont_ask=False
                 ),
-                callback=do_confirm,
+                callback=do_confirm,  # type: ignore[arg-type]
             )
 
     def action_ok(self) -> None:
@@ -2474,7 +2478,7 @@ class EditListPane(textual.containers.Vertical):
             cmd = f"`travel {room_id}`"
             self.insert_command(cmd)
 
-        kwargs: dict[str, str] = {"rooms_path": rooms_file, "session_key": self.session_key}
+        kwargs: dict[str, str] = {"rooms_path": rooms_file, "session_key": self.session_key}  # type: ignore[attr-defined]
         if self.current_room_path:
             kwargs["current_room_file"] = self.current_room_path
         self.app.push_screen(RoomPickerScreen(**kwargs), callback=do_pick)
@@ -2596,9 +2600,9 @@ class EditorApp(textual.app.App[None]):
         saved_theme = ""
         if self.session_key:
             prefs = rooms.load_prefs(self.session_key)
-            saved_theme = prefs.get("tui_theme", "")
+            saved_theme = prefs.get("tui_theme", "")  # type: ignore[assignment]
         if not saved_theme:
-            saved_theme = rooms.load_prefs(DEFAULTS_KEY).get("tui_theme", "")
+            saved_theme = rooms.load_prefs(DEFAULTS_KEY).get("tui_theme", "")  # type: ignore[assignment]
         if isinstance(saved_theme, str) and saved_theme:
             self.theme = saved_theme
         else:

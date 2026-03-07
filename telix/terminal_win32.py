@@ -47,7 +47,7 @@ def restore_io_blocking() -> None:
 def flush_stdin() -> None:
     """Flush stale input from the console input buffer."""
     try:
-        msvcrt.FlushConsoleInputBuffer(msvcrt.get_osfhandle(0))
+        msvcrt.FlushConsoleInputBuffer(msvcrt.get_osfhandle(0))  # type: ignore[attr-defined]
     except (OSError, AttributeError):
         pass
 
@@ -61,7 +61,7 @@ def pause_before_exit() -> None:
     sys.stdout.write("\r\nPress RETURN to continue...\r\n")
     sys.stdout.flush()
     try:
-        msvcrt.getwch()
+        msvcrt.getwch()  # type: ignore[attr-defined]
     except (OSError, KeyboardInterrupt):
         pass
 
