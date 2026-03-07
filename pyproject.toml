@@ -43,7 +43,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "telnetlib3>=4.0.0",
-    "blessed>=1.32",
+    "blessed>=1.33",
     "wcwidth>=0.6.0",
     "textual>=0.44,<1",
     "websockets>=14.0,<15",

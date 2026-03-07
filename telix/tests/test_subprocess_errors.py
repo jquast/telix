@@ -21,6 +21,7 @@ from telix.client_repl_dialogs import (
     format_crash_banner,
     launch_room_browser,
     launch_unified_editor,
+    most_recent_channel,
 )
 
 
@@ -204,3 +205,39 @@ class TestNoPromptOnSuccess:
 
         launch_tui_editor("macros", make_ctx())
         assert not any("crashed" in str(s) for s in written)
+
+
+class TestMostRecentChannel:
+    def test_empty_returns_empty(self):
+        assert most_recent_channel([], {}) == ""
+
+    def test_chat_only(self):
+        msgs = [{"ts": "2024-01-01T10:00:00", "channel": "gossip"}]
+        assert most_recent_channel(msgs, {}) == "gossip"
+
+    def test_capture_only(self):
+        cap = {"tells": [{"ts": "2024-01-01T11:00:00"}]}
+        assert most_recent_channel([], cap) == "tells"
+
+    def test_capture_newer_than_chat(self):
+        msgs = [{"ts": "2024-01-01T10:00:00", "channel": "gossip"}]
+        cap = {"tells": [{"ts": "2024-01-01T11:00:00"}]}
+        assert most_recent_channel(msgs, cap) == "tells"
+
+    def test_chat_newer_than_capture(self):
+        msgs = [{"ts": "2024-01-01T12:00:00", "channel": "gossip"}]
+        cap = {"tells": [{"ts": "2024-01-01T11:00:00"}]}
+        assert most_recent_channel(msgs, cap) == "gossip"
+
+    def test_multiple_capture_channels(self):
+        cap = {
+            "tells": [{"ts": "2024-01-01T10:00:00"}],
+            "ooc": [{"ts": "2024-01-01T12:00:00"}],
+        }
+        assert most_recent_channel([], cap) == "ooc"
+
+    def test_no_ts_fields(self):
+        msgs = [{"channel": "gossip"}]
+        cap = {"tells": [{}]}
+        result = most_recent_channel(msgs, cap)
+        assert result in ("gossip", "tells", "")

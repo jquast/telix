@@ -334,7 +334,7 @@ async def telix_client_shell(
     # 1. Build SessionContext and attach to writer, preserving attributes
     #    that run_client() wrappers already set on the original ctx.
     ctx = telnet_writer.ctx = session_context.TelixSessionContext.create_using_telnet_ctx(
-        writer=telnet_writer, session_key=build_session_key(telnet_writer), encoding=telnet_writer.environ_encoding
+        writer=telnet_writer, session_key=build_session_key(telnet_writer), encoding=telnet_writer.fn_encoding(outgoing=False)
     )
     ctx.repl_enabled = True
 

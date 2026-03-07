@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .rooms import RoomStore
 
 # 3rd party
+import wcwidth
 import rich.text
 import rich.style
 import textual.app
@@ -929,6 +930,14 @@ class CapsPane(textual.containers.Vertical):
             self.filter_idx = self.channels.index(self.initial_channel) + 1
         self.rebuild_sidebar()
         self.populate_log()
+        self.call_after_refresh(self.focus_active_channel)
+
+    def focus_active_channel(self) -> None:
+        """Focus the active channel button in the sidebar."""
+        buttons = list(self.query("#chat-sidebar Button"))
+        if buttons:
+            idx = min(self.filter_idx, len(buttons) - 1)
+            buttons[idx].focus()
 
     def load_messages(self) -> None:
         """Read messages from chat JSON and capture data files."""
@@ -1012,39 +1021,70 @@ class CapsPane(textual.containers.Vertical):
                 all_entries.append((entry.get("ts", ""), "capture", {**entry, "channel": ch}))
         all_entries.sort(key=lambda e: e[0])
 
+        log_width = (log_widget.size.width or 80) - 2
+
         for ts_val, source, msg in all_entries:
             ch = msg.get("channel", "")
-            line = rich.text.Text()
+
+            # Build prefix rich.text and a plain-text copy for width measurement.
+            prefix = rich.text.Text()
+            prefix_plain = ""
+
             if ts_val:
-                short_ts = ts_val[11:16] if len(ts_val) >= 16 else ts_val
-                line.append(f"{short_ts} ", style="dim")
+                rel = f"{client_tui_base.relative_time(ts_val)} "
+                prefix.append(rel, style="dim")
+                prefix_plain += rel
             if not channel_filter:
                 channel_ansi = msg.get("channel_ansi", "")
                 if channel_ansi:
-                    line.append_text(rich.text.Text.from_ansi(channel_ansi.rstrip()))
-                    line.append(" ")
+                    ch_rich = rich.text.Text.from_ansi(channel_ansi.rstrip())
+                    prefix.append_text(ch_rich)
+                    prefix.append(" ")
+                    prefix_plain += ch_rich.plain + " "
                 else:
-                    line.append(f"[{ch}] ", style="bold cyan")
+                    ch_label = f"[{ch}] "
+                    prefix.append(ch_label, style="bold cyan")
+                    prefix_plain += ch_label
+
             if source == "chat":
                 talker = msg.get("talker", "")
-                text_raw = msg.get("text", "").rstrip("\n")
-                body = text_raw
+                body_text = msg.get("text", "").rstrip("\n")
                 if talker:
-                    for prefix in (f"{talker} : ", f"{talker}: ", f"{talker} "):
-                        if body.startswith(prefix):
-                            body = body[len(prefix) :]
+                    for pfx_str in (f"{talker} : ", f"{talker}: ", f"{talker} "):
+                        if body_text.startswith(pfx_str):
+                            body_text = body_text[len(pfx_str) :]
                             break
-                    line.append(f"{talker}: ", style="bold")
-                line.append_text(rich.text.Text.from_ansi(body))
+                    talker_label = f"{talker}: "
+                    prefix.append(talker_label, style="bold")
+                    prefix_plain += talker_label
+                hl_style = ""
             else:
-                line_text = msg.get("line", "")
+                body_text = msg.get("line", "")
                 hl_style = msg.get("highlight", "")
+
+            indent_width = wcwidth.wcswidth(prefix_plain)
+            if indent_width < 0:
+                indent_width = len(prefix_plain)
+            indent = " " * indent_width
+            body_width = max(log_width - indent_width, 10)
+
+            wrapped = wcwidth.wrap(body_text, width=body_width, subsequent_indent="", propagate_sgr=True)
+            if not wrapped:
+                wrapped = [""]
+
+            for i, wline in enumerate(wrapped):
+                out = rich.text.Text()
+                out.append_text(prefix) if i == 0 else out.append(indent)
                 if hl_style:
-                    line.append(line_text, style=hl_style.replace("_", " "))
+                    out.append(wline, style=hl_style.replace("_", " "))
                 else:
-                    line.append_text(rich.text.Text.from_ansi(line_text))
-            log_widget.write(line)
+                    out.append_text(rich.text.Text.from_ansi(wline))
+                log_widget.write(out)
         log_widget.scroll_end(animate=False)
+
+    def on_resize(self, event: textual.events.Resize) -> None:
+        """Re-wrap messages when the pane is resized."""
+        self.populate_log()
 
     def action_close(self) -> None:
         """Dismiss the chat viewer."""
@@ -1144,8 +1184,6 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
     BINDINGS: typing.ClassVar[list[textual.binding.Binding]] = [
         textual.binding.Binding("escape", "close_or_back", "Close", priority=True),
         textual.binding.Binding("f1", "show_help", "Help", show=False, priority=True),
-        textual.binding.Binding("left", "prev_tab", "Prev Tab", show=False),
-        textual.binding.Binding("right", "next_tab", "Next Tab", show=False),
     ]
 
     CSS = """
@@ -1270,6 +1308,19 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
     def action_show_help(self) -> None:
         """Open the keybindings help screen."""
         self.app.push_screen(client_tui_base.CommandHelpScreen(topic="keybindings"))
+
+    def on_key(self, event: textual.events.Key) -> None:
+        """Left/right switch tabs only when a tab-bar button has focus."""
+        if event.key not in ("left", "right"):
+            return
+        tab_buttons = list(self.query("#te-tab-bar Button"))
+        if self.focused not in tab_buttons:
+            return
+        if event.key == "left":
+            self.action_prev_tab()
+        else:
+            self.action_next_tab()
+        event.prevent_default()
 
     def action_next_tab(self) -> None:
         """Switch to the next tab (wraps around)."""

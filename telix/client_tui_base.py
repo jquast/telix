@@ -1047,7 +1047,7 @@ class SessionListScreen(textual.screen.Screen[None]):
                     # if there was a logfile, hopefully the error is there, otherwise maybe its on the screen.
                     sys.stdout.write(
                         f"\r\n\x1b[1;31mProcess exited with code {proc.returncode} "
-                        f"after {_elapsed:2.2f} seconds.\x1b[0m\r\n"
+                        f"after {_elapsed:2.2f} seconds. Press RETURN\x1b[0m\r\n"
                     )
                     if cfg.logfile:
                         sys.stdout.write(f"Check file for error: {cfg.logfile}")

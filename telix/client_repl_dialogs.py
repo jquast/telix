@@ -495,6 +495,23 @@ def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, r
             replay_buf.append(banner.encode("utf-8"))
 
 
+def most_recent_channel(chat_messages: list, capture_log: dict) -> str:
+    """Return the channel with the most recent activity across chat and captures."""
+    best_ts = ""
+    best_ch = ""
+    if chat_messages:
+        last = chat_messages[-1]
+        best_ts = last.get("ts", "")
+        best_ch = last.get("channel", "")
+    for ch, entries in capture_log.items():
+        if entries:
+            ts = entries[-1].get("ts", "")
+            if ts > best_ts:
+                best_ts = ts
+                best_ch = ch
+    return best_ch
+
+
 def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
     Launch the unified tabbed TUI editor as a subprocess.
@@ -531,14 +548,11 @@ def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_b
     # Chat / capture data.
     chat_file = ctx.chat_file or ""
     ctx.chat_unread = 0
-    initial_channel = ""
-    if ctx.chat_messages:
-        last_msg = ctx.chat_messages[-1]
-        initial_channel = last_msg.get("channel", "")
-
-    capture_file = ""
     captures = getattr(ctx, "captures", {})
     capture_log = getattr(ctx, "capture_log", {})
+    initial_channel = most_recent_channel(ctx.chat_messages, capture_log)
+
+    capture_file = ""
     if captures or capture_log:
         fd, capture_file = tempfile.mkstemp(suffix=".json", prefix="captures-")
         os.close(fd)
@@ -796,16 +810,11 @@ def launch_chat_viewer(ctx: "TelixSessionContext", replay_buf: Any | None = None
 
     ctx.chat_unread = 0
 
-    # Find the channel with the most recent message for initial focus.
-    initial_channel = ""
-    if ctx.chat_messages:
-        last_msg = ctx.chat_messages[-1]
-        initial_channel = last_msg.get("channel", "")
-
     # Write capture data to a temporary file for the subprocess.
     capture_file = ""
     captures = getattr(ctx, "captures", {})
     capture_log = getattr(ctx, "capture_log", {})
+    initial_channel = most_recent_channel(ctx.chat_messages, capture_log)
     if captures or capture_log:
         fd, capture_file = tempfile.mkstemp(suffix=".json", prefix="captures-")
         os.close(fd)
