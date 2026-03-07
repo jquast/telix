@@ -31,6 +31,78 @@ STUCK_RETRY_DELAY = 5.0
 SETTLE_YIELD_DELAY = 0.05
 
 
+async def settle_autoreplies(engine, wait_fn, noreply):
+    """
+    Wait for exclusive autoreplies to finish before moving.
+
+    When *noreply* is ``True`` or *engine* has nothing pending, returns
+    immediately.  Otherwise loops until both ``exclusive_active`` and
+    ``reply_pending`` clear, waiting for a fresh prompt between iterations.
+
+    :param engine: The autoreply engine (may be ``None``).
+    :param wait_fn: Coroutine to wait for a server prompt (may be ``None``).
+    :param noreply: Skip waiting entirely when ``True``.
+    """
+    if noreply or engine is None:
+        return
+    if not engine.exclusive_active and not engine.reply_pending:
+        return
+
+    max_settle = 20
+    for _pass in range(max_settle):
+        if engine.exclusive_active:
+            while engine.exclusive_active:
+                engine.check_timeout()
+                await asyncio.sleep(0.05)
+        while engine.reply_pending:
+            await asyncio.sleep(0.05)
+        if wait_fn is not None:
+            await wait_fn()
+        await asyncio.sleep(SETTLE_YIELD_DELAY)
+        if not engine.exclusive_active and not engine.reply_pending:
+            break
+
+
+def correct_room_edge(graph, prev_num, old_target, new_target, direction):
+    """
+    Rewrite a graph exit so *direction* from *prev_num* points at *new_target*.
+
+    Called when a same-name room is reached under a different ID than expected.
+    Only updates the exit if it currently points at *old_target*.  Updates
+    the in-memory adjacency cache so subsequent pathfinding sees the change.
+
+    :param graph: The room graph (``RoomStore``).
+    :param prev_num: Room from which the exit originates.
+    :param old_target: Expected target room ID.
+    :param new_target: Actual target room ID.
+    :param direction: Exit direction label.
+    """
+    if graph is None:
+        return
+    adj_exits = graph.adj.get(prev_num)
+    if adj_exits is not None and adj_exits.get(direction) == old_target:
+        adj_exits[direction] = new_target
+
+
+def repath(room_graph, destination, current, log_fn):
+    """
+    Re-pathfind from *current* to *destination* using *room_graph*.
+
+    :param room_graph: The room graph (``RoomStore``).
+    :param destination: Target room ID.
+    :param current: Current room ID.
+    :param log_fn: Callable accepting a status message string.
+    :returns: New list of ``(direction, room_id)`` steps, or empty list.
+    """
+    if room_graph is None or current == destination:
+        return []
+    blocked = room_graph.blocked_rooms()
+    new_steps = room_graph.find_path_with_rooms(current, destination, blocked=blocked)
+    if new_steps is not None:
+        return new_steps
+    return []
+
+
 async def fast_travel(
     steps: list[tuple[str, str]],
     ctx: "TelixSessionContext",
@@ -140,10 +212,10 @@ async def fast_travel(
         different IDs).  Now only the step at *step_idx* is updated.
         """
         graph = get_graph()
+        correct_room_edge(graph, prev_num, old_target, new_target, direction)
         if graph is not None:
-            prev = graph.rooms.get(prev_num)
-            if prev is not None and prev.exits.get(direction) == old_target:
-                prev.exits[direction] = new_target
+            adj_exits = graph.adj.get(prev_num)
+            if adj_exits is not None and adj_exits.get(direction) == new_target:
                 log.info(
                     "%s: corrected exit %s of %s: %s -> %s",
                     mode,
@@ -230,37 +302,7 @@ async def fast_travel(
                         if echo_fn is not None:
                             echo_fn(msg)
                         cond_cancelled = True
-                    # Exclusive rules enter exclusive mode (e.g. "kill"
-                    # sent, waiting for "died\.").  Wait for combat to
-                    # finish before moving to the next room.  After
-                    # exclusive/reply_pending clear, wait for a fresh
-                    # prompt so the server response to the last autoreply
-                    # command is processed -- it may trigger new matches
-                    # (cascading always-rules).
-                    if engine.exclusive_active or engine.reply_pending:
-                        settle_passes = 0
-                        max_settle = 20  # safety cap
-                        while settle_passes < max_settle:
-                            if engine.exclusive_active:
-                                while engine.exclusive_active:
-                                    engine.check_timeout()
-                                    await asyncio.sleep(0.05)
-                            while engine.reply_pending:
-                                await asyncio.sleep(0.05)
-                            # Wait for server to respond to whatever the
-                            # autoreply just sent.  The prompt signal
-                            # drives on_prompt() which may queue new
-                            # replies.
-                            if wait_fn is not None:
-                                await wait_fn()
-                            # Allow time for read_server to process text
-                            # and call on_prompt() for cascading matches.
-                            await asyncio.sleep(SETTLE_YIELD_DELAY)
-                            # If neither exclusive nor reply_pending
-                            # after the prompt, we've converged.
-                            if not engine.exclusive_active and not engine.reply_pending:
-                                break
-                            settle_passes += 1
+                    await settle_autoreplies(engine, wait_fn, noreply=False)
                 if cond_cancelled:
                     break
 
@@ -331,22 +373,17 @@ async def fast_travel(
                             prev.exits[direction] = actual
                             log.info("%s: updated edge %s of %s: -> %s", mode, direction, prev_room[:8], actual[:8])
 
-                # Try re-pathfinding from actual position.
-                if (
-                    destination
-                    and actual
-                    and actual != destination
-                    and reroute_count < max_reroutes
-                    and graph is not None
-                ):
-                    blocked = graph.blocked_rooms()
-                    new_steps = graph.find_path_with_rooms(actual, destination, blocked=blocked)
-                    if new_steps is not None:
-                        reroute_count += 1
-                        msg = f"{mode}: re-routing from {room_name(actual)} ({reroute_count}/{max_reroutes})"
+                if destination and actual and actual != destination and reroute_count < max_reroutes:
+
+                    def log_reroute(msg):
                         log.info("%s", msg)
                         if echo_fn is not None:
                             echo_fn(msg)
+
+                    new_steps = repath(get_graph(), destination, actual, log_reroute)
+                    if new_steps:
+                        reroute_count += 1
+                        log_reroute(f"{mode}: re-routing from {room_name(actual)} ({reroute_count}/{max_reroutes})")
                         steps = new_steps
                         step_idx = 0
                         continue

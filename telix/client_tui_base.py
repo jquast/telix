@@ -203,6 +203,44 @@ FLAG_TO_WIDGET: dict[str, str] = {
 }
 
 
+def navigate_from_button(key, focused, buttons, target, screen, event):
+    """
+    Handle arrow navigation when a button in the column is focused.
+
+    :param key: The key name (e.g. ``"up"``, ``"down"``, ``"right"``).
+    :param focused: The currently focused widget.
+    :param buttons: Ordered list of buttons in the column.
+    :param target: Widget to focus on ``"right"`` press.
+    :param screen: The screen owning the widgets.
+    :param event: The key event to call :meth:`prevent_default` on.
+    """
+    idx = buttons.index(focused)
+    if key == "up" and idx > 0:
+        buttons[idx - 1].focus()
+        event.prevent_default()
+    elif key == "down" and idx < len(buttons) - 1:
+        buttons[idx + 1].focus()
+        event.prevent_default()
+    elif key == "right":
+        screen.call_later(target.focus)
+        event.prevent_default()
+
+
+def navigate_from_table(key, buttons, screen, event):
+    """
+    Handle arrow navigation when the data table is focused.
+
+    :param key: The key name.
+    :param buttons: Ordered list of buttons in the column.
+    :param screen: The screen owning the widgets.
+    :param event: The key event to call :meth:`prevent_default` on.
+    """
+    if key == "left":
+        if buttons:
+            screen.call_later(buttons[0].focus)
+        event.prevent_default()
+
+
 def handle_arrow_navigation(
     screen: "textual.screen.Screen[object]",
     event: textual.events.Key,
@@ -223,7 +261,6 @@ def handle_arrow_navigation(
     buttons = list(screen.query(f"{button_col_selector} Button"))
     table = screen.query_one(table_selector, textual.widgets.DataTable)
 
-    # When the form is visible, handle navigation within form fields.
     if form_selector:
         try:
             form = screen.query_one(form_selector)
@@ -258,20 +295,9 @@ def handle_arrow_navigation(
         return
 
     if isinstance(focused, textual.widgets.Button) and focused in buttons:
-        idx = buttons.index(focused)
-        if event.key == "up" and idx > 0:
-            buttons[idx - 1].focus()
-            event.prevent_default()
-        elif event.key == "down" and idx < len(buttons) - 1:
-            buttons[idx + 1].focus()
-            event.prevent_default()
-        elif event.key == "right":
-            screen.call_later(table.focus)
-            event.prevent_default()
-    elif focused is table and event.key == "left":
-        if buttons:
-            screen.call_later(buttons[0].focus)
-        event.prevent_default()
+        navigate_from_button(event.key, focused, buttons, table, screen, event)
+    elif focused is table:
+        navigate_from_table(event.key, buttons, screen, event)
 
 
 TOOLTIP_CACHE: dict[str, str] | None = None
@@ -1157,9 +1183,9 @@ class ThemePickerScreen(textual.screen.Screen[str | None]):
 
     def compose(self) -> textual.app.ComposeResult:
         """Compose the theme picker with modal ThemeEditPane."""
-        from . import client_tui_editors
+        from . import client_tui_bars
 
-        yield client_tui_editors.ThemeEditPane(modal=True)
+        yield client_tui_bars.ThemeEditPane(modal=True)
 
     def on_theme_edit_pane_saved(self, event: "object") -> None:
         """Dismiss with the current theme on save."""
@@ -1171,10 +1197,10 @@ class ThemePickerScreen(textual.screen.Screen[str | None]):
 
     def action_cancel(self) -> None:
         """Restore original theme and dismiss."""
-        from . import client_tui_editors
+        from . import client_tui_bars
 
         try:
-            pane = self.query_one(client_tui_editors.ThemeEditPane)
+            pane = self.query_one(client_tui_bars.ThemeEditPane)
             self.app.theme = pane.original_theme
         except textual.css.query.NoMatches:
             pass
@@ -2466,7 +2492,7 @@ class EditListPane(textual.containers.Vertical):
 
     def pick_room_for_travel(self) -> None:
         """Open room picker and insert a travel command."""
-        from .client_tui_dialogs import RoomPickerScreen
+        from .client_tui_rooms import RoomPickerScreen
 
         rooms_file = self.rooms_path
         if not rooms_file or not os.path.exists(rooms_file):

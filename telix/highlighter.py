@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 import wcwidth
 import wcwidth.sgr_state
 
+from . import paths
+
 if TYPE_CHECKING:
     import blessed
 
@@ -176,8 +178,7 @@ def save_highlights(path: str, rules: list[HighlightRule], session_key: str) -> 
         ]
     }
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
+    paths.atomic_json_write(path, data)
 
 
 class CompiledRuleSet:
@@ -439,6 +440,7 @@ class HighlightEngine:
         entering/exiting highlight spans. Preserves all original escape
         sequences and restores SGR state after each highlight span ends.
         """
+        # wcwidth is also maintained by this project's author; private access is intentional.
         sgr_state = wcwidth.sgr_state._SGR_STATE_DEFAULT
         span_idx = 0
         plain_pos = 0

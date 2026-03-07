@@ -44,6 +44,7 @@ class ActivityTiming:
 ACTIVITY = ActivityTiming()
 
 # Session key injected by the REPL to scope palette lookups.
+# Single-session singleton: telix runs one connection per process, so this is safe.
 session_key: str = ""
 
 
@@ -83,7 +84,9 @@ def peak_yellow() -> tuple[int, int, int]:
     return hex_to_rgb(pal("warning"))
 
 
-#: 6-bit pattern -> Unicode sextant character (index 0-63).
+# Each sextant character (U+1FB00-U+1FB3B) encodes a 2x3 pixel grid.
+# Bits 0-5 map to top-left, top-right, mid-left, mid-right, bot-left, bot-right.
+# We build a 64-entry lookup: index = bitmask -> Unicode character.
 SEXTANT: list[str] = [" "] * 64
 SEXTANT[63] = "\u2588"  # FULL BLOCK
 for b in range(1, 63):

@@ -1,15 +1,28 @@
 """
 Textual TUI session manager for telix -- re-export hub.
 
-All implementation lives in the ``client_tui_base``, ``client_tui_editors``,
-and ``client_tui_dialogs`` sub-modules.  This file re-exports every public
-name so existing ``from telix.client_tui import ...`` statements continue to
-work unchanged.
+Implementation is split across several sub-modules:
+
+- ``client_tui_base`` -- sessions, base editors, app foundation
+- ``client_tui_macros`` -- macro editor pane and screen
+- ``client_tui_autoreplies`` -- autoreply editor pane and screen
+- ``client_tui_highlights`` -- highlight editor pane and screen
+- ``client_tui_bars`` -- progress bar and theme editor panes and screens
+- ``client_tui_editors`` -- shared helpers and standalone entry points
+- ``client_tui_rooms`` -- room browser and picker screens
+- ``client_tui_captures`` -- highlight captures and chat viewer screens
+- ``client_tui_app`` -- main Textual application and entry point
+- ``client_tui_dialogs`` -- confirm/walk dialogs and tabbed editor screen
+
+This file re-exports every public name so existing
+``from telix.client_tui import ...`` statements continue to work unchanged.
 """
 
 # local
 # Re-export module-level path constants so monkeypatch targets are valid.
 from .paths import DATA_DIR, CONFIG_DIR, SESSIONS_FILE  # noqa: F401
+from .client_tui_app import TelnetSessionApp, tui_main  # noqa: F401
+from .client_tui_bars import ThemeEditPane, ProgressBarTuple, ProgressBarEditPane, ProgressBarEditScreen  # noqa: F401
 
 # -- base layer -------------------------------------------------------------
 from .client_tui_base import (  # noqa: F401
@@ -48,11 +61,10 @@ from .client_tui_base import (  # noqa: F401
     patch_writer_thread_queue,
 )
 
-# -- dialogs, rooms, caps, tabbed editor, main app -------------------------
-from .client_tui_dialogs import (  # noqa: F401
+# -- rooms, captures, dialogs, app -----------------------------------------
+from .client_tui_rooms import (  # noqa: F401
     HOME_STYLE,
     ARROW_STYLE,
-    EDITOR_TABS,
     ID_COL_BASE,
     MARKED_STYLE,
     BLOCKED_STYLE,
@@ -60,41 +72,27 @@ from .client_tui_dialogs import (  # noqa: F401
     BOOKMARK_STYLE,
     BUTTON_COL_MIN,
     BUTTON_COL_GROW,
-    CapsPane,
     RoomTree,
-    CapsScreen,
     RoomBrowserPane,
-    ChatViewerScreen,
     RoomPickerScreen,
-    TelnetSessionApp,
     RoomBrowserScreen,
+    edit_rooms_main,
+)
+
+# -- editor panes -----------------------------------------------------------
+from .client_tui_macros import MacroEditPane, MacroEditScreen  # noqa: F401
+from .client_tui_dialogs import (  # noqa: F401
+    EDITOR_TABS,
     TabbedEditorScreen,
     ConfirmDialogScreen,
     RandomwalkDialogScreen,
     AutodiscoverDialogScreen,
-    tui_main,
-    edit_rooms_main,
-    chat_viewer_main,
     confirm_dialog_main,
     unified_editor_main,
     randomwalk_dialog_main,
     autodiscover_dialog_main,
 )
-
-# -- editor panes -----------------------------------------------------------
 from .client_tui_editors import (  # noqa: F401
-    MacroEditPane,
-    ThemeEditPane,
-    AutoreplyTuple,
-    HighlightTuple,
-    MacroEditScreen,
-    ProgressBarTuple,
-    AutoreplyEditPane,
-    HighlightEditPane,
-    AutoreplyEditScreen,
-    HighlightEditScreen,
-    ProgressBarEditPane,
-    ProgressBarEditScreen,
     invert_ts,
     show_help_main,
     edit_macros_main,
@@ -102,3 +100,6 @@ from .client_tui_editors import (  # noqa: F401
     edit_autoreplies_main,
     edit_progressbars_main,
 )
+from .client_tui_captures import CapsPane, CapsScreen, ChatViewerScreen, chat_viewer_main  # noqa: F401
+from .client_tui_highlights import HighlightTuple, HighlightEditPane, HighlightEditScreen  # noqa: F401
+from .client_tui_autoreplies import AutoreplyTuple, AutoreplyEditPane, AutoreplyEditScreen  # noqa: F401

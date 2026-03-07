@@ -11,6 +11,7 @@ Telix
    files
    contributing
    protocols
+   history
 
 
 Indexes
