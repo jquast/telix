@@ -334,6 +334,9 @@ def test_expand_commands(line: str, expected: list[str]) -> None:
         ("", [], frozenset()),
         (r"say \;|look", ["say ;", "look"], frozenset({1})),
         (r"say \||look", ["say |", "look"], frozenset({1})),
+        ("n\ns\ne", ["n", "s", "e"], frozenset()),
+        ("n\ns;e", ["n", "s", "e"], frozenset()),
+        ("n|\ns", ["n", "s"], frozenset({1})),
     ],
 )
 def test_expand_commands_ex(line: str, expected_cmds: list[str], expected_imm: frozenset[int]) -> None:
@@ -2036,3 +2039,102 @@ async def test_read_input_sets_mode_switched_on_kludge_timeout(monkeypatch: pyte
 
     assert repl.mode_switched is True
     assert repl.server_done is True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_read_input_password_no_command_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In password mode (will_echo=True), the submitted line is sent raw without repeat expansion."""
+    import contextlib
+
+    pytest.importorskip("blessed")
+
+    password = "9password"
+    written: list[str] = []
+    call_count = [0]
+
+    class EnterKey:
+        name = "KEY_ENTER"
+
+        def __bool__(self):
+            return True
+
+    class EofKey:
+        name = None
+
+        def __bool__(self):
+            return False
+
+    async def fake_inkey(timeout=None):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return EnterKey()
+        return EofKey()
+
+    @contextlib.contextmanager
+    def noop_ctx():
+        yield
+
+    stdout, _ = mock_stdout()
+
+    repl = object.__new__(ReplSession)
+    repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
+    repl.blessed_term = types.SimpleNamespace(
+        raw=noop_ctx,
+        notify_on_resize=noop_ctx,
+        async_inkey=fake_inkey,
+        restore="",
+        save="",
+        yellow="",
+        normal="",
+    )
+    repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
+    repl.stdout = stdout
+    repl.server_done = False
+    repl.mode_switched = False
+    repl.ga_detected = False
+    repl.mslp_index = None
+    repl.autoreply_engine = None
+    repl.history_file = None
+    repl.replay_buf = []
+    repl.ctx = TelixSessionContext()
+    repl.tty_shell = types.SimpleNamespace(_resize_pending=types.SimpleNamespace(is_set=lambda: False))
+
+    def fake_write(data):
+        written.append(data)
+        repl.server_done = True
+
+    repl.telnet_writer = types.SimpleNamespace(
+        mode="normal",
+        will_echo=True,
+        write=fake_write,
+        close=lambda: None,
+    )
+    repl.dispatch = types.SimpleNamespace(lookup=lambda key: None, lookup_ansi=lambda key: None)
+
+    def fake_feed_key(key):
+        if isinstance(key, EnterKey):
+            return types.SimpleNamespace(line=password, changed=True, interrupt=False, eof=False)
+        return types.SimpleNamespace(line=None, changed=False, interrupt=False, eof=True)
+
+    repl.editor = types.SimpleNamespace(
+        password_mode=True,
+        _buf=list(password),
+        feed_key=fake_feed_key,
+    )
+    repl.toolbar = types.SimpleNamespace(
+        render=lambda *a, **kw: False,
+        hide_cursor=lambda: None,
+        flash_active=False,
+    )
+
+    monkeypatch.setattr(ReplSession, "update_input_style", lambda self: None)
+    monkeypatch.setattr(ReplSession, "render_editor", lambda self, *args: "")
+    monkeypatch.setattr(ReplSession, "editor_cursor", lambda self: 0)
+    monkeypatch.setattr(ReplSession, "input_width", lambda self: 80)
+    monkeypatch.setattr(ReplSession, "show_cursor_or_light", lambda self, *args: None)
+    monkeypatch.setattr(ReplSession, "submit_command_queue", lambda self, *args, **kw: None)
+
+    await repl.read_input()
+
+    assert written == [password + "\r\n"]

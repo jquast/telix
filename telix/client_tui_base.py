@@ -2433,9 +2433,16 @@ class EditListPane(textual.containers.Vertical):
         return f"{self.prefix}-text"
 
     def insert_command(self, cmd: str) -> None:
-        """Insert a command at the cursor position, adding ``;`` separators."""
+        """Insert a command at the cursor position, adding separators."""
         if self.form_visible:
-            inp = self.query_one(f"#{self.text_input_id}", textual.widgets.Input)
+            widget_id = f"#{self.text_input_id}"
+            try:
+                ta = self.query_one(widget_id, textual.widgets.TextArea)
+                ta.insert(("\n" if ta.text.strip() else "") + cmd)
+                return
+            except textual.css.query.QueryError:
+                pass
+            inp = self.query_one(widget_id, textual.widgets.Input)
             val = inp.value
             pos = inp.cursor_position
             before = val[:pos]

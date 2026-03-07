@@ -1676,44 +1676,50 @@ class ReplSession:
                         ft_task.cancel()
                         self.ctx.travel_task = None
 
-                    expanded = expand_commands_ex(line)
-                    parts = expanded.commands
-                    imm = expanded.immediate_set
-
-                    while parts and DELAY_RE.match(parts[0]):
-                        dm = DELAY_RE.match(parts[0])
-                        assert dm is not None
-                        value = float(dm.group(1))
-                        unit = dm.group(2)
-                        delay = value / 1000.0 if unit == "ms" else value
-                        if delay > 0:
-                            await asyncio.sleep(delay)
-                        parts = parts[1:]
-
-                    if parts and EDIT_THEME_RE.match(parts[0]):
-                        launch_unified_editor("theme", self.ctx, self.replay_buf)
-                        parts = parts[1:]
-                    elif parts and TRAVEL_RE.match(parts[0]):
-                        remainder = await handle_travel_commands(parts, self.ctx, self.telnet_writer.log)
-                        if remainder:
-                            tx_dot.trigger()
-                            self.telnet_writer.write(
-                                remainder[0] + "\r\n"  # type: ignore[arg-type]
-                            )
-                            if self.ga_detected:
-                                self.prompt_ready.clear()
-                            if len(remainder) > 1:
-                                self.submit_command_queue(remainder, chained_task_ref)
-                    elif parts:
+                    if self.telnet_writer.will_echo:
                         tx_dot.trigger()
-                        self.telnet_writer.write(parts[0] + "\r\n")  # type: ignore[arg-type]
+                        self.telnet_writer.write(line + "\r\n")  # type: ignore[arg-type]
                         if self.ga_detected:
                             self.prompt_ready.clear()
-                        if len(parts) > 1:
-                            self.submit_command_queue(parts, chained_task_ref, immediate_set=imm)
                     else:
-                        tx_dot.trigger()
-                        self.telnet_writer.write("\r\n")  # type: ignore[arg-type]
+                        expanded = expand_commands_ex(line)
+                        parts = expanded.commands
+                        imm = expanded.immediate_set
+
+                        while parts and DELAY_RE.match(parts[0]):
+                            dm = DELAY_RE.match(parts[0])
+                            assert dm is not None
+                            value = float(dm.group(1))
+                            unit = dm.group(2)
+                            delay = value / 1000.0 if unit == "ms" else value
+                            if delay > 0:
+                                await asyncio.sleep(delay)
+                            parts = parts[1:]
+
+                        if parts and EDIT_THEME_RE.match(parts[0]):
+                            launch_unified_editor("theme", self.ctx, self.replay_buf)
+                            parts = parts[1:]
+                        elif parts and TRAVEL_RE.match(parts[0]):
+                            remainder = await handle_travel_commands(parts, self.ctx, self.telnet_writer.log)
+                            if remainder:
+                                tx_dot.trigger()
+                                self.telnet_writer.write(
+                                    remainder[0] + "\r\n"  # type: ignore[arg-type]
+                                )
+                                if self.ga_detected:
+                                    self.prompt_ready.clear()
+                                if len(remainder) > 1:
+                                    self.submit_command_queue(remainder, chained_task_ref)
+                        elif parts:
+                            tx_dot.trigger()
+                            self.telnet_writer.write(parts[0] + "\r\n")  # type: ignore[arg-type]
+                            if self.ga_detected:
+                                self.prompt_ready.clear()
+                            if len(parts) > 1:
+                                self.submit_command_queue(parts, chained_task_ref, immediate_set=imm)
+                        else:
+                            tx_dot.trigger()
+                            self.telnet_writer.write("\r\n")  # type: ignore[arg-type]
 
                 if result.changed:
                     self.toolbar.hide_cursor()

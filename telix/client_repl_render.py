@@ -1622,7 +1622,13 @@ class ToolbarRenderer:
                 hint_w = len(hint) if hint else 0
                 edit_w = max(2, bt.width - hint_w)
                 if not still:
-                    self.out.write(editor.render(bt, input_row, edit_w).encode())
+                    raw = editor.render(bt, input_row, edit_w)
+                    if editor.password_mode and editor._buf:
+                        raw = "".join(
+                            random.choice(SEXTANT_VISIBLE) if ch == editor.password_char else ch
+                            for ch in raw
+                        )
+                    self.out.write(raw.encode())
                 prog = None
                 if hint:
                     prog = until_progress(engine)

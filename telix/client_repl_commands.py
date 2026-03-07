@@ -124,19 +124,22 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
 
     protected = BACKTICK_RE.sub(replace_bt, escaped)
 
-    # Split on ; and | while capturing the separator.
-    SEP_RE = re.compile(r"([;|])")
+    # Split on ; | and newline while capturing the separator.
+    SEP_RE = re.compile(r"([;|\n])")
     tokens = SEP_RE.split(protected)
 
     # tokens is alternating [segment, sep, segment, sep, ...].
     # Walk through tracking which separator precedes each segment.
+    # When | and another separator appear between two non-empty segments (e.g. "a|\nb"),
+    # the | wins: once set, prev_sep stays "|" until a real segment consumes it.
     result: list[str] = []
     immediate_indices: set[int] = set()
     prev_sep = ";"  # first command has no preceding separator
     for tok_idx, tok in enumerate(tokens):
         if tok_idx % 2 == 1:
-            # This is a separator.
-            prev_sep = tok
+            # This is a separator.  | beats everything else.
+            if tok == "|" or prev_sep != "|":
+                prev_sep = tok
             continue
         # This is a segment.
         stripped = tok.strip()
@@ -149,6 +152,7 @@ def expand_commands_ex(line: str) -> ExpandedCommands:
                 stripped = stripped.replace(f"\x00BT{i}\x00", orig)
 
         is_immediate = prev_sep == "|"
+        prev_sep = ";"  # reset after consuming this segment
 
         if stripped.startswith("`") and stripped.endswith("`"):
             cmd_idx = len(result)

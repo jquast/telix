@@ -53,7 +53,7 @@ def invert_ts(iso_str: str) -> str:
 class MacroEditPane(client_tui_base.EditListPane):
     """Pane widget for macro key binding editing."""
 
-    growable_keys: list[str] = ["text", "toggle-text"]
+    growable_keys: list[str] = ["toggle-text"]
 
     BINDINGS: ClassVar[list[textual.binding.Binding]] = [
         textual.binding.Binding("escape", "cancel_or_close", "Cancel", priority=True),
@@ -67,7 +67,6 @@ class MacroEditPane(client_tui_base.EditListPane):
         client_tui_base.EditListPane.DEFAULT_CSS
         + """
     #macro-form { padding: 0; }
-    #macro-text-row { margin: 1 0; }
     #macro-toggle-text-row { margin: 0 0 1 0; }
     #macro-form .switch-row { height: 3; margin: 0; }
     #macro-key-label {
@@ -79,6 +78,7 @@ class MacroEditPane(client_tui_base.EditListPane):
     #macro-capture { width: auto; min-width: 13; margin-left: 1; }
     #macro-capture-status { width: 1fr; height: 1; color: $error; padding: 0 1; }
     #macro-form .form-gap { width: 10; }
+    .command-text-area { height: 1fr; min-height: 3; }
     """
     )
 
@@ -131,9 +131,6 @@ class MacroEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Button("Capture", id="macro-capture")
                             yield textual.widgets.Static("(none)", id="macro-key-label")
                             yield textual.widgets.Static("", id="macro-capture-status")
-                        with textual.containers.Horizontal(id="macro-text-row", classes="field-row"):
-                            yield textual.widgets.Label("Text", classes="form-label", id="macro-text-label")
-                            yield textual.widgets.Input(placeholder="text with ; separators", id="macro-text")
                         with textual.containers.Horizontal(id="macro-toggle-row", classes="field-row"):
                             yield textual.widgets.Label("Toggle:", classes="toggle-label")
                             yield textual.widgets.Switch(value=False, id="macro-toggle")
@@ -151,6 +148,8 @@ class MacroEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Button("Delay", id="macro-delay", classes="insert-btn")
                             yield textual.widgets.Button("When", id="macro-btn-when", classes="insert-btn")
                             yield textual.widgets.Button("Until", id="macro-btn-until", classes="insert-btn")
+                        yield textual.widgets.Label("Command Text", classes="form-label", id="macro-text-label")
+                        yield textual.widgets.TextArea(id="macro-text", classes="command-text-area")
                         with textual.containers.Horizontal(id="macro-form-buttons", classes="edit-form-buttons"):
                             yield textual.widgets.Label(" ", classes="form-btn-spacer")
                             yield textual.widgets.Button("Cancel", variant="default", id="macro-cancel-form")
@@ -230,9 +229,9 @@ class MacroEditPane(client_tui_base.EditListPane):
         label.update(display)
         label.remove_class("capturing")
         self.query_one("#macro-capture-status", textual.widgets.Static).update("")
-        text_input = self.query_one("#macro-text", textual.widgets.Input)
-        text_input.value = text_val
-        text_input.disabled = builtin
+        text_area = self.query_one("#macro-text", textual.widgets.TextArea)
+        text_area.text = text_val
+        text_area.disabled = builtin
         self.query_one("#macro-enabled", textual.widgets.Switch).value = enabled
         toggle_switch = self.query_one("#macro-toggle", textual.widgets.Switch)
         toggle_switch.value = toggle
@@ -241,7 +240,7 @@ class MacroEditPane(client_tui_base.EditListPane):
         toggle_text_input.value = toggle_text
         toggle_text_input.disabled = builtin
         text_label = self.query_one("#macro-text-label", textual.widgets.Label)
-        text_label.update("On command" if toggle else "Text")
+        text_label.update("On command" if toggle else "Command Text")
         self.query_one("#macro-toggle-text-row").display = toggle
         self.query_one("#macro-search", textual.widgets.Input).display = False
         self.query_one("#macro-table").display = False
@@ -250,7 +249,7 @@ class MacroEditPane(client_tui_base.EditListPane):
         if builtin:
             self.query_one("#macro-capture", textual.widgets.Button).focus()
         else:
-            text_input.focus()
+            text_area.focus()
 
     def action_delete(self) -> None:
         """Block deletion of builtin macros."""
@@ -265,13 +264,13 @@ class MacroEditPane(client_tui_base.EditListPane):
         if event.switch.id == "macro-toggle":
             on = event.value
             text_label = self.query_one("#macro-text-label", textual.widgets.Label)
-            text_label.update("On command" if on else "Text")
+            text_label.update("On command" if on else "Command Text")
             self.query_one("#macro-toggle-text-row").display = on
 
     def submit_form(self) -> None:
         """Accept the current inline form values."""
         key_val = self.captured_key.strip()
-        text_val = self.query_one("#macro-text", textual.widgets.Input).value
+        text_val = self.query_one("#macro-text", textual.widgets.TextArea).text
         enabled = self.query_one("#macro-enabled", textual.widgets.Switch).value
         toggle = self.query_one("#macro-toggle", textual.widgets.Switch).value
         toggle_text = self.query_one("#macro-toggle-text", textual.widgets.Input).value
@@ -376,7 +375,7 @@ class AutoreplyTuple(NamedTuple):
 class AutoreplyEditPane(client_tui_base.EditListPane):
     """Pane widget for autoreply rule editing."""
 
-    growable_keys: list[str] = ["pattern", "reply"]
+    growable_keys: list[str] = ["pattern"]
 
     BINDINGS: ClassVar[list[textual.binding.Binding]] = [
         textual.binding.Binding("escape", "cancel_or_close", "Cancel", priority=True),
@@ -397,6 +396,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
     #autoreply-cond-op { width: 8; }
     #autoreply-cond-val { width: 9; border: tall grey; }
     #autoreply-cond-val:focus { border: tall $accent; }
+    .command-text-area { height: 1fr; min-height: 3; }
     """
     )
 
@@ -470,11 +470,6 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Label("Pattern", classes="form-label-short")
                             yield textual.widgets.Input(placeholder="regex pattern", id="autoreply-pattern")
                         with textual.containers.Horizontal(classes="field-row"):
-                            yield textual.widgets.Label("Reply", classes="form-label-short")
-                            yield textual.widgets.Input(
-                                placeholder=r"reply with \1 refs, ;/: seps", id="autoreply-reply"
-                            )
-                        with textual.containers.Horizontal(classes="field-row"):
                             yield textual.widgets.Label("Condition", classes="form-label-short")
                             yield textual.widgets.Select(
                                 [("(none)", ""), ("HP%", "HP%"), ("MP%", "MP%"), ("HP", "HP"), ("MP", "MP")],
@@ -503,6 +498,8 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Button(
                                 "Random Walk", id="autoreply-btn-randomwalk", classes="insert-btn"
                             )
+                        yield textual.widgets.Label("Command Text", classes="form-label-short")
+                        yield textual.widgets.TextArea(id="autoreply-reply", classes="command-text-area")
                         with textual.containers.Horizontal(id="autoreply-form-buttons", classes="edit-form-buttons"):
                             yield textual.widgets.Label(" ", classes="form-btn-spacer")
                             yield textual.widgets.Button("Cancel", variant="default", id="autoreply-cancel-form")
@@ -603,7 +600,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
         case_sensitive: bool = False,
     ) -> None:
         self.query_one("#autoreply-pattern", textual.widgets.Input).value = pattern_val
-        self.query_one("#autoreply-reply", textual.widgets.Input).value = reply_val
+        self.query_one("#autoreply-reply", textual.widgets.TextArea).text = reply_val
         self.query_one("#autoreply-always", textual.widgets.Switch).value = always
         self.query_one("#autoreply-enabled", textual.widgets.Switch).value = enabled
         self.query_one("#autoreply-immediate", textual.widgets.Switch).value = immediate
@@ -629,7 +626,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
     def submit_form(self) -> None:
         """Accept the current inline form values."""
         pattern_val = self.query_one("#autoreply-pattern", textual.widgets.Input).value.strip()
-        reply_val = self.query_one("#autoreply-reply", textual.widgets.Input).value
+        reply_val = self.query_one("#autoreply-reply", textual.widgets.TextArea).text
         always = self.query_one("#autoreply-always", textual.widgets.Switch).value
         enabled = self.query_one("#autoreply-enabled", textual.widgets.Switch).value
         immediate = self.query_one("#autoreply-immediate", textual.widgets.Switch).value
