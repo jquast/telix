@@ -2119,3 +2119,50 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
     await repl.read_input()
 
     assert written == [password + "\r\n"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_read_input_timeout_rearms_after_background_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """rearm_after_subprocess is called on idle timeout when subprocess_needs_rearm is True."""
+    import contextlib
+    import telix.client_repl as repl_module
+
+    pytest.importorskip("blessed")
+
+    class EmptyKey:
+        name = None
+
+        def __bool__(self):
+            return False
+
+    async def fake_inkey(timeout=None):
+        return EmptyKey()
+
+    @contextlib.contextmanager
+    def noop_ctx():
+        yield
+
+    stdout, _ = mock_stdout()
+
+    repl = object.__new__(ReplSession)
+    repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
+    repl.blessed_term = types.SimpleNamespace(raw=noop_ctx, notify_on_resize=noop_ctx, async_inkey=fake_inkey)
+    repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
+    repl.stdout = stdout
+    repl.server_done = False
+    repl.mode_switched = False
+    repl.last_resize_size = [24, 80]
+    repl.telnet_writer = types.SimpleNamespace(mode="kludge", will_echo=False)
+    repl.tty_shell = types.SimpleNamespace(
+        _resize_pending=types.SimpleNamespace(is_set=lambda: False, clear=lambda: None)
+    )
+
+    monkeypatch.setattr(ReplSession, "update_input_style", lambda self: None)
+    monkeypatch.setattr(ReplSession, "render_editor", lambda self, *args: "")
+    monkeypatch.setattr(ReplSession, "input_width", lambda self: 80)
+    monkeypatch.setattr(repl_module, "subprocess_needs_rearm", True)
+
+    await repl.read_input()
+
+    assert repl_module.subprocess_needs_rearm is False

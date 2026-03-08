@@ -2254,6 +2254,10 @@ class EditListPane(textual.containers.Vertical):
         for suffix in ("add", "edit", "copy"):
             self.query_one(f"#{pfx}-{suffix}", textual.widgets.Button).disabled = disabled
 
+    def focus_default(self) -> None:
+        """Focus the list table."""
+        self.query_one(f"#{self.prefix}-table", textual.widgets.DataTable).focus()
+
     def hide_form(self) -> None:
         pfx = self.prefix
         self.query_one(f"#{pfx}-form").display = False
@@ -2565,6 +2569,10 @@ class EditListScreen(textual.screen.Screen["bool | None"]):
     def compose(self) -> textual.app.ComposeResult:
         yield self.pane
         yield textual.widgets.Footer()
+
+    def on_mount(self) -> None:
+        """Focus the pane's default widget after layout."""
+        self.call_after_refresh(self.pane.focus_default)
 
 
 # ---------------------------------------------------------------------------

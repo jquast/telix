@@ -728,6 +728,10 @@ class ThemeEditPane(textual.containers.Vertical):
 
         self.update_preview()
 
+    def focus_default(self) -> None:
+        """Focus the theme table."""
+        self.query_one("#theme-table", textual.widgets.DataTable).focus()
+
     def apply_theme(self, name: str) -> None:
         """Set the app theme and update markers and preview."""
         self.app.theme = name

@@ -5,7 +5,6 @@ Introduction
 
 A modern telnet and WebSocket client designed especially for BBSs_ and MUDs_.
 
-
 Built using Python libraries telnetlib3_, blessed_, textual_, and wcwidth_.
 
 .. _BBSs: https://bbs.modem.xyz/introduction.html#what-is-a-bbs
@@ -52,11 +51,13 @@ Using ssl::
 Connect directly via WebSocket::
 
     telix wss://xibalba.vip:44512
-    telix wss://mud.example.com/ws
 
-Use ``--bbs`` or ``--mud`` to apply server type presets::
+    telix wss://dev.cryosphere.org:4443/telnet/
+
+Use ``--bbs`` or ``--mud`` to apply presets::
 
     telix --bbs bbs.example.com
+
     telix --mud mud.example.com 4000
 
 Run ``telix --help`` for the full list of options.

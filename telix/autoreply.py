@@ -986,7 +986,7 @@ class AutoreplyEngine:
             self.echo_fn(cmd)
         writer = self.ctx.writer
         if writer is not None and getattr(writer, "will_echo", False):
-            self.ctx.active_command = client_repl_render.scramble_password()
+            self.ctx.active_command = client_repl_render.scramble_password(len(cmd))
         else:
             self.ctx.active_command = cmd
         self.ctx.active_command_time = time.monotonic()

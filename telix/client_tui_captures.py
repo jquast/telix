@@ -109,6 +109,10 @@ class CapsPane(textual.containers.Vertical):
             idx = min(self.filter_idx, len(buttons) - 1)
             buttons[idx].focus()
 
+    def focus_default(self) -> None:
+        """Focus the active channel button."""
+        self.focus_active_channel()
+
     def load_messages(self) -> None:
         """Read messages from chat JSON and capture data files."""
         if self.chat_file and os.path.exists(self.chat_file):

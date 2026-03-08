@@ -1535,6 +1535,7 @@ class ReplSession:
                     continue
 
                 if not key:
+                    self.rearm_after_subprocess()
                     if self.tty_shell._resize_pending.is_set():
                         self.tty_shell._resize_pending.clear()
                         self.fire_resize()

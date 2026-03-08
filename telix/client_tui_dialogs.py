@@ -183,8 +183,11 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
         return pane  # type: ignore[no-any-return]
 
     def on_mount(self) -> None:
-        """Mark the initial tab as loaded."""
+        """Mark the initial tab as loaded and focus its default widget."""
         self.loaded.add(self.initial_tab)
+        pane = self.panes.get(self.initial_tab)
+        if pane and hasattr(pane, "focus_default"):
+            self.call_after_refresh(pane.focus_default)
 
     def action_show_help(self) -> None:
         """Open the keybindings help screen."""
@@ -234,6 +237,9 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
                 pane.load_from_file()
                 if hasattr(pane, "refresh_table"):
                     pane.refresh_table()
+        pane = self.panes.get(tab_id)
+        if pane and hasattr(pane, "focus_default"):
+            self.call_after_refresh(pane.focus_default)
 
     def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
         """Handle tab bar button clicks."""
