@@ -1,16 +1,17 @@
-"""TUI subprocess management: confirmation dialogs, help screen, editor launchers."""
+"""TUI thread-based management: confirmation dialogs, help screen, editor launchers."""
 
 # std imports
 import os
 import re
 import sys
 import json
-import shlex
+import signal
 import asyncio
 import logging
 import tempfile
-import subprocess
-from typing import TYPE_CHECKING, Any
+import threading
+import contextlib
+from typing import TYPE_CHECKING, Any, Callable
 
 from .help import get_help
 from .paths import CONFIG_DIR as config_dir
@@ -36,27 +37,49 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _coverage_wrap(cmd: list[str]) -> list[str]:
+@contextlib.contextmanager
+def _patch_signal_for_thread() -> "contextlib.AbstractContextManager[None]":
     """
-    Inject ``coverage.process_startup()`` into ``-c`` subprocess commands.
+    Forward ``signal.signal()`` calls from the TUI worker thread to the main thread.
 
-    When ``COVERAGE_PROCESS_START`` is set (by the session manager Coverage
-    switch), prepends coverage startup to the ``-c`` code string so that each
-    subprocess records its own ``.coverage.*`` data file.
+    Textual's ``LinuxDriver`` calls ``signal.signal(SIGWINCH/SIGTSTP/SIGCONT, ...)``
+    during startup.  ``signal.signal()`` raises ``ValueError`` when called from any
+    thread other than the main thread, so those registrations are intercepted here.
+
+    For SIGWINCH specifically, the worker thread's handler is captured and installed in
+    the main thread via a forwarding wrapper so that terminal resize events still work.
+    The SIGWINCH handler Textual installs uses ``loop.call_soon_threadsafe()`` internally,
+    so calling it from the main thread correctly posts the resize event to the worker
+    thread's asyncio event loop.
+
+    The main thread is blocked in ``t.join()`` for the duration of the TUI, so replacing
+    the module-level ``signal.signal`` reference here is race-free.
     """
-    if not os.environ.get("COVERAGE_PROCESS_START"):
-        return cmd
-    if len(cmd) >= 3 and cmd[1] == "-c":
-        wrapped = cmd.copy()
-        wrapped[2] = "import coverage; coverage.process_startup(); " + cmd[2]
-        log.debug("coverage_wrap: %s", wrapped)
-        return wrapped
-    log.debug("coverage_wrap: cmd not wrappable: %s", cmd)
-    return cmd
+    original = signal.signal
+    tui_handlers: dict[int, Any] = {}
+
+    def safe_signal(signum: int, handler: Any) -> Any:
+        if threading.current_thread() is threading.main_thread():
+            return original(signum, handler)
+        tui_handlers[signum] = handler
+        return None
+
+    def forward_sigwinch(sig: int, frame: Any) -> None:
+        h = tui_handlers.get(signal.SIGWINCH)
+        if callable(h):
+            h(sig, frame)
+
+    signal.signal = safe_signal  # type: ignore[assignment]
+    old_winch = original(signal.SIGWINCH, forward_sigwinch)
+    try:
+        yield
+    finally:
+        signal.signal = original  # type: ignore[assignment]
+        original(signal.SIGWINCH, old_winch)
 
 
 def _prepare_terminal() -> None:
-    """Reset the terminal for a subprocess: clear screen and flush buffers."""
+    """Reset the terminal for a TUI: clear screen and flush buffers."""
     from .client_repl import get_term, terminal_cleanup
 
     blessed_term = get_term()
@@ -67,57 +90,42 @@ def _prepare_terminal() -> None:
     sys.__stderr__.flush()
 
 
-def _make_crash_env() -> tuple[str, dict[str, str]]:
-    """Create a crash file and return ``(crash_path, env)``."""
-    fd, crash_path = tempfile.mkstemp(suffix=".json", prefix="crash-")
-    os.close(fd)
-    env = dict(os.environ, TELIX_CRASH_FILE=crash_path)
-    return crash_path, env
-
-
-def _run_subprocess(
-    cmd: list[str],
+def _run_in_thread(
+    target: Callable[[], None],
     replay_buf: Any | None = None,
-    env: dict[str, str] | None = None,
-    crash_path: str = "",
     cleanup_files: list[str] | None = None,
-) -> "subprocess.CompletedProcess[bytes] | None":
+) -> None:
     """
-    Run a TUI subprocess with terminal and editor-active flag management.
+    Run a TUI callable in a worker thread with terminal and editor-active flag management.
 
-    :param cmd: Command list for :func:`subprocess.run`.
+    The worker thread has no existing asyncio event loop so Textual's ``app.run()``
+    (which calls :func:`asyncio.run` internally) is legal.  FD blocking is managed by
+    the :func:`~telix.terminal_unix.blocking_fds` context manager in the calling thread;
+    the worker inherits the blocking state.  Unhandled exceptions propagate via Python's
+    default thread exception handler.
+
+    :param target: Callable that creates and runs a Textual :class:`~textual.app.App`.
     :param replay_buf: Optional replay buffer for screen repaint on return.
-    :param env: Optional environment dict; ``None`` inherits the parent env.
-    :param crash_path: If non-empty, passed to :func:`handle_crash_file` on return.
-    :param cleanup_files: Paths to remove after the subprocess exits.
-    :returns: Completed process, or ``None`` if the executable was not found.
+    :param cleanup_files: Paths to remove after the thread exits.
     """
     from .client_repl import blocking_fds, restore_after_subprocess
 
     global subprocess_is_active
-    wrapped = _coverage_wrap(cmd)
-    log.debug("_run_subprocess: %s", wrapped)
-    run_kwargs: dict[str, Any] = {}
-    if env is not None:
-        run_kwargs["env"] = env
+    log.debug("_run_in_thread: starting worker thread")
     subprocess_is_active = True
-    result: subprocess.CompletedProcess[bytes] | None = None
     try:
-        with blocking_fds():
-            result = subprocess.run(wrapped, check=False, **run_kwargs)
-    except FileNotFoundError:
-        log.warning("subprocess not found: %s", cmd[0:3])
+        with _patch_signal_for_thread(), blocking_fds():
+            t = threading.Thread(target=target, daemon=True)
+            t.start()
+            t.join()
     finally:
         subprocess_is_active = False
-        if crash_path:
-            handle_crash_file(crash_path, cmd, replay_buf, result)
         restore_after_subprocess(replay_buf)
         for path in cleanup_files or ():
             try:
                 os.unlink(path)
             except OSError:
                 pass
-    return result
 
 
 # Causes MUD output to buffer while in dialog.  The asyncio read_server
@@ -129,21 +137,12 @@ subprocess_is_active = False
 subprocess_buffer: list[bytes] = []
 
 
-def get_logfile_path() -> str:
-    """Return the path of the first FileHandler on the root logger, or ``""``."""
-    for handler in logging.getLogger().handlers:
-        if isinstance(handler, logging.FileHandler) and handler.baseFilename:
-            return handler.baseFilename
-    return ""
-
-
 def confirm_dialog(title: str, body: str, warning: str = "", replay_buf: Any | None = None) -> bool:
     """
-    Show a Textual confirmation dialog in a subprocess.
+    Show a Textual confirmation dialog in a worker thread.
 
-    Launches :func:`telix.client_tui.confirm_dialog_main` as a
-    subprocess, reads the result from a temporary file, and restores
-    terminal state on return.
+    Runs :func:`~telix.client_tui_dialogs.run_confirm_dialog` in a worker thread,
+    reads the result from a temporary file, and restores terminal state on return.
 
     :param title: Dialog title.
     :param body: Body text.
@@ -151,26 +150,13 @@ def confirm_dialog(title: str, body: str, warning: str = "", replay_buf: Any | N
     :param replay_buf: Optional replay buffer for screen repaint.
     :returns: Whether the user confirmed.
     """
+    from . import client_tui_dialogs
+
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="confirm-")
     os.close(fd)
 
-    logfile = get_logfile_path()
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_dialogs import confirm_dialog_main; "
-        "confirm_dialog_main(sys.argv[1], sys.argv[2],"
-        " warning=sys.argv[3], result_file=sys.argv[4],"
-        " logfile=sys.argv[5])",
-        title,
-        body,
-        warning or "",
-        result_path,
-        logfile,
-    ]
-
     log.debug(
-        "confirm_dialog: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
+        "confirm_dialog: pre-thread fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s "
         "TERM=%s COLORTERM=%s terminal_size=%s",
         getattr(os, "get_blocking", lambda fd: None)(0),
@@ -183,22 +169,21 @@ def confirm_dialog(title: str, body: str, warning: str = "", replay_buf: Any | N
         safe_terminal_size(),
     )
     _prepare_terminal()
-    _run_subprocess(cmd, replay_buf=replay_buf)
+    _run_in_thread(
+        lambda: client_tui_dialogs.run_confirm_dialog(title, body, warning or "", result_path),
+        replay_buf=replay_buf,
+    )
 
-    confirmed = False
     try:
         with open(result_path, encoding="utf-8") as f:
             data = json.load(f)
-        confirmed = bool(data.get("confirmed", False))
-    except (OSError, ValueError):
-        pass
     finally:
         try:
             os.unlink(result_path)
         except OSError:
             pass
 
-    return confirmed
+    return bool(data.get("confirmed", False))
 
 
 def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> str | None:
@@ -226,33 +211,24 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
         default_auto_survey = bool(prefs.get("randomwalk_auto_survey", False))
         default_autoreplies = bool(prefs.get("randomwalk_autoreplies", True))
 
+    from . import client_tui_dialogs
+
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="randomwalk-")
     os.close(fd)
 
-    logfile = get_logfile_path()
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_dialogs import randomwalk_dialog_main; "
-        "randomwalk_dialog_main(result_file=sys.argv[1],"
-        " default_visit_level=sys.argv[2],"
-        " default_auto_search=sys.argv[3],"
-        " default_auto_evaluate=sys.argv[4],"
-        " default_auto_survey=sys.argv[5],"
-        " default_autoreplies=sys.argv[6],"
-        " logfile=sys.argv[7])",
-        result_path,
-        str(default_visit_level),
-        "1" if default_auto_search else "0",
-        "1" if default_auto_evaluate else "0",
-        "1" if default_auto_survey else "0",
-        "1" if default_autoreplies else "0",
-        logfile,
-    ]
-
-    log.debug("randomwalk_dialog: launching subprocess")
+    log.debug("randomwalk_dialog: launching thread")
     _prepare_terminal()
-    _run_subprocess(cmd, replay_buf=replay_buf)
+    _run_in_thread(
+        lambda: client_tui_dialogs.run_randomwalk_dialog(
+            result_path,
+            default_visit_level,
+            default_auto_search,
+            default_auto_evaluate,
+            default_auto_survey,
+            default_autoreplies,
+        ),
+        replay_buf=replay_buf,
+    )
 
     try:
         with open(result_path, encoding="utf-8") as f:
@@ -261,15 +237,15 @@ def randomwalk_dialog(replay_buf: Any | None = None, session_key: str = "") -> s
             return None
         if session_key:
             save_data = load_prefs(session_key)
-            save_data["randomwalk_visit_level"] = int(data.get("visit_level", default_visit_level))  # type: ignore[assignment]
+            save_data["randomwalk_visit_level"] = int(  # type: ignore[assignment]
+                data.get("visit_level", default_visit_level)
+            )
             save_data["randomwalk_auto_search"] = bool(data.get("auto_search", default_auto_search))
             save_data["randomwalk_auto_evaluate"] = bool(data.get("auto_evaluate", default_auto_evaluate))
             save_data["randomwalk_auto_survey"] = bool(data.get("auto_survey", default_auto_survey))
             save_data["randomwalk_autoreplies"] = bool(data.get("autoreplies", default_autoreplies))
             save_prefs(session_key, save_data)
         return str(data.get("command", f"`randomwalk 999 {default_visit_level}`"))
-    except (OSError, ValueError):
-        return None
     finally:
         try:
             os.unlink(result_path)
@@ -304,33 +280,24 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
         default_auto_survey = bool(prefs.get("autodiscover_auto_survey", False))
         default_autoreplies = bool(prefs.get("autodiscover_autoreplies", True))
 
+    from . import client_tui_dialogs
+
     fd, result_path = tempfile.mkstemp(suffix=".json", prefix="autodiscover-")
     os.close(fd)
 
-    logfile = get_logfile_path()
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_dialogs import autodiscover_dialog_main; "
-        "autodiscover_dialog_main(result_file=sys.argv[1],"
-        " default_strategy=sys.argv[2],"
-        " default_auto_search=sys.argv[3],"
-        " default_auto_evaluate=sys.argv[4],"
-        " default_auto_survey=sys.argv[5],"
-        " default_autoreplies=sys.argv[6],"
-        " logfile=sys.argv[7])",
-        result_path,
-        default_strategy,
-        "1" if default_auto_search else "0",
-        "1" if default_auto_evaluate else "0",
-        "1" if default_auto_survey else "0",
-        "1" if default_autoreplies else "0",
-        logfile,
-    ]
-
-    log.debug("autodiscover_dialog: launching subprocess")
+    log.debug("autodiscover_dialog: launching thread")
     _prepare_terminal()
-    _run_subprocess(cmd, replay_buf=replay_buf)
+    _run_in_thread(
+        lambda: client_tui_dialogs.run_autodiscover_dialog(
+            result_path,
+            default_strategy,
+            default_auto_search,
+            default_auto_evaluate,
+            default_auto_survey,
+            default_autoreplies,
+        ),
+        replay_buf=replay_buf,
+    )
 
     try:
         with open(result_path, encoding="utf-8") as f:
@@ -346,8 +313,6 @@ def autodiscover_dialog(replay_buf: Any | None = None, session_key: str = "") ->
             save_data["autodiscover_autoreplies"] = bool(data.get("autoreplies", default_autoreplies))
             save_prefs(session_key, save_data)
         return str(data.get("command", f"`autodiscover {default_strategy}`"))
-    except (OSError, ValueError):
-        return None
     finally:
         try:
             os.unlink(result_path)
@@ -403,96 +368,19 @@ def render_help_md(has_gmcp: bool = False) -> list[str]:
 
 def show_help(macro_defs: "Any" = None, replay_buf: Any | None = None, has_gmcp: bool = False) -> None:
     """
-    Launch the keybindings help viewer as a Textual TUI subprocess.
+    Launch the keybindings help viewer as a Textual TUI in a worker thread.
 
     :param macro_defs: Unused (kept for API compatibility).
     :param replay_buf: Optional replay buffer for screen repaint on return.
     :param has_gmcp: Unused (kept for API compatibility).
     """
-    logfile = get_logfile_path()
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_editors import show_help_main; "
-        "show_help_main(topic=sys.argv[1], logfile=sys.argv[2])",
-        "keybindings",
-        logfile,
-    ]
+    from . import client_tui_base
 
-    crash_path, env = _make_crash_env()
     _prepare_terminal()
-    _run_subprocess(cmd, replay_buf=replay_buf, env=env, crash_path=crash_path)
-
-
-def read_crash_file(crash_path: str) -> dict[str, Any] | None:
-    """
-    Read crash data JSON from *crash_path*.
-
-    The caller is responsible for deciding whether to delete the file.
-
-    :param crash_path: Path to the crash JSON file.
-    :returns: Parsed crash data dict, or ``None`` on missing/invalid file.
-    """
-    try:
-        with open(crash_path, encoding="utf-8") as fh:
-            return dict(json.load(fh))
-    except (OSError, ValueError):
-        return None
-
-
-def format_crash_banner(crash_data: dict[str, Any], cmd: list[str], crash_path: str, exit_code: int) -> str:
-    r"""
-    Format crash data as a display banner with ``\r\n`` line endings.
-
-    :param crash_data: Dict with ``traceback``, ``pid``, ``source`` keys.
-    :param cmd: The subprocess command list.
-    :param crash_path: Path to the crash file (shown in the closing line).
-    :param exit_code: Subprocess exit code.
-    :returns: Formatted banner string.
-    """
-    try:
-        width = os.get_terminal_size().columns
-    except OSError:
-        width = 80
-    tb_text = crash_data.get("traceback", "")
-    quoted_cmd = " ".join(shlex.quote(c) for c in cmd)
-    cmd_footer = f" end of failed command (exit code={exit_code}) "
-    tb_footer = f" End of captured traceback: {crash_path} "
-    lines = ["", quoted_cmd, cmd_footer.center(width, "-"), ""]
-    for line in tb_text.splitlines():
-        lines.append(line)
-    lines.append("")
-    lines.append(tb_footer.center(width, "-"))
-    lines.append("")
-    return "\r\n".join(lines)
-
-
-def handle_crash_file(crash_path: str, cmd: list[str], replay_buf: Any | None, result: Any | None) -> None:
-    """
-    Read crash file and inject a formatted banner into *replay_buf*.
-
-    On success (``returncode == 0``) or missing result, clean up the
-    file.  On failure the file is preserved for post-mortem inspection.
-
-    :param crash_path: Path to the crash JSON file.
-    :param cmd: The subprocess command list.
-    :param replay_buf: Replay buffer list to append banner bytes to.
-    :param result: ``subprocess.CompletedProcess`` or ``None``.
-    """
-    if result is None or result.returncode == 0:
-        try:
-            os.unlink(crash_path)
-        except OSError:
-            pass
-        return
-    data = read_crash_file(crash_path)
-    if data:
-        log.error("TUI subprocess (pid %s) crashed", data.get("pid", "?"))
-        for line in data.get("traceback", "").splitlines():
-            log.error("%s", line)
-        if replay_buf is not None:
-            banner = format_crash_banner(data, cmd, crash_path, result.returncode)
-            replay_buf.append(banner.encode("utf-8"))
+    _run_in_thread(
+        lambda: client_tui_base.launch_editor_in_thread(client_tui_base.CommandHelpScreen(topic="keybindings")),
+        replay_buf=replay_buf,
+    )
 
 
 def most_recent_channel(chat_messages: list[Any], capture_log: dict[str, Any]) -> str:
@@ -514,17 +402,18 @@ def most_recent_channel(chat_messages: list[Any], capture_log: dict[str, Any]) -
 
 def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
-    Launch the unified tabbed TUI editor as a subprocess.
+    Launch the unified tabbed TUI editor in a worker thread.
 
-    Gathers parameters for all panes, spawns ``unified_editor_main``, and
-    reloads all potentially-modified configs on return.
+    Gathers parameters for all panes, runs :func:`~telix.client_tui_dialogs.run_unified_editor`
+    in a worker thread, and reloads all potentially-modified configs on return.
 
     :param initial_tab: Tab to open initially (e.g. ``"help"``, ``"macros"``).
     :param ctx: Session context with file path and definition attributes.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
+    from . import client_tui_dialogs
+
     session_key = ctx.session_key
-    logfile = get_logfile_path()
 
     # -- Gather all pane parameters --
     highlights_file = ctx.highlights_file or os.path.join(config_dir, "highlights.json")
@@ -548,8 +437,8 @@ def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_b
     # Chat / capture data.
     chat_file = ctx.chat_file or ""
     ctx.chat_unread = 0
-    captures = getattr(ctx, "captures", {})
-    capture_log = getattr(ctx, "capture_log", {})
+    captures = ctx.captures
+    capture_log = ctx.capture_log
     initial_channel = most_recent_channel(ctx.chat_messages, capture_log)
 
     capture_file = ""
@@ -562,7 +451,6 @@ def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_b
     params = {
         "initial_tab": initial_tab,
         "session_key": session_key,
-        "logfile": logfile,
         "highlights_file": highlights_file,
         "macros_file": macros_file,
         "autoreplies_file": autoreplies_file,
@@ -577,29 +465,17 @@ def launch_unified_editor(initial_tab: str, ctx: "TelixSessionContext", replay_b
         "capture_file": capture_file,
     }
 
-    params_json = json.dumps(params)
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_dialogs import unified_editor_main; unified_editor_main()",
-        params_json,
-    ]
-
-    crash_path, env = _make_crash_env()
-
     log.debug(
-        "unified_editor: pre-subprocess initial_tab=%s TERM=%s COLORTERM=%s terminal_size=%s",
+        "unified_editor: pre-thread initial_tab=%s TERM=%s COLORTERM=%s terminal_size=%s",
         initial_tab,
         os.environ.get("TERM", ""),
         os.environ.get("COLORTERM", ""),
         safe_terminal_size(),
     )
     _prepare_terminal()
-    _run_subprocess(
-        cmd,
+    _run_in_thread(
+        lambda: client_tui_dialogs.run_unified_editor(params),
         replay_buf=replay_buf,
-        env=env,
-        crash_path=crash_path,
         cleanup_files=[capture_file] if capture_file else None,
     )
 
@@ -642,56 +518,38 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
     :param ctx: Session context with file path and definition attributes.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
-    session_key = ctx.session_key
+    from . import client_tui_base, client_tui_editors
 
-    logfile = get_logfile_path()
+    session_key = ctx.session_key
 
     if editor_type == "macros":
         path = ctx.macros_file or os.path.join(config_dir, "macros.json")
         rp = ctx.rooms_file or rooms_path_fn(session_key)
         crp = ctx.current_room_file or current_room_path_fn(session_key)
-        cmd = [
-            sys.executable,
-            "-c",
-            "import sys; from telix.client_tui_editors import edit_macros_main; "
-            "edit_macros_main(sys.argv[1], sys.argv[2],"
-            " rooms_file=sys.argv[3], current_room_file=sys.argv[4],"
-            " logfile=sys.argv[5])",
-            path,
-            session_key,
-            rp,
-            crp,
-            logfile,
-        ]
+        target = lambda: client_tui_base.launch_editor_in_thread(  # noqa: E731
+            client_tui_editors.MacroEditScreen(
+                path=path, session_key=session_key, rooms_file=rp, current_room_file=crp
+            ),
+            session_key=session_key,
+        )
     elif editor_type == "highlights":
         path = ctx.highlights_file or os.path.join(config_dir, "highlights.json")
-        cmd = [
-            sys.executable,
-            "-c",
-            "import sys; from telix.client_tui_editors import edit_highlights_main; "
-            "edit_highlights_main(sys.argv[1], sys.argv[2], logfile=sys.argv[3])",
-            path,
-            session_key,
-            logfile,
-        ]
+        target = lambda: client_tui_base.launch_editor_in_thread(  # noqa: E731
+            client_tui_editors.HighlightEditScreen(path=path, session_key=session_key),
+            session_key=session_key,
+        )
     elif editor_type == "progressbars":
         path = ctx.progressbars_file or os.path.join(config_dir, "progressbars.json")
         snap = ctx.gmcp_snapshot_file or ""
-        # Flush GMCP snapshot immediately so the editor subprocess can read it.
         if snap and ctx.gmcp_data:
             save_gmcp_snapshot(snap, session_key, ctx.gmcp_data)
             ctx.gmcp_dirty = False
-        cmd = [
-            sys.executable,
-            "-c",
-            "import sys; from telix.client_tui_editors import edit_progressbars_main; "
-            "edit_progressbars_main(sys.argv[1], sys.argv[2],"
-            " gmcp_snapshot_path=sys.argv[3], logfile=sys.argv[4])",
-            path,
-            session_key,
-            snap,
-            logfile,
-        ]
+        target = lambda: client_tui_base.launch_editor_in_thread(  # noqa: E731
+            client_tui_editors.ProgressBarEditScreen(
+                path=path, session_key=session_key, gmcp_snapshot_path=snap
+            ),
+            session_key=session_key,
+        )
     else:
         path = ctx.autoreplies_file or os.path.join(config_dir, "autoreplies.json")
         snap = ctx.gmcp_snapshot_file or ""
@@ -700,23 +558,15 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
             ctx.gmcp_dirty = False
         engine = ctx.autoreply_engine
         select = getattr(engine, "last_matched_pattern", "") if engine else ""
-        cmd = [
-            sys.executable,
-            "-c",
-            "import sys; from telix.client_tui_editors import edit_autoreplies_main; "
-            "edit_autoreplies_main(sys.argv[1], sys.argv[2],"
-            " select_pattern=sys.argv[3], gmcp_snapshot_path=sys.argv[4], logfile=sys.argv[5])",
-            path,
-            session_key,
-            select,
-            snap,
-            logfile,
-        ]
-
-    crash_path, env = _make_crash_env()
+        target = lambda: client_tui_base.launch_editor_in_thread(  # noqa: E731
+            client_tui_editors.AutoreplyEditScreen(
+                path=path, session_key=session_key, select_pattern=select, gmcp_snapshot_path=snap
+            ),
+            session_key=session_key,
+        )
 
     log.debug(
-        "tui_editor: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
+        "tui_editor: pre-thread fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s editor_type=%s "
         "TERM=%s COLORTERM=%s terminal_size=%s",
         getattr(os, "get_blocking", lambda fd: None)(0),
@@ -730,7 +580,7 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
         safe_terminal_size(),
     )
     _prepare_terminal()
-    _run_subprocess(cmd, replay_buf=replay_buf, env=env, crash_path=crash_path)
+    _run_in_thread(target, replay_buf=replay_buf)
 
     if editor_type == "macros":
         reload_macros(ctx, path, session_key, log)
@@ -799,26 +649,26 @@ def reload_highlights(ctx: "TelixSessionContext", path: str, session_key: str, l
 
 def launch_chat_viewer(ctx: "TelixSessionContext", replay_buf: Any | None = None) -> None:
     """
-    Launch the Capture Window TUI in a subprocess.
+    Launch the Capture Window TUI in a worker thread.
 
     Writes capture data (``ctx.captures`` and ``ctx.capture_log``) to a
-    temporary JSON file and passes its path to the subprocess.
+    temporary JSON file and passes its path to the worker thread.
 
     :param ctx: Session context with chat and capture state.
     :param replay_buf: Optional replay buffer for screen repaint on return.
     """
+    from . import client_tui_captures
+
     session_key = ctx.session_key
     if not session_key:
         return
 
     chat_file = ctx.chat_file or ""
-
     ctx.chat_unread = 0
 
-    # Write capture data to a temporary file for the subprocess.
     capture_file = ""
-    captures = getattr(ctx, "captures", {})
-    capture_log = getattr(ctx, "capture_log", {})
+    captures = ctx.captures
+    capture_log = ctx.capture_log
     initial_channel = most_recent_channel(ctx.chat_messages, capture_log)
     if captures or capture_log:
         fd, capture_file = tempfile.mkstemp(suffix=".json", prefix="captures-")
@@ -826,30 +676,11 @@ def launch_chat_viewer(ctx: "TelixSessionContext", replay_buf: Any | None = None
         with open(capture_file, "w", encoding="utf-8") as fh:
             json.dump({"captures": captures, "capture_log": capture_log}, fh)
 
-    logfile = get_logfile_path()
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_dialogs import chat_viewer_main; "
-        "chat_viewer_main(sys.argv[1], sys.argv[2],"
-        " initial_channel=sys.argv[3], logfile=sys.argv[4],"
-        " capture_file=sys.argv[5])",
-        chat_file,
-        session_key,
-        initial_channel,
-        logfile,
-        capture_file,
-    ]
-
-    crash_path, env = _make_crash_env()
-
-    log.debug("chat_viewer: launching subprocess")
+    log.debug("chat_viewer: launching thread")
     _prepare_terminal()
-    _run_subprocess(
-        cmd,
+    _run_in_thread(
+        lambda: client_tui_captures.run_chat_viewer(chat_file, session_key, initial_channel, capture_file),
         replay_buf=replay_buf,
-        env=env,
-        crash_path=crash_path,
         cleanup_files=[capture_file] if capture_file else None,
     )
 
@@ -867,28 +698,14 @@ def launch_room_browser(ctx: "TelixSessionContext", replay_buf: Any | None = Non
     if not session_key:
         return
 
+    from . import client_tui_base, client_tui_rooms
+
     rp = ctx.rooms_file or rooms_path_fn(session_key)
     crp = ctx.current_room_file or current_room_path_fn(session_key)
     ftp = fasttravel_path_fn(session_key)
 
-    logfile = get_logfile_path()
-    cmd = [
-        sys.executable,
-        "-c",
-        "import sys; from telix.client_tui_dialogs import edit_rooms_main; "
-        "edit_rooms_main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],"
-        " logfile=sys.argv[5])",
-        rp,
-        session_key,
-        crp,
-        ftp,
-        logfile,
-    ]
-
-    crash_path, env = _make_crash_env()
-
     log.debug(
-        "room_browser: pre-subprocess fd0_blocking=%s fd1=%s fd2=%s "
+        "room_browser: pre-thread fd0_blocking=%s fd1=%s fd2=%s "
         "stdin_isatty=%s stderr_isatty=%s "
         "TERM=%s COLORTERM=%s terminal_size=%s",
         getattr(os, "get_blocking", lambda fd: None)(0),
@@ -901,7 +718,15 @@ def launch_room_browser(ctx: "TelixSessionContext", replay_buf: Any | None = Non
         safe_terminal_size(),
     )
     _prepare_terminal()
-    _run_subprocess(cmd, replay_buf=replay_buf, env=env, crash_path=crash_path)
+    _run_in_thread(
+        lambda: client_tui_base.launch_editor_in_thread(
+            client_tui_rooms.RoomBrowserScreen(
+                rooms_path=rp, session_key=session_key, current_room_file=crp, fasttravel_file=ftp
+            ),
+            session_key=session_key,
+        ),
+        replay_buf=replay_buf,
+    )
 
     room_graph = ctx.room_graph
     if room_graph is not None:

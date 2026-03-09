@@ -347,10 +347,7 @@ def is_known_exit(cmd: str, ctx: "TelixSessionContext") -> bool:
     graph = ctx.room_graph
     if graph is None:
         return True
-    adj = getattr(graph, "adj", None)
-    if adj is None:
-        return True
-    exits = adj.get(room_num)
+    exits = graph.adj.get(room_num)
     if exits is None:
         return True
     return cmd in exits
@@ -605,10 +602,6 @@ async def send_chained(
             if echo_fn is not None:
                 echo_fn(cmd)
             ctx.active_command_time = time.monotonic()
-            if ctx.cx_dot is not None:
-                ctx.cx_dot.trigger()
-            if ctx.tx_dot is not None:
-                ctx.tx_dot.trigger()
             ctx.writer.write(cmd + "\r\n")
             ts = ctx.typescript_file
             if ts is not None and ctx.writer is not None and not ctx.writer.will_echo:
@@ -637,10 +630,6 @@ async def send_chained(
             else:
                 log.info("chained retry %d: %r", attempt, cmd)
             ctx.active_command_time = time.monotonic()
-            if ctx.cx_dot is not None:
-                ctx.cx_dot.trigger()
-            if ctx.tx_dot is not None:
-                ctx.tx_dot.trigger()
             ctx.writer.write(cmd + "\r\n")
             ts = ctx.typescript_file
             if ts is not None and ctx.writer is not None and not ctx.writer.will_echo:
@@ -696,10 +685,6 @@ def macro_send(ctx: "TelixSessionContext", log: logging.Logger, cmd: str) -> Non
     else:
         ctx.active_command = cmd
     ctx.active_command_time = time.monotonic()
-    if ctx.cx_dot is not None:
-        ctx.cx_dot.trigger()
-    if ctx.tx_dot is not None:
-        ctx.tx_dot.trigger()
     ctx.writer.write(cmd + "\r\n")
 
 

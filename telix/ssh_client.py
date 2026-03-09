@@ -15,6 +15,7 @@ which the REPL fills when the user presses Enter while
 Passwords are never stored to disk or passed on the command line.
 """
 
+import os
 import shutil
 import asyncio
 import logging
@@ -107,6 +108,25 @@ class SSHTelix(asyncssh.SSHClient):
         return responses
 
 
+def resolve_key_file(key_file: str) -> str:
+    """
+    Resolve a key file path, expanding ``~`` and bare filenames.
+
+    A bare filename with no directory component (e.g. ``"id_ed25519"``) is
+    resolved relative to ``~/.ssh/``.  Paths containing a directory separator
+    or starting with ``~`` are passed to :func:`os.path.expanduser` directly.
+    An empty string is returned unchanged.
+
+    :param key_file: Raw key file value from config or CLI.
+    :returns: Absolute path to the key file.
+    """
+    if not key_file:
+        return key_file
+    if not os.path.dirname(key_file):
+        key_file = "~/.ssh/" + key_file
+    return os.path.expanduser(key_file)
+
+
 async def run_ssh_client(
     host: str, port: int, username: str, key_file: str, term_type: str, shell: Callable[..., Awaitable[None]]
 ) -> None:
@@ -131,7 +151,7 @@ async def run_ssh_client(
 
     shell_task = asyncio.ensure_future(shell(reader, writer))
 
-    client_keys = [key_file] if key_file else []
+    client_keys = [resolve_key_file(key_file)] if key_file else []
     cols, rows = shutil.get_terminal_size()
 
     async with asyncssh.connect(

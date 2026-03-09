@@ -10,7 +10,7 @@ import telnetlib3._session_context  # pylint: disable=no-name-in-module
 from . import mslp, macros, autoreply, ws_transport, gmcp_snapshot, ssh_transport
 
 if TYPE_CHECKING:
-    from . import rooms, highlighter, progressbars, client_repl_render
+    from . import rooms, highlighter, progressbars
 
 
 class CommandQueue:
@@ -152,11 +152,6 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.repl_enabled: bool = False
         self.ansi_keys: bool = False
         self.history_file: str | None = None
-
-        # modem activity dots (set by REPL, used by send_chained et al.)
-        self.rx_dot: client_repl_render.ActivityDot | None = None
-        self.tx_dot: client_repl_render.ActivityDot | None = None
-        self.cx_dot: client_repl_render.ActivityDot | None = None
 
         # REPL internals
         self.key_dispatch: Any | None = None

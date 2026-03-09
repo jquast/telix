@@ -298,7 +298,7 @@ class HighlightEngine:
         if not self.enabled:
             return line, False
 
-        plain = wcwidth.strip_sequences(line)
+        plain = wcwidth.strip_sequences(line).rstrip("\r")
         if not plain:
             return line, False
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # std imports
 import os
+import re
 import sys
 import time
 import types
@@ -23,7 +24,8 @@ if sys.platform == "win32":
 # local
 from telix.paths import DATA_DIR, history_path
 from telix.macros import Macro, load_macros, save_macros
-from telix.autoreply import SearchBuffer, AutoreplyEngine
+from telix.autoreply import SearchBuffer, AutoreplyEngine, AutoreplyRule
+from telix.highlighter import HighlightRule, RE_FLAGS
 from telix.client_repl import (
     TRAVEL_RE,
     STYLE_NORMAL,
@@ -49,7 +51,7 @@ from telix.client_repl import (
     handle_travel_commands,
 )
 from telix.session_context import CommandQueue, TelixSessionContext
-from telix.client_repl_render import SEXTANT, idle_rgb, idle_ar_rgb, scramble_password
+from telix.client_repl_render import SEXTANT, scramble_password
 from telix.client_repl_travel import MAX_STUCK_RETRIES
 from telix.client_repl_commands import (
     StepResult,
@@ -1155,7 +1157,7 @@ def test_render_command_queue_highlight_active() -> None:
 
 
 # local
-from telix.client_repl_render import DISPLAY, ACTIVITY, ActivityDot, lerp_rgb, peak_red, peak_yellow, activity_hint
+from telix.client_repl_render import DISPLAY, activity_hint
 
 
 class FakeEngine:
@@ -1192,80 +1194,6 @@ class TestActivityHint:
         hint2 = activity_hint(e, cols=120)
         assert len(hint1) == len(hint2)
         assert hint1.endswith("[return to cancel]")
-
-
-def test_modem_dot_idle_before_trigger():
-    dot = ActivityDot()
-    assert dot.intensity() == 0.0
-    assert not dot.is_animating()
-    assert dot.color() == idle_rgb()
-
-
-def test_modem_dot_peak_after_trigger(monkeypatch):
-    now = [1000.0]
-    monkeypatch.setattr(time, "monotonic", lambda: now[0])
-
-    dot = ActivityDot()
-    dot.trigger()
-    now[0] += ACTIVITY.WARM_UP + 0.001
-    assert dot.intensity() == pytest.approx(1.0, abs=0.05)
-    assert dot.is_animating()
-    r, g, b = dot.color()
-    assert r == peak_red()[0]
-    assert g == peak_red()[1]
-
-
-def test_modem_dot_idle_after_duration(monkeypatch):
-    now = [1000.0]
-    monkeypatch.setattr(time, "monotonic", lambda: now[0])
-
-    dot = ActivityDot()
-    dot.trigger()
-    now[0] += ACTIVITY.DURATION + 0.001
-    assert dot.intensity() == 0.0
-    assert not dot.is_animating()
-    assert dot.color() == idle_rgb()
-
-
-def test_modem_dot_yellow_peak():
-    dot = ActivityDot(peak_rgb=peak_yellow())
-    assert dot.color() == idle_rgb()
-
-
-def test_modem_dot_retrigger_during_glowdown(monkeypatch):
-    now = [1000.0]
-    monkeypatch.setattr(time, "monotonic", lambda: now[0])
-
-    dot = ActivityDot()
-    dot.trigger()
-    now[0] += ACTIVITY.WARM_UP + ACTIVITY.HOLD + 0.050
-    mid_intensity = dot.intensity()
-    assert 0.0 < mid_intensity < 1.0
-
-    dot.trigger()
-    now[0] += ACTIVITY.WARM_UP * 0.5
-    assert dot.intensity() > mid_intensity
-
-
-def test_modem_dot_autoreply_bg_uses_alt_idle():
-    dot = ActivityDot()
-    assert dot.color(autoreply_bg=True) == idle_ar_rgb()
-
-
-def testlerp_rgb_endpoints():
-    c1 = (0, 0, 0)
-    c2 = (100, 200, 50)
-    assert lerp_rgb(c1, c2, 0.0) == c1
-    assert lerp_rgb(c1, c2, 1.0) == c2
-
-
-def testlerp_rgb_midpoint():
-    c1 = (0, 0, 0)
-    c2 = (100, 200, 50)
-    r, g, b = lerp_rgb(c1, c2, 0.5)
-    assert r == 50
-    assert g == 100
-    assert b == 25
 
 
 class CommandTrackingContext(DynamicRoomContext):
@@ -2024,7 +1952,7 @@ async def test_read_input_sets_mode_switched_on_kludge_timeout(monkeypatch: pyte
     repl = object.__new__(ReplSession)
     repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
     repl.blessed_term = types.SimpleNamespace(raw=noop_ctx, notify_on_resize=noop_ctx, async_inkey=fake_inkey)
-    repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
+
     repl.stdout = stdout
     repl.server_done = False
     repl.mode_switched = False
@@ -2080,9 +2008,17 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
     repl = object.__new__(ReplSession)
     repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
     repl.blessed_term = types.SimpleNamespace(
-        raw=noop_ctx, notify_on_resize=noop_ctx, async_inkey=fake_inkey, restore="", save="", yellow="", normal=""
+        raw=noop_ctx,
+        notify_on_resize=noop_ctx,
+        async_inkey=fake_inkey,
+        restore="",
+        save="",
+        yellow="",
+        normal="",
+        hide_cursor="",
+        normal_cursor="",
     )
-    repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
+
     repl.stdout = stdout
     repl.server_done = False
     repl.mode_switched = False
@@ -2107,13 +2043,13 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
         return types.SimpleNamespace(line=None, changed=False, interrupt=False, eof=True)
 
     repl.editor = types.SimpleNamespace(password_mode=True, _buf=list(password), feed_key=fake_feed_key)
-    repl.toolbar = types.SimpleNamespace(render=lambda *a, **kw: False, hide_cursor=lambda: None, flash_active=False)
+    repl.toolbar = types.SimpleNamespace(render=lambda *a, **kw: False, flash_active=False)
 
     monkeypatch.setattr(ReplSession, "update_input_style", lambda self: None)
     monkeypatch.setattr(ReplSession, "render_editor", lambda self, *args: "")
     monkeypatch.setattr(ReplSession, "editor_cursor", lambda self: 0)
     monkeypatch.setattr(ReplSession, "input_width", lambda self: 80)
-    monkeypatch.setattr(ReplSession, "show_cursor_or_light", lambda self, *args: None)
+    monkeypatch.setattr(ReplSession, "show_cursor", lambda self, *args: None)
     monkeypatch.setattr(ReplSession, "submit_command_queue", lambda self, *args, **kw: None)
 
     await repl.read_input()
@@ -2148,7 +2084,7 @@ async def test_read_input_timeout_rearms_after_background_subprocess(monkeypatch
     repl = object.__new__(ReplSession)
     repl.scroll = types.SimpleNamespace(input_row=23, scroll_bottom=22, cols=80)
     repl.blessed_term = types.SimpleNamespace(raw=noop_ctx, notify_on_resize=noop_ctx, async_inkey=fake_inkey)
-    repl.stoplight = types.SimpleNamespace(tx=types.SimpleNamespace(trigger=lambda: None))
+
     repl.stdout = stdout
     repl.server_done = False
     repl.mode_switched = False
@@ -2166,3 +2102,131 @@ async def test_read_input_timeout_rearms_after_background_subprocess(monkeypatch
     await repl.read_input()
 
     assert repl_module.subprocess_needs_rearm is False
+
+
+class TestRefreshHighlightEngineBuiltin:
+    """refresh_highlight_engine respects the builtin rule's highlight and enabled state."""
+
+    class FmtStr(str):
+        def __call__(self, text: str = "") -> str:
+            return f"{self}{text}\x1b[0m"
+
+    def make_term(self, styles: dict) -> object:
+        fmtstr = self.FmtStr
+        normal = fmtstr("\x1b[0m")
+
+        class MockTerm:
+            pass
+
+        t = MockTerm()
+        t.normal = normal  # type: ignore[attr-defined]
+        for name, seq in styles.items():
+            setattr(t, name, fmtstr(seq))
+        return t
+
+    def make_repl(self, highlight_rules, autoreply_rules, term) -> ReplSession:
+        repl = object.__new__(ReplSession)
+        ctx = TelixSessionContext()
+        ctx.highlight_rules = highlight_rules
+        ctx.autoreply_rules = autoreply_rules
+        ctx.highlight_engine = None
+        repl.blessed_term = term
+        repl.ctx = ctx
+        return repl
+
+    def test_uses_builtin_rule_highlight(self):
+        """Autoreply matches use the highlight style from the builtin rule, not the default."""
+        term = self.make_term({"black_on_peru": "\x1b[PERU]", "black_on_beige": "\x1b[BEIGE]"})
+        ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
+        builtin = HighlightRule(
+            pattern=re.compile(r"<Autoreply pattern>", RE_FLAGS),
+            highlight="black_on_peru",
+            enabled=True,
+            builtin=True,
+        )
+        repl = self.make_repl([builtin], ar_rules, term)
+
+        repl.refresh_highlight_engine()
+
+        result, matched = repl.ctx.highlight_engine.process_line("A monster appears!")
+        assert matched is True
+        assert "\x1b[PERU]" in result
+        assert "\x1b[BEIGE]" not in result
+
+    def test_builtin_enabled_false_disables_autoreply_highlight(self):
+        """Autoreply matches are not highlighted when the builtin rule is disabled."""
+        term = self.make_term({"black_on_peru": "\x1b[PERU]"})
+        ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
+        builtin = HighlightRule(
+            pattern=re.compile(r"<Autoreply pattern>", RE_FLAGS),
+            highlight="black_on_peru",
+            enabled=False,
+            builtin=True,
+        )
+        repl = self.make_repl([builtin], ar_rules, term)
+
+        repl.refresh_highlight_engine()
+
+        result, matched = repl.ctx.highlight_engine.process_line("A monster appears!")
+        assert matched is False
+        assert "\x1b[PERU]" not in result
+
+
+def test_rearm_after_subprocess_clears_blessed_size_cache(monkeypatch):
+    """rearm_after_subprocess clears blessed's cached terminal size so bt.width/height are fresh."""
+    import telix.client_repl as repl_module
+
+    blessed_term = types.SimpleNamespace(_preferred_size_cache=types.SimpleNamespace(ws_col=80, ws_row=24))
+    monkeypatch.setattr(repl_module, "get_term", lambda: blessed_term)
+    monkeypatch.setattr(repl_module.terminal, "flush_stdin", lambda: None)
+    monkeypatch.setattr("sys.stdout", types.SimpleNamespace(write=lambda s: None, flush=lambda: None))
+    monkeypatch.setattr("os.get_terminal_size", lambda: types.SimpleNamespace(lines=30, columns=100))
+
+    repl = object.__new__(ReplSession)
+    repl.last_resize_size = [24, 80]
+    repl.tty_shell = types.SimpleNamespace(_resize_pending=types.SimpleNamespace(is_set=lambda: False, clear=lambda: None))
+
+    repl_module.subprocess_needs_rearm = True
+    repl.rearm_after_subprocess()
+
+    assert blessed_term._preferred_size_cache is None
+
+
+class TestWriteHint:
+    """write_hint output content tests."""
+
+    def setup_method(self):
+        import io
+        import blessed
+        self.buf = io.BytesIO()
+
+        class FakeWriter:
+            def write(inner_self, data):
+                self.buf.write(data)
+
+        self.writer = FakeWriter()
+        self.bt = blessed.Terminal(force_styling=True)
+
+    def _output(self):
+        return self.buf.getvalue().decode()
+
+    def test_no_autoreply_plain_uses_reverse(self):
+        """Non-autoreply plain hint uses bt.reverse, not on_color_rgb."""
+        from telix.client_repl_render import write_hint
+        write_hint("some hint", self.writer, self.bt, autoreply=False)
+        out = self._output()
+        assert str(self.bt.reverse) in out
+        assert "some hint" in out
+
+    def test_no_autoreply_with_progress_uses_reverse(self):
+        """Non-autoreply hint with progress uses bt.reverse for the remaining portion."""
+        from telix.client_repl_render import write_hint
+        write_hint("abcdef", self.writer, self.bt, progress=0.5, autoreply=False)
+        out = self._output()
+        assert str(self.bt.reverse) in out
+
+    def test_empty_hint_writes_nothing(self):
+        """Empty hint string produces no output."""
+        from telix.client_repl_render import write_hint
+        write_hint("", self.writer, self.bt, autoreply=False)
+        assert self._output() == ""

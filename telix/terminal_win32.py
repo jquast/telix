@@ -56,15 +56,5 @@ def restore_opost() -> None:
     """No-op on Windows -- CRLF translation is handled differently."""
 
 
-def pause_before_exit() -> None:
-    """Prompt user to press a key so they can read error output."""
-    sys.stdout.write("\r\nPress RETURN to continue...\r\n")
-    sys.stdout.flush()
-    try:
-        msvcrt.getwch()  # type: ignore[attr-defined]
-    except (OSError, KeyboardInterrupt):
-        pass
-
-
 def restore_blocking_fds(logfile: str = "") -> None:
     """No-op on Windows -- console handles have no ``O_NONBLOCK`` flag."""

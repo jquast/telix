@@ -967,10 +967,8 @@ class TestActionConnectScreenRefresh:
 
         mock_screen.refresh.assert_called_once()
 
-    def test_nonzero_exit_raises_called_process_error(self, tui_tmp_paths: Any) -> None:
-        """CalledProcessError propagates when the subprocess exits with non-zero returncode."""
-        import subprocess
-
+    def test_nonzero_exit_calls_os_exit(self, tui_tmp_paths: Any) -> None:
+        """os._exit() is called with the subprocess returncode on non-zero exit."""
         screen = SessionListScreen()
         screen.sessions = {"srv": SessionConfig(name="srv", host="example.com")}
         screen.selected_key = MagicMock(return_value="srv")
@@ -997,9 +995,10 @@ class TestActionConnectScreenRefresh:
             patch("telix.client_tui_base.os.get_terminal_size", return_value=MagicMock(lines=24, columns=80)),
             patch("telix.client_tui_base.os.set_blocking", create=True),
             patch("telix.client_tui_base.sys.stdout"),
+            patch("telix.client_tui_base.os._exit") as mock_os_exit,
         ):
-            with pytest.raises(subprocess.CalledProcessError):
-                screen.action_connect()
+            screen.action_connect()
+        mock_os_exit.assert_called_once_with(1)
 
 
 class TestReadPrimarySelection:

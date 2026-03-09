@@ -106,25 +106,6 @@ def restore_opost() -> None:
         pass
 
 
-def pause_before_exit() -> None:
-    """Prompt user to press RETURN so they can read error output."""
-    sys.stdout.write("\r\nPress RETURN to continue...\r\n")
-    sys.stdout.flush()
-    fd = sys.stdin.fileno()
-    try:
-        os.set_blocking(fd, True)
-        old = termios.tcgetattr(fd)
-        new = termios.tcgetattr(fd)
-        new[3] |= termios.ICANON | termios.ECHO | termios.ISIG
-        try:
-            termios.tcsetattr(fd, termios.TCSANOW, new)
-            os.read(fd, 1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    except (OSError, termios.error, EOFError, KeyboardInterrupt):
-        pass
-
-
 def restore_blocking_fds(logfile: str = "") -> None:
     """
     Restore blocking mode on stdin/stdout/stderr.

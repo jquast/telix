@@ -272,9 +272,25 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
         self.app.exit()
 
 
+def run_unified_editor(params: dict) -> None:
+    """
+    Launch the tabbed editor in the current (worker) thread.
+
+    Called by the REPL's :func:`~telix.client_repl_dialogs.launch_unified_editor` via a
+    :class:`threading.Thread`.  FD blocking is already restored by the caller's
+    :func:`~telix.terminal_unix.blocking_fds` context manager.
+
+    :param params: Parameter dict for all editor panes (same structure as the JSON blob
+        read by :func:`unified_editor_main`).
+    """
+    client_tui_base.launch_editor_in_thread(
+        TabbedEditorScreen(params), session_key=params.get("session_key", "")
+    )
+
+
 def unified_editor_main() -> None:
     """
-    Launch the tabbed editor TUI subprocess.
+    Launch the tabbed editor TUI as a standalone process.
 
     Reads a single JSON blob from ``sys.argv[1]`` containing all parameters for every pane. Called
     from the REPL via ``launch_unified_editor()``.
@@ -288,7 +304,7 @@ def unified_editor_main() -> None:
     screen = TabbedEditorScreen(params)
     session_key = params.get("session_key", "")
     app = client_tui_base.EditorApp(screen, session_key=session_key)  # type: ignore[arg-type]
-    client_tui_base.run_editor_app(app)
+    app.run()
 
 
 class ConfirmDialogScreen(textual.screen.Screen[bool]):
@@ -380,6 +396,20 @@ class ConfirmDialogScreen(textual.screen.Screen[bool]):
             f.write(result)
 
 
+def run_confirm_dialog(title: str, body: str, warning: str = "", result_file: str = "") -> None:
+    """
+    Launch the confirm dialog in the current (worker) thread.
+
+    :param title: Dialog title.
+    :param body: Body text.
+    :param warning: Optional warning text displayed in red.
+    :param result_file: Path to the JSON file where the result is written.
+    """
+    client_tui_base.launch_editor_in_thread(
+        ConfirmDialogScreen(title=title, body=body, warning=warning, result_file=result_file)
+    )
+
+
 def confirm_dialog_main(title: str, body: str, warning: str = "", result_file: str = "", logfile: str = "") -> None:
     """Launch standalone confirm dialog TUI."""
     client_tui_base.restore_blocking_fds(logfile)
@@ -387,7 +417,7 @@ def confirm_dialog_main(title: str, body: str, warning: str = "", result_file: s
     client_tui_base.patch_writer_thread_queue()
     screen = ConfirmDialogScreen(title=title, body=body, warning=warning, result_file=result_file)
     app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
-    client_tui_base.run_editor_app(app)
+    app.run()
 
 
 class RandomwalkDialogScreen(textual.screen.Screen[bool]):
@@ -650,6 +680,36 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
             f.write(result)
 
 
+def run_randomwalk_dialog(
+    result_file: str,
+    default_visit_level: int = 2,
+    default_auto_search: bool = False,
+    default_auto_evaluate: bool = False,
+    default_auto_survey: bool = False,
+    default_autoreplies: bool = True,
+) -> None:
+    """
+    Launch the random walk dialog in the current (worker) thread.
+
+    :param result_file: Path to the JSON file where the result is written.
+    :param default_visit_level: Initial visit-level selection.
+    :param default_auto_search: Initial auto-search toggle state.
+    :param default_auto_evaluate: Initial auto-evaluate toggle state.
+    :param default_auto_survey: Initial auto-survey toggle state.
+    :param default_autoreplies: Initial autoreplies toggle state.
+    """
+    client_tui_base.launch_editor_in_thread(
+        RandomwalkDialogScreen(
+            result_file=result_file,
+            default_visit_level=default_visit_level,
+            default_auto_search=default_auto_search,
+            default_auto_evaluate=default_auto_evaluate,
+            default_auto_survey=default_auto_survey,
+            default_autoreplies=default_autoreplies,
+        )
+    )
+
+
 def randomwalk_dialog_main(
     result_file: str = "",
     default_visit_level: str = "2",
@@ -672,7 +732,7 @@ def randomwalk_dialog_main(
         default_autoreplies=(default_autoreplies == "1"),
     )
     app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
-    client_tui_base.run_editor_app(app)
+    app.run()
 
 
 class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
@@ -916,6 +976,36 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
             f.write(result)
 
 
+def run_autodiscover_dialog(
+    result_file: str,
+    default_strategy: str = "bfs",
+    default_auto_search: bool = False,
+    default_auto_evaluate: bool = False,
+    default_auto_survey: bool = False,
+    default_autoreplies: bool = True,
+) -> None:
+    """
+    Launch the autodiscover dialog in the current (worker) thread.
+
+    :param result_file: Path to the JSON file where the result is written.
+    :param default_strategy: Initial strategy selection (``"bfs"`` or ``"dfs"``).
+    :param default_auto_search: Initial auto-search toggle state.
+    :param default_auto_evaluate: Initial auto-evaluate toggle state.
+    :param default_auto_survey: Initial auto-survey toggle state.
+    :param default_autoreplies: Initial autoreplies toggle state.
+    """
+    client_tui_base.launch_editor_in_thread(
+        AutodiscoverDialogScreen(
+            result_file=result_file,
+            default_strategy=default_strategy,
+            default_auto_search=default_auto_search,
+            default_auto_evaluate=default_auto_evaluate,
+            default_auto_survey=default_auto_survey,
+            default_autoreplies=default_autoreplies,
+        )
+    )
+
+
 def autodiscover_dialog_main(
     result_file: str = "",
     default_strategy: str = "bfs",
@@ -938,4 +1028,4 @@ def autodiscover_dialog_main(
         default_autoreplies=(default_autoreplies == "1"),
     )
     app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
-    client_tui_base.run_editor_app(app)
+    app.run()

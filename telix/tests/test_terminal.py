@@ -92,7 +92,6 @@ def test_terminal_dispatcher_exposes_functions():
         "restore_io_blocking",
         "flush_stdin",
         "restore_opost",
-        "pause_before_exit",
         "restore_blocking_fds",
     ):
         assert callable(getattr(terminal, name)), f"terminal.{name} is not callable"

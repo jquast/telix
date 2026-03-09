@@ -7,6 +7,7 @@ import shutil
 from typing import Any, NamedTuple
 
 # 3rd party
+import rich.text
 import textual.app
 import textual.widget
 import textual.widgets
@@ -41,6 +42,8 @@ class HighlightEditPane(client_tui_base.EditListPane):
         + """
     #highlight-form { padding: 0 0 0 4; }
     #highlight-form .form-label { width: 12; }
+    #highlight-style { width: 30; }
+    #highlight-example { width: 1fr; height: 1; }
     """
     )
 
@@ -120,6 +123,8 @@ class HighlightEditPane(client_tui_base.EditListPane):
                         with textual.containers.Horizontal(classes="field-row"):
                             yield textual.widgets.Label("Highlight", classes="form-label-short")
                             yield textual.widgets.Input(placeholder="eg. blink_black_on_yellow", id="highlight-style")
+                            yield textual.widgets.Label("Example:", classes="form-label-short")
+                            yield textual.widgets.Static("", id="highlight-example")
                         with textual.containers.Vertical(id="highlight-capture-fields"):
                             with textual.containers.Vertical(id="highlight-captures-container"):
                                 pass
@@ -233,6 +238,7 @@ class HighlightEditPane(client_tui_base.EditListPane):
         pat_input.value = pattern_val
         pat_input.disabled = builtin
         self.query_one("#highlight-style", textual.widgets.Input).value = highlight_val
+        self.update_example_preview(highlight_val)
         self.query_one("#highlight-enabled", textual.widgets.Switch).value = enabled
         stop_sw = self.query_one("#highlight-stop-movement", textual.widgets.Switch)
         stop_sw.value = stop_movement
@@ -280,6 +286,24 @@ class HighlightEditPane(client_tui_base.EditListPane):
         """Show or hide capture fields when Captured switch changes."""
         cap_fields = self.query_one("#highlight-capture-fields", textual.containers.Vertical)
         cap_fields.display = value
+
+    def update_example_preview(self, highlight_val: str) -> None:
+        """Render a styled preview of *highlight_val* in the Example widget."""
+        preview = self.query_one("#highlight-example", textual.widgets.Static)
+        if not highlight_val:
+            preview.update("")
+            return
+        try:
+            term = client_repl.get_term()
+            ansi_text = getattr(term, highlight_val)("example text") + term.normal
+            preview.update(rich.text.Text.from_ansi(ansi_text))
+        except Exception as exc:
+            preview.update(f"invalid: {exc}")
+
+    def on_input_changed(self, event: textual.widgets.Input.Changed) -> None:
+        """Update the example preview when the highlight style field changes."""
+        if event.input.id == "highlight-style":
+            self.update_example_preview(event.value.strip())
 
     def submit_form(self) -> None:
         pattern_val = self.query_one("#highlight-pattern", textual.widgets.Input).value.strip()

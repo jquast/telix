@@ -228,6 +228,26 @@ class TestHighlightEngineProcessLine:
         result, matched = engine.process_line("\x1b[0m")
         assert matched is False
 
+    def test_anchored_pattern_matches_line_with_trailing_cr(self):
+        """Anchored patterns like ^...$  match lines that end with \\r (telnet CRLF)."""
+        engine = HighlightEngine([make_rule("^Operation controller$", "bold_red")], [], mock_term())
+        result, matched = engine.process_line("Operation controller\r")
+        assert matched is True
+        assert "\x1b[1;31m" in result
+        assert "Operation controller" in result
+
+    def test_anchored_autoreply_pattern_matches_line_with_trailing_cr(self):
+        """Autoreply patterns with $ also highlight despite the trailing \\r on the line."""
+        ar = AutoreplyRule(
+            pattern=re.compile("^Operation controller$", re.MULTILINE | re.DOTALL),
+            reply="kill controller",
+            enabled=True,
+        )
+        engine = HighlightEngine([], [ar], mock_term())
+        result, matched = engine.process_line("Operation controller\r")
+        assert matched is True
+        assert "Operation controller" in result
+
 
 class TestHighlightEngineStopMovement:
     def test_cancels_discover(self):

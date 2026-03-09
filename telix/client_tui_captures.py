@@ -314,6 +314,28 @@ class CapsScreen(textual.screen.Screen[None]):
 ChatViewerScreen = CapsScreen
 
 
+def run_chat_viewer(
+    chat_file: str, session_key: str = "", initial_channel: str = "", capture_file: str = ""
+) -> None:
+    """
+    Launch the Capture Window TUI in the current (worker) thread.
+
+    :param chat_file: Path to the chat JSON file.
+    :param session_key: Session key for the chat viewer.
+    :param initial_channel: Channel to show on open.
+    :param capture_file: Path to the captures JSON temp file.
+    """
+    client_tui_base.log_child_diagnostics()
+    client_tui_base.patch_writer_thread_queue()
+    app = client_tui_base.EditorApp(
+        ChatViewerScreen(  # type: ignore[arg-type]
+            chat_file=chat_file, session_key=session_key, initial_channel=initial_channel, capture_file=capture_file
+        ),
+        session_key=session_key,
+    )
+    app.run(mouse=False)
+
+
 def chat_viewer_main(
     chat_file: str, session_key: str = "", initial_channel: str = "", logfile: str = "", capture_file: str = ""
 ) -> None:

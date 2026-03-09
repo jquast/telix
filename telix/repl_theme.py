@@ -31,6 +31,8 @@ TOKEN_MAP: dict[str, str] = {
     "bar_text_fill": "background",
     "bar_text_empty": "secondary",
     "bar_empty_bg": "surface",
+    "hint_bg": "primary-darken-2",
+    "hint_fg": "foreground",
 }
 
 # Hardcoded fallback palette when theme resolution fails entirely.
@@ -58,6 +60,8 @@ FALLBACK: dict[str, str] = {
     "bar_text_fill": "#101010",
     "bar_text_empty": "#666666",
     "bar_empty_bg": "#2a2a2a",
+    "hint_bg": "#00204a",
+    "hint_fg": "#c0d8ff",
 }
 
 # Cache: theme_name -> palette dict.

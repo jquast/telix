@@ -1,7 +1,7 @@
 Protocols
 ---------
 
-At this time, Telix supports Telnet and Websockets. It will probably soon also support SSH.
+Telix supports Telnet, Websockets, and SSH.
 
 Telnet
 ~~~~~~
@@ -24,7 +24,7 @@ Telix supports the following relevant RFCs:
 Mud
 ~~~
 
-The following are supported:
+The following MUD standards are supported:
 
 * `MTTS`_ -- Mud Terminal Type Standard.  Client capability bitvector
   advertised via TTYPE cycling.
@@ -41,12 +41,6 @@ The following are supported:
 * `EOR`_ -- End of Record.  Marks the end of a prompt so the client
   can distinguish prompts from regular output.
 
-The following are not supported:
-
-* `MSLP`_ -- Mud Server Link Protocol.  Clickable links in MUD output.
-* `MMCP`_ -- Mud Master Chat Protocol.  Peer-to-peer chat between MUD
-  clients.
-
 .. _MTTS: https://tintin.mudhalla.net/protocols/mtts/
 .. _MNES: https://tintin.mudhalla.net/protocols/mnes/
 .. _GMCP: https://tintin.mudhalla.net/protocols/gmcp/
@@ -54,7 +48,5 @@ The following are not supported:
 .. _MSSP: https://tintin.mudhalla.net/protocols/mssp/
 .. _MCCP: https://tintin.mudhalla.net/protocols/mccp/
 .. _EOR: https://tintin.mudhalla.net/protocols/eor/
-.. _MSLP: https://tintin.mudhalla.net/protocols/mslp/
-.. _MMCP: https://tintin.mudhalla.net/protocols/mmcp/
 
 

@@ -7,7 +7,6 @@ editor app infrastructure.  No imports from other ``client_tui_*`` files.
 """
 
 # std imports
-import io
 import os
 import abc
 import sys
@@ -27,7 +26,6 @@ if TYPE_CHECKING:
 
 # 3rd party
 import textual.app
-import rich.console
 import textual.events
 import textual.screen
 import textual.binding
@@ -48,60 +46,6 @@ TERMINAL_CLEANUP = (
     "\x1b[m\x1b[?25h\x1b[r\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[H\x1b[2J"
 )
 
-
-def restore_opost() -> None:
-    r"""
-    Ensure the terminal OPOST flag is set so ``\\n`` maps to ``\\r\\n``.
-
-    Textual puts the terminal in raw mode which disables output post-processing.  If the driver fails to fully restore
-    termios (or we catch an exception before it gets the chance), newlines render as bare LF producing staircase output.
-    """
-    terminal.restore_opost()
-
-
-def write_crash_file(crash_path: str, traceback_text: str, source: str) -> None:
-    """
-    Write crash data to a JSON temp file for the parent process to read.
-
-    :param crash_path: Path to the crash file.
-    :param traceback_text: Formatted traceback text.
-    :param source: Origin of the crash (``"exception"`` or ``"textual_exit"``).
-    """
-    try:
-        with open(crash_path, "w", encoding="utf-8") as fh:
-            json.dump({"traceback": traceback_text, "pid": os.getpid(), "source": source}, fh)
-    except OSError:
-        pass
-
-
-def install_crash_hook(crash_path: str) -> None:
-    """
-    Install ``sys.excepthook`` that writes crash data before delegating.
-
-    :param crash_path: Path to the crash file.
-    """
-    import traceback as tb_mod
-
-    def hook(exc_type, exc_value, exc_tb):  # type: ignore[no-untyped-def]
-        text = "".join(tb_mod.format_exception(exc_type, exc_value, exc_tb))
-        write_crash_file(crash_path, text, "exception")
-        sys.__excepthook__(exc_type, exc_value, exc_tb)
-
-    sys.excepthook = hook
-
-
-def render_exit_renderables(app: "EditorApp") -> str:
-    """
-    Render ``app._exit_renderables`` to a plain string via Rich console.
-
-    :param app: The Textual editor app that has exited.
-    :returns: Rendered text of exit renderables.
-    """
-    buf = io.StringIO()
-    console = rich.console.Console(file=buf, width=120, force_terminal=False)
-    for renderable in app._exit_renderables:
-        console.print(renderable)
-    return buf.getvalue()
 
 
 PRIMARY_PASTE_COMMANDS = (
@@ -1102,17 +1046,7 @@ class SessionListScreen(textual.screen.Screen[None]):
                 proc.wait()
                 _elapsed = time.monotonic() - _t0
                 if proc.returncode:
-                    raise subprocess.CalledProcessError(proc.returncode, cmd)
-                if _elapsed < 4:
-                    # if there was a logfile, hopefully the error is there, otherwise maybe its on the screen.
-                    sys.stdout.write(
-                        f"\r\n\x1b[1;31mProcess exited with code {proc.returncode} "
-                        f"after {_elapsed:2.2f} seconds. Press RETURN\x1b[0m\r\n"
-                    )
-                    if cfg.logfile:
-                        sys.stdout.write(f"Check file for error: {cfg.logfile}")
-                    sys.stdout.flush()
-                    sys.stdin.readline()
+                    os._exit(proc.returncode)
             except KeyboardInterrupt:
                 if proc is not None:
                     proc.terminate()
@@ -1283,56 +1217,54 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
         text-align: right;
         padding-top: 1;
     }
-    #name-row, #host-row {
+    #name-server-row {
+        height: auto;
         margin-bottom: 1;
     }
-    #host {
-        max-width: 33;
-    }
-    #port-label {
-        width: auto;
-        padding-top: 1;
-        padding-left: 2;
-    }
-    #port {
-        max-width: 14;
+    #name {
+        width: 1fr;
     }
     #protocol-radio {
         height: auto;
     }
-    #protocol-row {
+    #proto-details-row {
         height: auto;
         margin-bottom: 1;
     }
     #protocol-col {
+        width: auto;
+        height: auto;
+        padding-right: 2;
+    }
+    #conn-details-col {
         width: 1fr;
         height: auto;
     }
-    #ssl-col {
-        width: 20;
+    #port {
+        width: 9;
+    }
+    #ws-path-row {
         height: auto;
-        padding-left: 2;
+        display: none;
+    }
+    #ws-path-row.visible {
+        display: block;
     }
     #ws-path {
-        width: 14;
-        display: none;
-    }
-    #ws-path.visible {
-        display: block;
-    }
-    #ssh-col {
         width: 1fr;
+    }
+    #ssh-details-row {
         height: auto;
         display: none;
     }
-    #ssh-col.visible {
+    #ssh-details-row.visible {
         display: block;
     }
-    #ssl-compress-row {
+    #compression-row {
         height: auto;
     }
     #server-type-col {
-        width: 1fr;
+        width: 2fr;
         height: auto;
     }
     #server-type-label {
@@ -1343,14 +1275,6 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
     #compression-col {
         width: 22;
         height: auto;
-    }
-    #ssl-label {
-        width: 7;
-        text-align: right;
-        padding-top: 1;
-    }
-    #ssl {
-        margin-left: 1;
     }
     #connect-timeout {
         max-width: 13;
@@ -1412,6 +1336,9 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
         width: 1fr;
         padding-top: 1;
     }
+    #detected-bg-color {
+        padding-top: 1;
+    }
     #bottom-bar {
         height: 3;
         margin-top: 1;
@@ -1449,67 +1376,79 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
 
     def compose_connection_tab(self, cfg: SessionConfig) -> textual.app.ComposeResult:
         """Yield widgets for the Connection tab pane."""
+        is_ssh = cfg.protocol == "ssh"
         if not self.is_defaults:
-            yield textual.containers.Horizontal(
-                textual.widgets.Label("Name", classes="conn-label"),
-                textual.widgets.Input(
-                    value=cfg.name, placeholder="optional display name", id="name", classes="field-input"
-                ),
-                classes="field-row",
-                id="name-row",
-            )
-            yield textual.containers.Horizontal(
-                textual.widgets.Label("Host", classes="conn-label"),
-                textual.widgets.Input(value=cfg.host, placeholder="hostname", id="host", classes="field-input"),
-                textual.widgets.Label("Port", id="port-label"),
-                textual.widgets.Input(
-                    value=str(cfg.port),
-                    placeholder="22" if cfg.protocol == "ssh" else ("443" if cfg.protocol == "websocket" else "23"),
-                    id="port",
-                ),
-                classes="field-row",
-                id="host-row",
-            )
-            with textual.containers.Horizontal(id="protocol-row"):
+            if cfg.protocol == "ssh":
+                proto_id_init = "proto-ssh"
+            elif cfg.protocol == "websocket":
+                proto_id_init = "proto-wss" if cfg.ssl else "proto-ws"
+            else:
+                proto_id_init = "proto-telnets" if cfg.ssl else "proto-telnet"
+            with textual.containers.Horizontal(id="name-server-row"):
+                yield textual.widgets.Label("Name", classes="conn-label")
+                yield textual.widgets.Input(value=cfg.name, placeholder="optional display name", id="name")
+                with textual.containers.Horizontal(id="server-type-col"):
+                    yield textual.widgets.Label("Server Type", id="server-type-label")
+                    with textual.widgets.RadioSet(id="server-type-radio"):
+                        yield textual.widgets.RadioButton("BBS", value=is_ssh or cfg.server_type == "bbs", id="type-bbs")
+                        yield textual.widgets.RadioButton("Mud", value=not is_ssh and cfg.server_type == "mud", id="type-mud")
+            with textual.containers.Horizontal(id="proto-details-row"):
                 with textual.containers.Horizontal(id="protocol-col"):
                     yield textual.widgets.Label("Protocol", classes="conn-label")
                     with textual.widgets.RadioSet(id="protocol-radio"):
-                        yield textual.widgets.RadioButton(
-                            "Telnet", value=cfg.protocol in {"telnet", ""}, id="proto-telnet"
-                        )
-                        yield textual.widgets.RadioButton(
-                            "WebSocket", value=cfg.protocol == "websocket", id="proto-websocket"
-                        )
-                        yield textual.widgets.RadioButton("SSH", value=cfg.protocol == "ssh", id="proto-ssh")
-                yield textual.widgets.Input(
-                    value=cfg.ws_path, placeholder="/ws", id="ws-path", tooltip="WebSocket path appended to URL"
-                )
-                with textual.containers.Vertical(id="ssh-col"):
-                    yield textual.widgets.Input(
-                        value=cfg.ssh_username,
-                        placeholder="username",
-                        id="ssh-username",
-                        tooltip="SSH login username (empty = system login)",
+                        yield textual.widgets.RadioButton("telnet", value=proto_id_init == "proto-telnet", id="proto-telnet")
+                        yield textual.widgets.RadioButton("telnets", value=proto_id_init == "proto-telnets", id="proto-telnets")
+                        yield textual.widgets.RadioButton("ws", value=proto_id_init == "proto-ws", id="proto-ws")
+                        yield textual.widgets.RadioButton("wss", value=proto_id_init == "proto-wss", id="proto-wss")
+                        yield textual.widgets.RadioButton("ssh", value=proto_id_init == "proto-ssh", id="proto-ssh")
+                with textual.containers.Vertical(id="conn-details-col"):
+                    yield textual.containers.Horizontal(
+                        textual.widgets.Label("Host", classes="conn-label"),
+                        textual.widgets.Input(value=cfg.host, placeholder="hostname", id="host", classes="field-input"),
+                        classes="field-row",
                     )
-                    yield textual.widgets.Input(
-                        value=cfg.ssh_key_file,
-                        placeholder="path to private key",
-                        id="ssh-key-file",
-                        tooltip="Path to SSH private key file (empty = password auth)",
+                    yield textual.containers.Horizontal(
+                        textual.widgets.Label("Port", classes="conn-label"),
+                        textual.widgets.Input(
+                            value=str(cfg.port),
+                            placeholder="22" if is_ssh else ("443" if cfg.ssl else ("80" if cfg.protocol == "websocket" else "23")),
+                            id="port",
+                        ),
+                        classes="field-row",
                     )
-                with textual.containers.Horizontal(id="ssl-col"):
-                    yield textual.widgets.Label("SSL/TLS", id="ssl-label")
-                    yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
+                    yield textual.containers.Horizontal(
+                        textual.widgets.Label("Path", classes="conn-label"),
+                        textual.widgets.Input(
+                            value=cfg.ws_path, placeholder="/ws", id="ws-path",
+                            tooltip="WebSocket path appended to URL", classes="field-input",
+                        ),
+                        classes="field-row",
+                        id="ws-path-row",
+                    )
+                    with textual.containers.Vertical(id="ssh-details-row"):
+                        yield textual.containers.Horizontal(
+                            textual.widgets.Label("User", classes="conn-label"),
+                            textual.widgets.Input(
+                                value=cfg.ssh_username, placeholder="username", id="ssh-username",
+                                tooltip="SSH login username (empty = system login)", classes="field-input",
+                            ),
+                            classes="field-row",
+                        )
+                        yield textual.containers.Horizontal(
+                            textual.widgets.Label("Key", classes="conn-label"),
+                            textual.widgets.Input(
+                                value=cfg.ssh_key_file, placeholder="path to private key", id="ssh-key-file",
+                                tooltip="Path to SSH private key file (empty = password auth)", classes="field-input",
+                            ),
+                            classes="field-row",
+                        )
         else:
-            with textual.containers.Horizontal(classes="switch-row"):
-                yield textual.widgets.Label("SSL/TLS", id="ssl-label", classes="field-label")
-                yield textual.widgets.Switch(value=cfg.ssl, id="ssl")
-        with textual.containers.Horizontal(id="ssl-compress-row"):
             with textual.containers.Horizontal(id="server-type-col"):
                 yield textual.widgets.Label("Server Type", id="server-type-label")
                 with textual.widgets.RadioSet(id="server-type-radio"):
                     yield textual.widgets.RadioButton("BBS", value=cfg.server_type == "bbs", id="type-bbs")
                     yield textual.widgets.RadioButton("Mud", value=cfg.server_type == "mud", id="type-mud")
+        with textual.containers.Horizontal(id="compression-row"):
             with textual.containers.Vertical(id="compression-col"):
                 yield textual.widgets.Label("MCCP Compression")
                 with textual.widgets.RadioSet(id="compression-radio"):
@@ -1529,9 +1468,10 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
             with textual.containers.Vertical(id="mode-col"):
                 yield textual.widgets.Label("Terminal Mode")
                 with textual.widgets.RadioSet(id="mode-radio"):
-                    yield textual.widgets.RadioButton("Auto-detect", value=cfg.mode == "auto", id="mode-auto")
-                    yield textual.widgets.RadioButton("Raw mode", value=cfg.mode == "raw", id="mode-raw")
-                    yield textual.widgets.RadioButton("Line mode", value=cfg.mode == "line", id="mode-line")
+                    is_ssh = cfg.protocol == "ssh"
+                    yield textual.widgets.RadioButton("Auto-detect", value=not is_ssh and cfg.mode == "auto", id="mode-auto")
+                    yield textual.widgets.RadioButton("Raw mode", value=is_ssh or cfg.mode == "raw", id="mode-raw")
+                    yield textual.widgets.RadioButton("Line mode", value=not is_ssh and cfg.mode == "line", id="mode-line")
             with textual.containers.Vertical(id="repl-col"), textual.containers.Horizontal(classes="switch-row"):
                 repl_dim = "" if cfg.mode != "raw" else " dimmed"
                 yield textual.widgets.Label("Advanced REPL", id="repl-label", classes=f"field-label{repl_dim}")
@@ -1636,7 +1576,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
             textual.widgets.Label("Connection Timeout", id="conn-timeout-label", classes="field-label"),
             textual.widgets.Input(value=str(cfg.connect_timeout), id="connect-timeout", classes="field-input"),
             textual.widgets.Label("Coverage", id="coverage-label"),
-            textual.widgets.Switch(value=cfg.coverage, id="coverage"),
+            textual.widgets.Switch(value=cfg.coverage, id="coverage", tooltip="Track code coverage (for developers)"),
             classes="field-row",
         )
 
@@ -1679,27 +1619,30 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
             idx = radio_set.pressed_index
             if idx >= 0:
                 radio_set._selected = idx
-        self.apply_ssl_compression(self.config.ssl)
         if not self.is_defaults:
-            self.apply_protocol_visibility(self.config.protocol)
             if self.config.protocol == "ssh":
-                try:
-                    self.query_one("#server-type-radio", textual.widgets.RadioSet).disabled = True
-                except textual.css.query.NoMatches:
-                    pass
+                proto_id = "proto-ssh"
+            elif self.config.protocol == "websocket":
+                proto_id = "proto-wss" if self.config.ssl else "proto-ws"
+            else:
+                proto_id = "proto-telnets" if self.config.ssl else "proto-telnet"
+            self.apply_protocol_visibility(proto_id)
+            if self.config.protocol == "ssh":
+                server_type_radio = self.query_one("#server-type-radio", textual.widgets.RadioSet)
+                self.call_after_refresh(lambda rs=server_type_radio: setattr(rs, "disabled", True))
 
     def on_radio_set_changed(self, event: textual.widgets.RadioSet.Changed) -> None:
         """Handle radio-set changes for server type, protocol, and terminal mode."""
         if event.radio_set.id == "server-type-radio":
             self.apply_server_type(event.pressed.id)  # type: ignore[arg-type]
         elif event.radio_set.id == "protocol-radio":
-            protocol = event.pressed.id.removeprefix("proto-")
-            self.apply_protocol_visibility(protocol)
+            proto_id = event.pressed.id
+            self.apply_protocol_visibility(proto_id)
             server_type_radio = self.query_one("#server-type-radio", textual.widgets.RadioSet)
-            if protocol == "ssh":
+            if proto_id == "proto-ssh":
                 self.apply_server_type("type-bbs")
                 self.select_radio("server-type-radio", "type-bbs")
-                server_type_radio.disabled = True
+                self.call_after_refresh(lambda rs=server_type_radio: setattr(rs, "disabled", True))
             else:
                 server_type_radio.disabled = False
         elif event.radio_set.id == "mode-radio":
@@ -1714,20 +1657,27 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
 
     def select_radio(self, radio_set_id: str, button_id: str) -> None:
         """
-        Select a radio button by setting its value within an enabled RadioSet.
+        Select a radio button by setting only the target button's value to ``True``.
 
-        Temporarily enables the RadioSet so that the RadioButton.Changed message propagates and RadioSet updates its
-        internal pressed state.
+        RadioSet's ``_on_radio_button_changed`` uses ``prevent(RadioButton.Changed)`` when it deselects the
+        previously-pressed button, so only the target must be set to ``True`` -- setting other buttons to ``False``
+        directly causes RadioSet to fight the change and leaves multiple buttons appearing selected.
+
+        If the RadioSet was disabled, it is re-enabled for the value change and re-disabled after the next refresh so
+        that the ``RadioButton.Changed`` event can be processed before the widget is locked again.
         """
         radio_set = self.query_one(f"#{radio_set_id}", textual.widgets.RadioSet)
         was_disabled = radio_set.disabled
         radio_set.disabled = False
         self.query_one(f"#{button_id}", textual.widgets.RadioButton).value = True
-        radio_set.disabled = was_disabled
+        if was_disabled:
+            self.call_after_refresh(lambda rs=radio_set: setattr(rs, "disabled", True))
 
     def apply_server_type(self, button_id: str) -> None:
         """Apply preset field values for BBS or MUD server type."""
-        ssl_on = self.query_one("#ssl", textual.widgets.Switch).value
+        if button_id == "type-none":
+            return
+        ssl_on = self.is_ssl_active()
         if button_id == "type-bbs":
             self.query_one("#colormatch", textual.widgets.Select).value = "vga"
             self.query_one("#ice-colors", textual.widgets.Switch).value = True
@@ -1765,43 +1715,49 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
                 f"MUD: MCCP Compression {compress_label}, Line mode, REPL on, Color Palette none, iCE Colors off"
             )
 
-    def apply_ssl_compression(self, ssl_on: bool) -> None:
-        """
-        Enforce MCCP compression state based on SSL/TLS toggle.
+    def is_ssl_active(self) -> bool:
+        """Return True if the currently-selected protocol implies SSL."""
+        for proto_id in ("proto-telnets", "proto-wss"):
+            try:
+                if self.query_one(f"#{proto_id}", textual.widgets.RadioButton).value:
+                    return True
+            except textual.css.query.NoMatches:
+                pass
+        return False
 
-        When SSL is enabled, MCCP is forced to "No" and the radio set is disabled.  When SSL is turned off, MCCP is
-        restored to "Passive" (if it was "No") and the radio set is re-enabled.
-        """
-        radio_set = self.query_one("#compression-radio", textual.widgets.RadioSet)
-        if ssl_on:
+    def apply_protocol_visibility(self, proto_id: str) -> None:
+        """Toggle visibility of protocol-specific widgets based on selected protocol radio button id."""
+        is_ws = proto_id in ("proto-ws", "proto-wss")
+        is_ssh = proto_id == "proto-ssh"
+        is_ssl = proto_id in ("proto-telnets", "proto-wss")
+        self.query_one("#ws-path-row").set_class(is_ws, "visible")
+        self.query_one("#ssh-details-row").set_class(is_ssh, "visible")
+        self.query_one("#compression-row").display = not is_ssh
+        self.query_one("#mode-radio", textual.widgets.RadioSet).disabled = is_ssh
+        compression_radio = self.query_one("#compression-radio", textual.widgets.RadioSet)
+        if is_ssl:
             self.select_radio("compression-radio", "compress-no")
-            radio_set.disabled = True
+            self.call_after_refresh(lambda rs=compression_radio: setattr(rs, "disabled", True))
         else:
-            radio_set.disabled = False
+            compression_radio.disabled = False
             if self.query_one("#compress-no", textual.widgets.RadioButton).value:
                 self.select_radio("compression-radio", "compress-passive")
-
-    def apply_protocol_visibility(self, protocol: str) -> None:
-        """Toggle visibility of protocol-specific widgets."""
-        is_ws = protocol == "websocket"
-        is_ssh = protocol == "ssh"
-        self.query_one("#ws-path").set_class(is_ws, "visible")
-        self.query_one("#ssh-col").set_class(is_ssh, "visible")
-        self.query_one("#ssl-col").display = not is_ssh
         port_input = self.query_one("#port", textual.widgets.Input)
+        port_val = int_val(port_input.value, 0)
         if is_ssh:
             port_input.placeholder = "22"
+            if port_val in (23, 80, 443):
+                port_input.value = "22"
         elif is_ws:
-            port_input.placeholder = "443"
+            port_input.placeholder = "443" if is_ssl else "80"
+            if is_ssl and port_val in (23, 22, 80):
+                port_input.value = "443"
+            elif not is_ssl and port_val in (23, 22, 443):
+                port_input.value = "80"
         else:
             port_input.placeholder = "23"
-        port_val = int_val(port_input.value, 0)
-        if is_ssh and port_val == 23:
-            port_input.value = "22"
-        elif is_ws and port_val in (23, 22):
-            port_input.value = "443"
-        elif not is_ssh and not is_ws and port_val in (443, 80, 22):
-            port_input.value = "23"
+            if port_val in (22, 80, 443):
+                port_input.value = "23"
 
     def on_select_changed(self, event: textual.widgets.Select.Changed) -> None:
         """React to Select widget changes."""
@@ -1821,10 +1777,8 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
             self.update_palette_preview()
 
     def on_switch_changed(self, event: textual.widgets.Switch.Changed) -> None:
-        """Handle switch changes for SSL, palette, and other toggles."""
-        if event.switch.id == "ssl":
-            self.apply_ssl_compression(event.value)
-        elif event.switch.id in ("ice-colors", "force-black-bg"):
+        """Handle switch changes for palette and other toggles."""
+        if event.switch.id in ("ice-colors", "force-black-bg"):
             self.update_palette_preview()
 
     def update_palette_preview(self) -> None:
@@ -1960,16 +1914,25 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
             cfg.ws_path = self.query_one("#ws-path", textual.widgets.Input).value.strip()
             cfg.ssh_username = self.query_one("#ssh-username", textual.widgets.Input).value.strip()
             cfg.ssh_key_file = self.query_one("#ssh-key-file", textual.widgets.Input).value.strip()
-            if self.query_one("#proto-websocket", textual.widgets.RadioButton).value:
-                cfg.protocol = "websocket"
-            elif self.query_one("#proto-ssh", textual.widgets.RadioButton).value:
-                cfg.protocol = "ssh"
+            proto_map = {
+                "proto-telnet": ("telnet", False),
+                "proto-telnets": ("telnet", True),
+                "proto-ws": ("websocket", False),
+                "proto-wss": ("websocket", True),
+                "proto-ssh": ("ssh", False),
+            }
+            for btn_id, (protocol, ssl) in proto_map.items():
+                if self.query_one(f"#{btn_id}", textual.widgets.RadioButton).value:
+                    cfg.protocol = protocol
+                    cfg.ssl = ssl
+                    break
             else:
                 cfg.protocol = "telnet"
+                cfg.ssl = False
         else:
             cfg.name = DEFAULTS_KEY
+            cfg.ssl = False
 
-        cfg.ssl = self.query_one("#ssl", textual.widgets.Switch).value
         cfg.ssl_no_verify = False
 
         cfg.last_connected = self.config.last_connected
@@ -2589,24 +2552,6 @@ class EditorApp(textual.app.App[None]):
         self.editor_screen = screen
         self.session_key = session_key
 
-    def print_error_renderables(self) -> None:
-        r"""
-        Print error tracebacks to stdout after alt screen exit.
-
-        Textual's default writes to ``error_console`` (stderr).  In the
-        telix subprocess stderr may not translate ``\\n`` to ``\\r\\n``
-        correctly, producing staircase output.  Writing to a fresh
-        stdout-based Rich console avoids the issue.
-        """
-        if not self._exit_renderables:
-            return
-        from rich.console import Console
-
-        console = Console(file=sys.stdout, markup=False, highlight=False)
-        for renderable in self._exit_renderables:
-            console.print(renderable)
-        self._exit_renderables.clear()
-
     def on_mouse_down(self, event: textual.events.MouseDown) -> None:
         """Paste X11 primary selection on middle-click."""
         if event.button != 2:
@@ -2664,12 +2609,8 @@ def patch_writer_thread_queue() -> None:
     to 0 (unbounded) before the ``WriterThread`` is instantiated
     prevents the deadlock.
     """
-    try:
-        import textual.drivers.writer_thread as wt
-
-        wt.MAX_QUEUED_WRITES = 0
-    except (ImportError, AttributeError):
-        pass
+    import textual.drivers._writer_thread as wt
+    wt.MAX_QUEUED_WRITES = 0
 
 
 def restore_blocking_fds(logfile: str = "") -> None:
@@ -2709,60 +2650,26 @@ def log_child_diagnostics() -> None:
     os.environ["TEXTUAL_DEBUG"] = "1"
 
 
-def run_editor_app(app: EditorApp) -> None:
-    """
-    Run a Textual editor app, writing crash data to a file when available.
-
-    When ``TELIX_CRASH_FILE`` is set the child writes crash data to that path and lets the parent
-    handle display.  When unset (standalone execution) it falls back to terminal cleanup and an
-    interactive pause.
-    """
-    crash_path = os.environ.get("TELIX_CRASH_FILE", "")
-    try:
-        app.run()
-    except BaseException:
-        import traceback as tb_mod
-
-        if crash_path:
-            write_crash_file(crash_path, tb_mod.format_exc(), "exception")
-            raise
-        sys.stdout.write(TERMINAL_CLEANUP)
-        sys.stdout.flush()
-        restore_opost()
-        tb_mod.print_exc()
-        pause_before_exit()
-        raise
-    if app.return_code and app.return_code != 0:
-        if crash_path:
-            text = render_exit_renderables(app)
-            if not text.strip() and hasattr(app, "_exception") and app._exception:
-                import traceback as tb_mod2
-
-                text = "".join(
-                    tb_mod2.format_exception(type(app._exception), app._exception, app._exception.__traceback__)
-                )
-            write_crash_file(crash_path, text, "textual_exit")
-            sys.exit(app.return_code)
-        sys.stdout.write(TERMINAL_CLEANUP)
-        sys.stdout.flush()
-        restore_opost()
-        app.print_error_renderables()
-        pause_before_exit()
-        sys.exit(app.return_code)
-
-
-def pause_before_exit() -> None:
-    """Prompt user to press RETURN so they can read error output."""
-    terminal.pause_before_exit()
-
-
 def launch_editor(screen: textual.screen.Screen[typing.Any], session_key: str = "", logfile: str = "") -> None:
     """Common bootstrap for standalone editor entry points."""
     restore_blocking_fds(logfile)
     log_child_diagnostics()
     patch_writer_thread_queue()
-    crash_path = os.environ.get("TELIX_CRASH_FILE", "")
-    if crash_path:
-        install_crash_hook(crash_path)
-    app = EditorApp(screen, session_key=session_key)
-    run_editor_app(app)
+    EditorApp(screen, session_key=session_key).run()
+
+
+def launch_editor_in_thread(screen: textual.screen.Screen[typing.Any], session_key: str = "") -> None:
+    """
+    Bootstrap for editor launch from an in-process worker thread.
+
+    The calling thread's :func:`~telix.terminal_unix.blocking_fds` context manager already
+    ensures blocking FDs, so :func:`restore_blocking_fds` is not called here.  Exceptions
+    propagate naturally to the thread wrapper in the REPL; crash-hook installation is omitted.
+    On non-zero exit the return code is logged instead of calling :func:`sys.exit`.
+
+    :param screen: Textual screen to wrap in an :class:`EditorApp`.
+    :param session_key: Session key forwarded to :class:`EditorApp`.
+    """
+    log_child_diagnostics()
+    patch_writer_thread_queue()
+    EditorApp(screen, session_key=session_key).run()

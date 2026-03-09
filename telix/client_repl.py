@@ -33,28 +33,21 @@ from .session_context import CommandQueue
 from .client_repl_render import (  # noqa: F401
     FLASH,
     CURSOR,
-    PHASES,
     DISPLAY,
     SEXTANT,
-    ACTIVITY,
-    SEXTANT_BITS,
     STYLE_NORMAL,
     SEXTANT_VISIBLE,
     STYLE_AUTOREPLY,
     CursorSeq,
-    Stoplight,
-    ActivityDot,
     FlashTiming,
     ToolbarSlot,
     DisplayChars,
-    ActivityTiming,
     ToolbarRenderer,
     sgr_bg,
     sgr_fg,
     dmz_line,
     idle_rgb,
     lerp_hsv,
-    lerp_rgb,
     wcswidth,
     fmt_value,
     segmented,
@@ -143,7 +136,7 @@ def load_history(history: "blessed.line_editor.LineHistory", path: str) -> None:
                 line = raw.rstrip("\n")
                 if line:
                     history.entries.append(line)
-    except OSError:
+    except FileNotFoundError:
         pass
 
 
@@ -583,13 +576,15 @@ async def run_repl_tasks(server_coro: "typing.Any", input_coro: "typing.Any") ->
     """Run server and input coroutines; cancel the other when one finishes."""
     server_task = asyncio.ensure_future(server_coro)
     input_task = asyncio.ensure_future(input_coro)
-    _, pending = await asyncio.wait([server_task, input_task], return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait([server_task, input_task], return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
+    for task in done:
+        task.result()
 
 
 class KeyDispatch:
@@ -779,7 +774,6 @@ class ReplSession:
         self.replay_buf: OutputRingBuffer = None  # type: ignore[assignment]
         self.history: blessed.line_editor.LineHistory = None  # type: ignore[assignment]
         self.editor: blessed.line_editor.LineEditor = None  # type: ignore[assignment]
-        self.stoplight: Stoplight = None  # type: ignore[assignment]
         self.toolbar: ToolbarRenderer = None  # type: ignore[assignment]
         self.dispatch: KeyDispatch = None  # type: ignore[assignment]
         self.macro_defs: list[Macro] | None = None
@@ -820,12 +814,7 @@ class ReplSession:
         )
 
     def init_ui(self) -> None:
-        """Create stoplight, toolbar, key dispatch, macros."""
-        self.stoplight = Stoplight.create()
-        self.ctx.tx_dot = self.stoplight.tx
-        self.ctx.cx_dot = self.stoplight.cx
-        self.ctx.rx_dot = self.stoplight.rx
-
+        """Create key dispatch, macros."""
         self.dispatch = KeyDispatch()
         self.macro_defs = self.ctx.macro_defs
         if self.macro_defs:
@@ -947,7 +936,13 @@ class ReplSession:
         hl_rules = self.ctx.highlight_rules or []
         ar_rules = self.ctx.autoreply_rules or []
         prev_enabled = self.ctx.highlight_engine.enabled if self.ctx.highlight_engine is not None else True
-        self.ctx.highlight_engine = HighlightEngine(hl_rules, ar_rules, self.blessed_term, self.ctx)
+        builtin_rule = next((r for r in hl_rules if r.builtin), None)
+        ar_highlight = builtin_rule.highlight if builtin_rule else highlighter.DEFAULT_AUTOREPLY_HIGHLIGHT
+        ar_enabled = builtin_rule.enabled if builtin_rule is not None else True
+        self.ctx.highlight_engine = HighlightEngine(
+            hl_rules, ar_rules, self.blessed_term, self.ctx,
+            autoreply_highlight=ar_highlight, autoreply_enabled=ar_enabled,
+        )
         self.ctx.highlight_engine.enabled = prev_enabled
 
     def cancel_line_hold_timer(self) -> None:
@@ -979,7 +974,7 @@ class ReplSession:
         self.update_input_style()
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
         cursor_col = self.editor_cursor()
-        self.show_cursor_or_light(self.scroll.input_row, cursor_col)
+        self.show_cursor(self.scroll.input_row, cursor_col)
 
     def repaint_after_toggle(self) -> None:
         """Repaint toolbar and input line after a toggle key."""
@@ -987,11 +982,11 @@ class ReplSession:
             return
         bt = self.blessed_term
         self.update_input_style()
-        self.toolbar.hide_cursor()
+        self.stdout.write(bt.hide_cursor.encode())
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
         self.toolbar.render(self.autoreply_engine)
         cursor_col = self.editor_cursor()
-        self.show_cursor_or_light(self.scroll.input_row, cursor_col)
+        self.show_cursor(self.scroll.input_row, cursor_col)
 
     def toggle_highlights(self) -> None:
         """Toggle the highlight engine on/off."""
@@ -1027,11 +1022,11 @@ class ReplSession:
             return
         bt = self.blessed_term
         self.update_input_style()
-        self.toolbar.hide_cursor()
+        self.stdout.write(bt.hide_cursor.encode())
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
         self.toolbar.render(self.autoreply_engine)
         cursor_col = self.editor_cursor()
-        self.show_cursor_or_light(self.scroll.input_row, cursor_col)
+        self.show_cursor(self.scroll.input_row, cursor_col)
 
     def discover_mode(self) -> None:
         """Launch or cancel autodiscover mode."""
@@ -1198,28 +1193,17 @@ class ReplSession:
         if prog is not None:
             self.toolbar.schedule_until_progress(self.loop, self.autoreply_engine, self.editor, bt)
 
-    def show_cursor_or_light(self, row: int, col: int) -> None:
-        """
-        Show cursor or draw modem-light glyph at the edit position.
-
-        If the stoplight is animating, draw the sextant character at
-        ``(row, col)`` and keep the terminal cursor hidden.  Otherwise
-        set the cursor color and schedule the terminal cursor to show
-        after a short debounce delay.
-        Also draws a right-aligned cancel hint when applicable.
-        """
+    def show_cursor(self, row: int, col: int) -> None:
+        """Position cursor at the edit position and make it visible."""
         bt = self.blessed_term
         ar = self.is_autoreply_bg
         self.render_input_hint(row)
-        drew = self.toolbar.cursor_light(bt, row, col, ar)
-        if not drew:
-            style = STYLE_AUTOREPLY if ar else STYLE_NORMAL
-            osc = cursor_ar_osc() if ar else cursor_osc()
-            self.stdout.write(bt.move_yx(row, col).encode())
-            self.stdout.write(osc.encode())
-            self.stdout.write(style["cursor_sgr"].encode())
-            self.toolbar.schedule_cursor_show(self.loop)
-            self.stdout.write(bt.normal.encode())
+        if self.toolbar.flash_active:
+            return
+        osc = cursor_ar_osc() if ar else cursor_osc()
+        self.stdout.write(bt.move_yx(row, col).encode())
+        self.stdout.write(osc.encode())
+        self.stdout.write(bt.normal_cursor.encode())
 
     def rearm_after_subprocess(self) -> None:
         """
@@ -1241,6 +1225,7 @@ class ReplSession:
             self.last_resize_size[:] = [tsize.lines, tsize.columns]
         except OSError:
             pass
+        get_term()._preferred_size_cache = None
         if self.tty_shell._resize_pending.is_set():
             self.tty_shell._resize_pending.clear()
         sys.stdout.write("\x1b[?2048h")
@@ -1254,7 +1239,7 @@ class ReplSession:
         bt = get_term()
         sr = self.scroll
         reserve = sr.reserve if sr is not None else RESERVE_WITH_TOOLBAR
-        self.toolbar.hide_cursor()
+        self.stdout.write(bt.hide_cursor.encode())
         self.stdout.write((bt.clear + bt.home + bt.move_yx(0, 0)).encode())
         data = self.replay_buf.replay()
         if data:
@@ -1269,12 +1254,10 @@ class ReplSession:
             if dmz < sr.input_row:
                 self.stdout.write((bt.move_yx(dmz, 0) + dmz_line(cols, ar_bg)).encode())
         cs = self.ctx.cursor_style or CURSOR.DEFAULT_STYLE
-        style = STYLE_AUTOREPLY if ar_bg else STYLE_NORMAL
         osc = cursor_ar_osc() if ar_bg else cursor_osc()
         self.stdout.write(CURSOR.STYLES.get(cs, CURSOR.STEADY_BLOCK).encode())
         self.stdout.write(osc.encode())
-        self.stdout.write(style["cursor_sgr"].encode())
-        self.toolbar.schedule_cursor_show(self.loop)
+        self.stdout.write(bt.normal_cursor.encode())
 
     def _repaint(self) -> None:
         """Full screen repaint including toolbar and input line."""
@@ -1285,7 +1268,7 @@ class ReplSession:
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
         self.toolbar.render(self.autoreply_engine)
         cursor_col = self.editor_cursor()
-        self.show_cursor_or_light(self.scroll.input_row, cursor_col)
+        self.show_cursor(self.scroll.input_row, cursor_col)
 
     def fire_resize(self) -> None:
         """Handle resize: update scroll region, NAWS, re-render UI."""
@@ -1298,12 +1281,12 @@ class ReplSession:
             self.telnet_writer._send_naws()
         elif hasattr(self.telnet_writer, "change_terminal_size"):
             self.telnet_writer.change_terminal_size(new_cols, new_rows)
-        self.toolbar.hide_cursor()
+        self.stdout.write(bt.hide_cursor.encode())
         self.update_input_style()
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
         self.toolbar.render(self.autoreply_engine)
         cursor_col = self.editor_cursor()
-        self.show_cursor_or_light(self.scroll.input_row, cursor_col)
+        self.show_cursor(self.scroll.input_row, cursor_col)
 
     def register_callbacks(self) -> None:
         """Wire up IAC callbacks, hotkeys, and context hooks."""
@@ -1373,7 +1356,6 @@ class ReplSession:
         scroll = self.scroll
         bt = self.blessed_term
         esc_hold = b""
-        rx_dot = self.stoplight.rx
         while not self.server_done:
             out = await self.telnet_reader.read(2**24)
             if not out:
@@ -1419,7 +1401,6 @@ class ReplSession:
                         self.autoreply_engine.on_prompt()
                     self.update_input_style()
                 continue
-            rx_dot.trigger()
             if isinstance(out, bytes):
                 out = out.decode("utf-8", errors="replace")
             cf = self.ctx.color_filter
@@ -1451,7 +1432,7 @@ class ReplSession:
                 continue
             if emit_now and not held_back:
                 self.cancel_line_hold_timer()
-            self.toolbar.hide_cursor()
+            self.stdout.write(bt.hide_cursor.encode())
             self.stdout.write(bt.restore.encode())
             if self.dialogs_mod.subprocess_buffer:
                 for chunk in self.dialogs_mod.subprocess_buffer:
@@ -1511,7 +1492,7 @@ class ReplSession:
             if needs_reflash and not self.toolbar.flash_active:
                 self.toolbar.flash_active = True
                 self.toolbar.schedule_flash(self.loop, self.autoreply_engine, self.editor, bt)
-            self.show_cursor_or_light(scroll.input_row, cursor_col)
+            self.show_cursor(scroll.input_row, cursor_col)
             if self.telnet_writer.mode != "local":
                 self.mode_switched = True
                 self.server_done = True
@@ -1522,7 +1503,6 @@ class ReplSession:
         assert self.scroll is not None
         scroll = self.scroll
         bt = self.blessed_term
-        tx_dot = self.stoplight.tx
         self.update_input_style()
         self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
         chained_task_ref: list[asyncio.Task[None] | None] = [None]
@@ -1558,25 +1538,29 @@ class ReplSession:
                     result = action()
                     if asyncio.iscoroutine(result):
                         await result
+                    needs_repaint = subprocess_needs_rearm
                     self.rearm_after_subprocess()
-                    self.toolbar.hide_cursor()
-                    if self.mslp_index is not None:
-                        cmd = self.ctx.mslp_collector.available[self.mslp_index].command
-                        cursor_col = render_active_command(
-                            cmd,
-                            scroll,
-                            self.stdout,
-                            hint=self.hint_text(),
-                            progress=until_progress(self.autoreply_engine),
-                            base_bg_sgr=self.bg_sgr,
-                            autoreply=self.is_autoreply_bg,
-                        )
+                    if needs_repaint:
+                        self._repaint()
                     else:
-                        self.update_input_style()
-                        self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
-                        cursor_col = self.editor_cursor()
-                    self.toolbar.render(self.autoreply_engine)
-                    self.show_cursor_or_light(scroll.input_row, cursor_col)
+                        self.stdout.write(bt.hide_cursor.encode())
+                        if self.mslp_index is not None:
+                            cmd = self.ctx.mslp_collector.available[self.mslp_index].command
+                            cursor_col = render_active_command(
+                                cmd,
+                                scroll,
+                                self.stdout,
+                                hint=self.hint_text(),
+                                progress=until_progress(self.autoreply_engine),
+                                base_bg_sgr=self.bg_sgr,
+                                autoreply=self.is_autoreply_bg,
+                            )
+                        else:
+                            self.update_input_style()
+                            self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
+                            cursor_col = self.editor_cursor()
+                        self.toolbar.render(self.autoreply_engine)
+                        self.show_cursor(scroll.input_row, cursor_col)
                     continue
 
                 if self.mslp_index is not None:
@@ -1588,16 +1572,15 @@ class ReplSession:
                         self.stdout.write(colored.encode())
                         self.replay_buf.append(colored.encode())
                         self.stdout.write(bt.save.encode())
-                        tx_dot.trigger()
                         self.telnet_writer.write(cmd + "\r\n")  # type: ignore[arg-type]
                         if self.ga_detected:
                             self.prompt_ready.clear()
-                        self.toolbar.hide_cursor()
+                        self.stdout.write(bt.hide_cursor.encode())
                         self.update_input_style()
                         self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
                         self.toolbar.render(self.autoreply_engine)
                         cursor_col = self.editor_cursor()
-                        self.show_cursor_or_light(scroll.input_row, cursor_col)
+                        self.show_cursor(scroll.input_row, cursor_col)
                         continue
                     self.mslp_index = None
 
@@ -1609,11 +1592,11 @@ class ReplSession:
                     return
 
                 if result.interrupt:
-                    self.toolbar.hide_cursor()
+                    self.stdout.write(bt.hide_cursor.encode())
                     self.update_input_style()
                     self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
                     cursor_col = self.editor_cursor()
-                    self.show_cursor_or_light(scroll.input_row, cursor_col)
+                    self.show_cursor(scroll.input_row, cursor_col)
                     continue
 
                 if result.line is not None:
@@ -1621,12 +1604,12 @@ class ReplSession:
 
                     if hasattr(self.telnet_writer, "pending_auth") and self.telnet_writer.pending_auth:
                         self.telnet_writer.auth_response_queue.put_nowait(line)  # type: ignore[attr-defined]
-                        self.toolbar.hide_cursor()
+                        self.stdout.write(bt.hide_cursor.encode())
                         self.update_input_style()
                         self.stdout.write(self.render_editor(bt, scroll.input_row, self.input_width()).encode())
                         self.toolbar.render(self.autoreply_engine)
                         cursor_col = self.editor_cursor()
-                        self.show_cursor_or_light(scroll.input_row, cursor_col)
+                        self.show_cursor(scroll.input_row, cursor_col)
                         continue
 
                     cq = self.ctx.command_queue
@@ -1677,7 +1660,6 @@ class ReplSession:
                         self.ctx.travel_task = None
 
                     if self.telnet_writer.will_echo:
-                        tx_dot.trigger()
                         self.telnet_writer.write(line + "\r\n")  # type: ignore[arg-type]
                         if self.ga_detected:
                             self.prompt_ready.clear()
@@ -1702,7 +1684,6 @@ class ReplSession:
                         elif parts and TRAVEL_RE.match(parts[0]):
                             remainder = await handle_travel_commands(parts, self.ctx, self.telnet_writer.log)
                             if remainder:
-                                tx_dot.trigger()
                                 self.telnet_writer.write(
                                     remainder[0] + "\r\n"  # type: ignore[arg-type]
                                 )
@@ -1711,18 +1692,16 @@ class ReplSession:
                                 if len(remainder) > 1:
                                     self.submit_command_queue(remainder, chained_task_ref)
                         elif parts:
-                            tx_dot.trigger()
                             self.telnet_writer.write(parts[0] + "\r\n")  # type: ignore[arg-type]
                             if self.ga_detected:
                                 self.prompt_ready.clear()
                             if len(parts) > 1:
                                 self.submit_command_queue(parts, chained_task_ref, immediate_set=imm)
                         else:
-                            tx_dot.trigger()
                             self.telnet_writer.write("\r\n")  # type: ignore[arg-type]
 
                 if result.changed:
-                    self.toolbar.hide_cursor()
+                    self.stdout.write(bt.hide_cursor.encode())
                     cq2 = self.ctx.command_queue
                     if cq2 is not None:
                         ac_elapsed2 = time.monotonic() - self.ctx.active_command_time
@@ -1744,17 +1723,14 @@ class ReplSession:
                     if needs_reflash and not self.toolbar.flash_active:
                         self.toolbar.flash_active = True
                         self.toolbar.schedule_flash(self.loop, self.autoreply_engine, self.editor, bt)
-                    self.show_cursor_or_light(scroll.input_row, cursor_col)
+                    self.show_cursor(scroll.input_row, cursor_col)
 
     def cleanup(self) -> None:
         """Cancel autoreply engine, restore cursor, clear kludge DMZ."""
         if self.autoreply_engine is not None:
             self.autoreply_engine.cancel()
         self.ctx.close()
-        if self.toolbar.cursor_show_handle is not None:
-            self.toolbar.cursor_show_handle.cancel()
-            self.toolbar.cursor_show_handle = None
-        self.toolbar.cursor_hidden = False
+        self.stdout.write(get_term().normal_cursor.encode())
         self.stdout.write(CURSOR.DEFAULT.encode())
         self.stdout.write(CURSOR.COLOR_RESET_OSC.encode())
         if self.mode_switched:
@@ -1787,7 +1763,7 @@ class ReplSession:
             self.scroll = scroll
             self.blessed_term = get_term()
             self.toolbar = ToolbarRenderer(
-                ctx=self.ctx, scroll=scroll, out=self.stdout, stoplight=self.stoplight, rprompt_text=self.conn_info
+                ctx=self.ctx, scroll=scroll, out=self.stdout, rprompt_text=self.conn_info
             )
 
             if self.banner_lines:

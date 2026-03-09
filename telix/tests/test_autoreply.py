@@ -325,8 +325,6 @@ def mock_writer():
     ctx = types.SimpleNamespace(
         writer=writer,
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1036,8 +1034,6 @@ def mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
     ctx = types.SimpleNamespace(
         writer=writer,
         log=logging.getLogger("test"),
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1375,8 +1371,6 @@ async def test_autoreply_engine_stamps_last_fired():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1528,8 +1522,6 @@ def test_status_text_initially_empty():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1544,8 +1536,6 @@ async def test_status_text_during_until():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1567,8 +1557,6 @@ async def test_status_text_during_delay():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1590,8 +1578,6 @@ async def test_status_text_cleared_on_cancel():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1611,8 +1597,6 @@ async def test_until_progress_tracks_elapsed():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1638,8 +1622,6 @@ async def test_until_progress_cleared_on_timeout():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=lambda s: None),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,
@@ -1661,8 +1643,6 @@ async def test_status_text_masks_send_when_will_echo():
     ctx = types.SimpleNamespace(
         writer=types.SimpleNamespace(write=sent.append, will_echo=True),
         gmcp_data={},
-        cx_dot=None,
-        tx_dot=None,
         active_command=None,
         active_command_time=0.0,
         randomwalk_active=False,

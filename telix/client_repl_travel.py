@@ -276,10 +276,6 @@ async def fast_travel(
 
                 ctx.active_command = direction
                 ctx.active_command_time = time.monotonic()
-                if ctx.cx_dot is not None:
-                    ctx.cx_dot.trigger()
-                if ctx.tx_dot is not None:
-                    ctx.tx_dot.trigger()
                 ctx.writer.write(direction + "\r\n")
 
                 if wait_fn is not None:
@@ -555,10 +551,6 @@ async def autodiscover(
             ctx.active_command = direction
             ctx.active_command_time = time.monotonic()
             send = ctx.send_line
-            if ctx.cx_dot is not None:
-                ctx.cx_dot.trigger()
-            if ctx.tx_dot is not None:
-                ctx.tx_dot.trigger()
             if send is not None:
                 send(direction)
             elif isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
@@ -625,8 +617,6 @@ async def autodiscover(
                     echo_fn("search")
                 ctx.active_command = "search"
                 ctx.active_command_time = time.monotonic()
-                if ctx.tx_dot is not None:
-                    ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("search\r\n")
                 else:
@@ -640,8 +630,6 @@ async def autodiscover(
                     echo_fn("survey")
                 ctx.active_command = "survey"
                 ctx.active_command_time = time.monotonic()
-                if ctx.tx_dot is not None:
-                    ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("survey\r\n")
                 else:
@@ -835,10 +823,6 @@ async def randomwalk(
             ctx.active_command_time = time.monotonic()
             if wait_fn is not None:
                 await wait_fn()
-            if ctx.cx_dot is not None:
-                ctx.cx_dot.trigger()
-            if ctx.tx_dot is not None:
-                ctx.tx_dot.trigger()
             if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                 ctx.writer.write(direction + "\r\n")
             else:
@@ -906,8 +890,6 @@ async def randomwalk(
                     echo_fn("search")
                 ctx.active_command = "search"
                 ctx.active_command_time = time.monotonic()
-                if ctx.tx_dot is not None:
-                    ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("search\r\n")
                 else:
@@ -921,8 +903,6 @@ async def randomwalk(
                     echo_fn("survey")
                 ctx.active_command = "survey"
                 ctx.active_command_time = time.monotonic()
-                if ctx.tx_dot is not None:
-                    ctx.tx_dot.trigger()
                 if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
                     ctx.writer.write("survey\r\n")
                 else:

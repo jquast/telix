@@ -990,10 +990,6 @@ class AutoreplyEngine:
         else:
             self.ctx.active_command = cmd
         self.ctx.active_command_time = time.monotonic()
-        if self.ctx.cx_dot is not None:
-            self.ctx.cx_dot.trigger()
-        if self.ctx.tx_dot is not None:
-            self.ctx.tx_dot.trigger()
         assert self.ctx.writer is not None
         self.ctx.writer.write(cmd + "\r\n")
 

@@ -46,6 +46,7 @@ html_theme_options = {
     "description": "A modern telnet client for BBSs and MUDs",
     "github_user": "jquast",
     "github_repo": "telix",
+    "github_type": "star",
     "fixed_sidebar": True,
 }
 

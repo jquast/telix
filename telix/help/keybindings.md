@@ -1,23 +1,23 @@
 ## Keybindings
 
 All default key bindings are builtin macros and can be rebound in the
-macro editor (Alt+M).
+macro editor (Alt + M).
 
 ### Session Keys
 
 | Key | Action |
 |-----|--------|
 | **F1** | This help screen |
-| **Alt+H** | Edit highlights (TUI editor) |
-| **Alt+Shift+H** | Toggle highlights on/off |
-| **Alt+M** | Edit macros (TUI editor) |
-| **Alt+A** | Edit autoreplies (TUI editor) |
-| **Alt+Shift+A** | Toggle autoreplies on/off |
-| **Alt+C** | Chat viewer / captures |
-| **Alt+B** | Edit progress bars (TUI editor) |
-| **Alt+T** | Edit theme |
-| **Ctrl+L** | Repaint screen |
-| **Ctrl+]** | Disconnect |
+| **Alt + H** | Edit highlights (TUI editor) |
+| **Alt + Shift + H** | Toggle highlights on/off |
+| **Alt + M** | Edit macros (TUI editor) |
+| **Alt + A** | Edit autoreplies (TUI editor) |
+| **Alt + Shift + A** | Toggle autoreplies on/off |
+| **Alt + C** | Chat viewer / captures |
+| **Alt + B** | Edit progress bars (TUI editor) |
+| **Alt + T** | Edit theme |
+| **Ctrl + L** | Repaint screen |
+| **Ctrl + ]** | Disconnect |
 
 ### GMCP Keys (available when server supports GMCP)
 
@@ -26,26 +26,24 @@ macro editor (Alt+M).
 | **F3** | Random walk (explore random exits) |
 | **F4** | Autodiscover (explore unvisited exits) |
 | **F5** | Resume last walk |
-| **Alt+R** | Browse rooms / travel |
+| **Alt + R** | Browse rooms / travel |
 
 ### Line Editing
 
 | Key | Action |
 |-----|--------|
 | **Left** / **Right** | Move cursor |
-| **Home** / **Ctrl+A** | Beginning of line |
-| **End** / **Ctrl+E** | End of line |
-| **Ctrl+Left** | Move word left |
-| **Ctrl+Right** | Move word right |
+| **Home** / **Ctrl + A** | Beginning of line |
+| **End** / **Ctrl + E** | End of line |
+| **Ctrl + Left** | Move word left |
+| **Ctrl + Right** | Move word right |
 | **Backspace** | Delete before cursor |
 | **Delete** | Delete at cursor |
-| **Ctrl+K** | Kill to end of line |
-| **Ctrl+U** | Kill entire line |
-| **Ctrl+W** | Kill word back |
-| **Ctrl+Y** | Yank (paste killed text) |
-| **Ctrl+C** | Copy input line to clipboard |
-| **Ctrl+V** | Paste from clipboard |
-| **Ctrl+Z** | Undo |
+| **Ctrl + K** | Kill to end of line |
+| **Ctrl + U** | Kill entire line |
+| **Ctrl + W** | Kill word back |
+| **Ctrl + Y** | Yank (paste killed text) |
+| **Ctrl + Z** | Undo |
 | **Up** / **Down** | History navigation |
 
 ### Command Processing

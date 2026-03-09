@@ -186,7 +186,7 @@ def build_session_key(
             args = telnetlib3.client._get_argument_parser().parse_known_args(stripped)[0]
         if args.host and not args.host.startswith(("ws://", "wss://")):
             return f"{args.host}:{args.port}"
-    except (SystemExit, Exception):
+    except SystemExit:
         pass
     finally:
         lines = [line for line in _stderr_buf.getvalue().splitlines() if line.strip()]

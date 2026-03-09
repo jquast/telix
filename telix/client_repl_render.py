@@ -1,4 +1,4 @@
-"""Color math, vital-bar rendering, toolbar layout, activity stoplight, and display helpers."""
+"""Color math, vital-bar rendering, toolbar layout, and display helpers."""
 
 # std imports
 import time
@@ -27,22 +27,6 @@ from .repl_theme import hex_to_rgb, get_repl_palette
 log = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass(frozen=True)
-class ActivityTiming:
-    """Activity-dot animation timing constants."""
-
-    WARM_UP: float = 0.025
-    HOLD: float = 0.025
-    GLOW_DOWN: float = 0.250
-
-    @property
-    def DURATION(self) -> float:  # noqa: N802
-        """Total animation duration (warm_up + hold + glow_down)."""
-        return self.WARM_UP + self.HOLD + self.GLOW_DOWN
-
-
-ACTIVITY = ActivityTiming()
-
 # Session key injected by the REPL to scope palette lookups.
 # Single-session singleton: telix runs one connection per process, so this is safe.
 session_key: str = ""
@@ -67,21 +51,6 @@ def idle_rgb() -> tuple[int, int, int]:
 def idle_ar_rgb() -> tuple[int, int, int]:
     """Autoreply input-line background as ``(r, g, b)``."""
     return hex_to_rgb(pal("input_ar_bg"))
-
-
-def peak_green() -> tuple[int, int, int]:
-    """Rx (receive) peak color."""
-    return hex_to_rgb(pal("success"))
-
-
-def peak_red() -> tuple[int, int, int]:
-    """Tx (transmit) peak color."""
-    return hex_to_rgb(pal("error"))
-
-
-def peak_yellow() -> tuple[int, int, int]:
-    """Cx (compute) peak color."""
-    return hex_to_rgb(pal("warning"))
 
 
 # Each sextant character (U+1FB00-U+1FB3B) encodes a 2x3 pixel grid.
@@ -113,24 +82,12 @@ def editor_cursor_col(editor: "blessed.line_editor.LineEditor") -> int:
     return editor.display.cursor
 
 
-#: Sextant bit patterns per light (stoplight order), per column (left, right).
-SEXTANT_BITS = (
-    (0x20, 0x10),  # TX: top-left, top-right
-    (0x08, 0x04),  # CX: mid-left, mid-right
-    (0x02, 0x01),  # RX: bot-left, bot-right
-)
-
-#: "2 on, 1 off" phase rotation -- which pair of lights is active.
-PHASES = ((0, 1), (1, 2), (0, 2))
-
-
 @dataclasses.dataclass(frozen=True)
 class DisplayChars:
     """Display element constants: widths and decoration characters."""
 
     BAR_WIDTH: int = 20
     SEPARATOR_WIDTH: int = 3
-    STOPLIGHT_WIDTH: int = 1
     BAR_CAP_LEFT: str = "\U0001fb38"
     BAR_CAP_RIGHT: str = "\U0001fb1b"
     DMZ_CHAR: str = "\u2581"
@@ -211,154 +168,28 @@ def write_hint(
     """
     if not hint:
         return
-    key = "input_ar_suggestion" if autoreply else "input_suggestion"
-    sug = hex_to_rgb(pal(key))
-    dim = str(bt.color_rgb(*sug))
-    normal = bt.normal
-    if progress is not None:
-        split = int(len(hint) * progress + 0.5)
-        left = hint[:split]
-        right = hint[split:]
-        rev = str(bt.reverse)
-        out.write(f"{bg_sgr}{dim}{rev}{left}{normal}{bg_sgr}{dim}{right}{normal}".encode())
-    else:
-        out.write(f"{bg_sgr}{dim}{hint}{normal}".encode())
-
-
-def lerp_rgb(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
-    """Linearly interpolate between two RGB colors."""
-    return (int(c1[0] + t * (c2[0] - c1[0])), int(c1[1] + t * (c2[1] - c1[1])), int(c1[2] + t * (c2[2] - c1[2])))
-
-
-class ActivityDot:
-    """
-    Activity indicator with warm-up / hold / glow-down animation.
-
-    Timing: 25 ms warm-up, 25 ms hold at peak, 250 ms glow-down.
-    Re-triggering during any phase snaps proportionally faster toward hold.
-
-    :param peak_rgb: Peak glow color as ``(r, g, b)`` tuple.
-    """
-
-    __slots__ = ("peak_rgb", "phase_offset", "trigger_time")
-
-    def __init__(self, peak_rgb: tuple[int, int, int] | None = None) -> None:
-        """Initialize activity dot with given peak color."""
-        self.trigger_time: float = 0.0
-        self.phase_offset: float = 0.0
-        self.peak_rgb = peak_rgb if peak_rgb is not None else peak_red()
-
-    def trigger(self) -> None:
-        """Signal that activity occurred (bytes sent/received, etc.)."""
-        now = time.monotonic()
-        elapsed = now - self.trigger_time + self.phase_offset
-        if ACTIVITY.WARM_UP <= elapsed < ACTIVITY.DURATION:
-            intensity = self.intensity_at(elapsed)
-            self.phase_offset = intensity * ACTIVITY.WARM_UP
+    if autoreply:
+        effective_bg = bg_sgr
+        dim = str(bt.color_rgb(*hex_to_rgb(pal("input_ar_suggestion"))))
+        normal = bt.normal
+        if progress is not None:
+            split = int(len(hint) * progress + 0.5)
+            left = hint[:split]
+            right = hint[split:]
+            rev = str(bt.reverse)
+            out.write(f"{effective_bg}{dim}{rev}{left}{normal}{effective_bg}{dim}{right}{normal}".encode())
         else:
-            self.phase_offset = 0.0
-        self.trigger_time = now
-
-    def intensity_at(self, elapsed: float) -> float:
-        """Return 0.0 (idle) to 1.0 (peak) for the given elapsed time."""
-        if elapsed < 0.0 or elapsed >= ACTIVITY.DURATION:
-            return 0.0
-        if elapsed < ACTIVITY.WARM_UP:
-            return elapsed / ACTIVITY.WARM_UP
-        if elapsed < ACTIVITY.WARM_UP + ACTIVITY.HOLD:
-            return 1.0
-        return (ACTIVITY.DURATION - elapsed) / ACTIVITY.GLOW_DOWN
-
-    def intensity(self) -> float:
-        """Return current intensity 0.0..1.0."""
-        elapsed = time.monotonic() - self.trigger_time + self.phase_offset
-        return self.intensity_at(elapsed)
-
-    def is_animating(self) -> bool:
-        """Return ``True`` if the dot is still in an animation phase."""
-        elapsed = time.monotonic() - self.trigger_time + self.phase_offset
-        return 0.0 < elapsed < ACTIVITY.DURATION
-
-    def color(self, autoreply_bg: bool = False) -> tuple[int, int, int]:
-        """Return interpolated ``(r, g, b)`` for the current frame."""
-        idle = idle_ar_rgb() if autoreply_bg else idle_rgb()
-        t = self.intensity()
-        if t <= 0.0:
-            return idle
-        if t >= 1.0:
-            return self.peak_rgb
-        return lerp_rgb(idle, self.peak_rgb, t)
-
-
-class Stoplight:
-    """
-    Three-indicator sextant stoplight in a single terminal cell.
-
-    Create with :meth:`create` for the standard TX/CX/RX configuration.
-    Call :meth:`frame` each render tick to get the next sextant character
-    and its foreground color.
-    """
-
-    __slots__ = ("cx", "frame_count", "last_result", "rx", "tx")
-
-    def __init__(self, tx: ActivityDot, cx: ActivityDot, rx: ActivityDot) -> None:
-        """Initialize stoplight with three activity dots."""
-        self.tx = tx
-        self.cx = cx
-        self.rx = rx
-        self.frame_count: int = 0
-        self.last_result: tuple[str, tuple[int, int, int]] = (" ", idle_rgb())
-
-    @classmethod
-    def create(cls) -> "Stoplight":
-        """Create a stoplight with the standard color configuration."""
-        return cls(
-            tx=ActivityDot(peak_rgb=peak_red()),
-            cx=ActivityDot(peak_rgb=peak_yellow()),
-            rx=ActivityDot(peak_rgb=peak_green()),
-        )
-
-    def is_animating(self) -> bool:
-        """Return ``True`` if any dot is still animating."""
-        return self.tx.is_animating() or self.cx.is_animating() or self.rx.is_animating()
-
-    def frame(self, autoreply_bg: bool = False) -> tuple[str, tuple[int, int, int]]:
-        """
-        Advance the frame counter and return ``(sextant_char, (r, g, b))``.
-
-        Returns ``(" ", idle_rgb)`` when all lights are idle.
-        """
-        ar = autoreply_bg
-        dots = (self.tx, self.cx, self.rx)
-
-        f = self.frame_count
-        self.frame_count = f + 1
-
-        # Phase rotation: which 2 of 3 lights are active.
-        phase = (f // 4) % 3
-        sub = f % 4  # 0=A_L, 1=A_R, 2=B_L, 3=B_R
-        a_idx, b_idx = PHASES[phase]
-        li = a_idx if sub < 2 else b_idx
-        col = sub % 2  # 0=left, 1=right
-
-        intensity = dots[li].intensity()
-        if intensity > 0.01:
-            bits = SEXTANT_BITS[li][col]
-            rgb = dots[li].color(ar)
-            self.last_result = SEXTANT[bits], rgb
-            return self.last_result
-
-        # This light is idle -- show the other active light instead.
-        other = b_idx if li == a_idx else a_idx
-        if dots[other].intensity() > 0.01:
-            bits = SEXTANT_BITS[other][col]
-            rgb = dots[other].color(ar)
-            self.last_result = SEXTANT[bits], rgb
-            return self.last_result
-
-        idle = idle_ar_rgb() if ar else idle_rgb()
-        self.last_result = " ", idle
-        return self.last_result
+            out.write(f"{effective_bg}{dim}{hint}{normal}".encode())
+    else:
+        normal = bt.normal
+        rev = str(bt.reverse)
+        if progress is not None:
+            split = int(len(hint) * progress + 0.5)
+            left = hint[:split]
+            right = hint[split:]
+            out.write(f"{normal}{left}{rev}{right}{normal}".encode())
+        else:
+            out.write(f"{rev}{hint}{normal}".encode())
 
 
 def get_term() -> "blessed.Terminal":
@@ -592,9 +423,6 @@ def wcswidth(text: str) -> int:
     """Return display width of *text*, handling wide chars."""
     w = wcwidth.wcswidth(text)
     return w if w >= 0 else len(text)
-
-
-MODEM_WIDTH = DISPLAY.STOPLIGHT_WIDTH
 
 
 def dmz_line(cols: int, active: bool = False) -> str:
@@ -998,14 +826,12 @@ class ToolbarRenderer:
         ctx: "TelixSessionContext",
         scroll: Any,
         out: asyncio.StreamWriter,
-        stoplight: Stoplight | None,
         rprompt_text: str = "",
     ) -> None:
         """Initialize toolbar renderer for *ctx*."""
         self.ctx = ctx
         self.scroll = scroll
         self.out = out
-        self.stoplight = stoplight
         self.rprompt_text = rprompt_text
         self.flash_active: bool = False
         self.has_gmcp: bool = False
@@ -1020,52 +846,12 @@ class ToolbarRenderer:
         self.mp = VitalTracker()
         self.xp = XPTracker()
         self.bar_trackers: dict[str, VitalTracker] = {}
-        self.cursor_show_handle: asyncio.TimerHandle | None = None
-        self.cursor_hidden: bool = False
         self.last_ar_bg: bool = False
-
-    CURSOR_SHOW_DELAY = 0.05
 
     def is_autoreply_bg(self, engine: "autoreply_mod.AutoreplyEngine | None") -> bool:
         """Return whether the input row should use the autoreply background."""
         ar = engine is not None and (engine.exclusive_active or engine.reply_pending)
         return self.ctx.discover_active or self.ctx.randomwalk_active or ar
-
-    def hide_cursor(self) -> None:
-        """Hide the terminal cursor, canceling any pending debounced show."""
-        if self.cursor_show_handle is not None:
-            self.cursor_show_handle.cancel()
-            self.cursor_show_handle = None
-        if not self.cursor_hidden:
-            self.out.write(get_term().hide_cursor.encode())
-            self.cursor_hidden = True
-
-    def show_cursor(self) -> None:
-        """Show the terminal cursor immediately, canceling any pending show."""
-        if self.cursor_show_handle is not None:
-            self.cursor_show_handle.cancel()
-            self.cursor_show_handle = None
-        self.cursor_hidden = False
-        self.out.write(get_term().normal_cursor.encode())
-
-    def schedule_cursor_show(self, loop: asyncio.AbstractEventLoop) -> None:
-        """
-        Schedule the terminal cursor to be shown after a short delay.
-
-        If ``hide_cursor`` is called before the timer fires, the show is
-        suppressed.  A later ``schedule_cursor_show`` will try again.
-        """
-        if self.cursor_show_handle is not None:
-            self.cursor_show_handle.cancel()
-
-        def do_show() -> None:
-            self.cursor_show_handle = None
-            if self.stoplight is not None and self.stoplight.is_animating():
-                return
-            self.cursor_hidden = False
-            self.out.write(get_term().normal_cursor.encode())
-
-        self.cursor_show_handle = loop.call_later(self.CURSOR_SHOW_DELAY, do_show)
 
     def render(self, autoreply_engine: "autoreply_mod.AutoreplyEngine | None") -> bool:
         """
@@ -1502,58 +1288,15 @@ class ToolbarRenderer:
                 self.out.write(f"{effective_sgr}{text}".encode())
                 self.out.write(bg_sgr.encode())
 
-        # Drive stoplight animation via frame() so cursor_light stays in
-        # sync, but don't render the glyph here -- it only appears at the
-        # cursor position.
-        if self.stoplight is not None:
-            self.stoplight.frame(autoreply_bg=is_autoreply_bg)
-            if self.stoplight.is_animating():
-                needs_reflash = True
-
         self.out.write(blessed_term.normal.encode())
         return needs_reflash
 
-    def cursor_light(self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool) -> bool:
-        """
-        Draw the stoplight sextant at the cursor position.
-
-        When the stoplight is animating, this replaces the terminal block cursor
-        with the modem-lights glyph.  The terminal cursor must be hidden
-        (DECTCEM off) by the caller while this is active.
-
-        Uses the cached frame from the last :meth:`Stoplight.frame` call
-        so that the cursor light stays in sync with the toolbar stoplight.
-
-        :returns: ``True`` if the light was drawn, ``False`` if idle.
-        """
-        if self.stoplight is None or not self.stoplight.is_animating():
-            return False
-        ch, (r, g, b) = self.stoplight.last_result
-        if ch == " ":
-            return False
-        cbg = idle_ar_rgb() if is_autoreply_bg else idle_rgb()
-        bg = bt.on_color_rgb(*cbg)
-        self.out.write(bt.move_yx(row, col).encode())
-        self.out.write(f"{bg}{bt.color_rgb(r, g, b)}{ch}{bt.normal}".encode())
-        self.out.write(bt.move_yx(row, col).encode())
-        return True
-
     def restore_cursor(self, bt: "blessed.Terminal", row: int, col: int, is_autoreply_bg: bool) -> None:
-        """
-        Show the cursor at *row*, *col*, using the stoplight glyph if animating.
-
-        Picks the appropriate style and OSC color for normal or autoreply background, then makes the terminal cursor
-        visible.
-        """
-        if self.cursor_light(bt, row, col, is_autoreply_bg):
-            return
-        style = STYLE_AUTOREPLY if is_autoreply_bg else STYLE_NORMAL
+        """Position cursor at *row*, *col* and make it visible."""
         osc = cursor_ar_osc() if is_autoreply_bg else cursor_osc()
         self.out.write(bt.move_yx(row, col).encode())
         self.out.write(osc.encode())
-        self.out.write(style["cursor_sgr"].encode())
-        self.show_cursor()
-        self.out.write(bt.normal.encode())
+        self.out.write(bt.normal_cursor.encode())
 
     def schedule_flash(
         self,
@@ -1565,7 +1308,7 @@ class ToolbarRenderer:
         """Schedule repeating flash animation frames via ``loop.call_later``."""
 
         def tick() -> None:
-            self.hide_cursor()
+            self.out.write(bt.hide_cursor.encode())
             still = self.render(autoreply_engine)
             input_row = self.scroll.input_row
             engine = autoreply_engine
@@ -1614,10 +1357,9 @@ class ToolbarRenderer:
                     still = True
                 if ac_elapsed < FLASH.DURATION:
                     still = True
-                drew = self.cursor_light(bt, input_row, cursor_col, is_ar_bg)
-                if not drew:
-                    self.out.write(bt.move_yx(input_row, cursor_col).encode())
-                    self.show_cursor()
+                self.out.write(bt.move_yx(input_row, cursor_col).encode())
+                if not still:
+                    self.out.write(bt.normal_cursor.encode())
             else:
                 style = STYLE_AUTOREPLY if is_ar_bg else STYLE_NORMAL
                 for attr, val in style.items():
@@ -1647,7 +1389,7 @@ class ToolbarRenderer:
                         still = True
                 else:
                     self.last_hint_split = None
-                if prog is None:
+                if prog is None and not still:
                     cursor_col = editor_cursor_col(editor)
                     self.restore_cursor(bt, input_row, cursor_col, is_ar_bg)
 
@@ -1693,7 +1435,7 @@ class ToolbarRenderer:
             eta_text = frags[0][1] if frags else ""
             if eta_text != self.last_eta_text:
                 self.last_eta_text = eta_text
-                self.hide_cursor()
+                self.out.write(bt.hide_cursor.encode())
                 self.render(autoreply_engine)
                 has_command = self.ctx.command_queue is not None or self.ctx.active_command is not None
                 if not has_command:
@@ -1732,13 +1474,13 @@ class ToolbarRenderer:
                 self.until_progress_active = False
                 self.last_progress_col = -1
                 self.last_progress_hint = ""
-                self.schedule_cursor_show(loop)
+                self.out.write(bt.normal_cursor.encode())
                 return
             hint = activity_hint(engine, bt.width)
             if not hint:
                 self.until_progress_active = False
                 self.last_progress_hint = ""
-                self.schedule_cursor_show(loop)
+                self.out.write(bt.normal_cursor.encode())
                 return
             split = int(len(hint) * prog + 0.5)
             if split == self.last_progress_col and hint == self.last_progress_hint:
@@ -1753,13 +1495,9 @@ class ToolbarRenderer:
                 return
             is_ar_bg = self.is_autoreply_bg(engine)
             bg = STYLE_AUTOREPLY["bg_sgr"] if is_ar_bg else STYLE_NORMAL["bg_sgr"]
-            self.hide_cursor()
+            self.out.write(bt.hide_cursor.encode())
             self.out.write(bt.move_yx(self.scroll.input_row, col).encode())
             write_hint(hint, self.out, bt, progress=prog, bg_sgr=bg, autoreply=is_ar_bg)
-            if self.ctx.cx_dot is not None:
-                self.ctx.cx_dot.trigger()
-            cursor_col = editor_cursor_col(editor)
-            self.restore_cursor(bt, self.scroll.input_row, cursor_col, is_ar_bg)
             if not self.flash_active:
                 self.flash_active = True
                 self.schedule_flash(loop, autoreply_engine, editor, bt)

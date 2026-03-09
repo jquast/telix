@@ -1,10 +1,11 @@
-"""Tests for confirm dialog: subprocess launcher and in-app Textual screen."""
+"""Tests for confirm dialog: thread-based launcher and in-app Textual screen."""
 
 from __future__ import annotations
 
 # std imports
 import json
 from typing import Any
+from unittest.mock import MagicMock
 
 # 3rd party
 import pytest
@@ -14,46 +15,43 @@ from telix.client_repl import confirm_dialog
 
 
 @pytest.fixture()
-def mock_subprocess(tmp_path: Any, monkeypatch: Any) -> Any:
-    """Stub subprocess.run to write a result file without launching Textual."""
+def mock_thread(monkeypatch: Any) -> Any:
+    """Stub _run_in_thread and run_confirm_dialog to write a result file without launching Textual."""
     result_data: dict[str, bool] = {"confirmed": False}
 
     class Holder:
         data = result_data
 
-    def fake_run(cmd: Any, check: bool = False) -> None:
-        path = cmd[-2]
-        with open(path, "w", encoding="utf-8") as f:
+    def fake_run_confirm(title: str, body: str, warning: str = "", result_file: str = "") -> None:
+        with open(result_file, "w", encoding="utf-8") as f:
             json.dump(Holder.data, f)
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("telix.client_tui_dialogs.run_confirm_dialog", fake_run_confirm)
+    monkeypatch.setattr("telix.client_repl_dialogs._run_in_thread", lambda t, **kw: t())
     monkeypatch.setattr("telix.client_repl.restore_after_subprocess", lambda buf: None)
     monkeypatch.setattr("telix.client_repl.terminal_cleanup", lambda: "")
+    monkeypatch.setattr(
+        "telix.client_repl.get_term",
+        lambda: MagicMock(change_scroll_region=MagicMock(return_value=""), height=24),
+    )
     return Holder
 
 
-def test_cancel_returns_false(mock_subprocess: Any) -> None:
-    mock_subprocess.data = {"confirmed": False}
+def test_cancel_returns_false(mock_thread: Any) -> None:
+    mock_thread.data = {"confirmed": False}
     ok = confirm_dialog("Test", "body")
     assert ok is False
 
 
-def test_confirmed_returns_true(mock_subprocess: Any) -> None:
-    mock_subprocess.data = {"confirmed": True}
+def test_confirmed_returns_true(mock_thread: Any) -> None:
+    mock_thread.data = {"confirmed": True}
     ok = confirm_dialog("Test", "body")
     assert ok is True
 
 
-def test_missing_result_file(monkeypatch: Any) -> None:
-    monkeypatch.setattr("subprocess.run", lambda cmd, check=False: None)
-    monkeypatch.setattr("telix.client_repl.restore_after_subprocess", lambda buf: None)
-    monkeypatch.setattr("telix.client_repl.terminal_cleanup", lambda: "")
-    ok = confirm_dialog("Test", "body")
-    assert ok is False
 
-
-def test_warning_passed_in_command(mock_subprocess: Any) -> None:
-    mock_subprocess.data = {"confirmed": False}
+def test_warning_passed_in_command(mock_thread: Any) -> None:
+    mock_thread.data = {"confirmed": False}
     ok = confirm_dialog("Test", "body", warning="Danger!")
     assert ok is False
 

@@ -36,16 +36,16 @@ Requires Python 3.9+.
 Usage
 -----
 
-Launch the Session Manager::
+Launch the Session Manager, a TUI::
 
     telix
 
 Connect directly to a host via Telnet::
 
+    # Using CLI,
     telix dunemud.net 6789
 
-Using ssl::
-
+    # with ssl,
     telix --ssl dunemud.net 6788
 
 Connect directly via WebSocket::
@@ -54,7 +54,7 @@ Connect directly via WebSocket::
 
     telix wss://dev.cryosphere.org:4443/telnet/
 
-Use ``--bbs`` or ``--mud`` to apply presets::
+Or use ``--bbs`` or ``--mud`` to apply presets::
 
     telix --bbs bbs.example.com
 

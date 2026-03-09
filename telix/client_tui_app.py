@@ -53,19 +53,11 @@ class TelnetSessionApp(textual.app.App[None]):
 def tui_main() -> None:
     """Launch the Textual TUI session manager."""
     client_tui_base.patch_writer_thread_queue()
-    app = TelnetSessionApp()
-    try:
-        app.run()
-    except BaseException:
-        import traceback
-
-        client_tui_base.pause_before_exit()
-        sys.stdout.write(client_tui_base.TERMINAL_CLEANUP)
-        sys.stdout.flush()
-        client_tui_base.restore_opost()
-        traceback.print_exc()
-        raise
-    if app.return_code and app.return_code != 0:
-        client_tui_base.pause_before_exit()
+    client_tui_base.restore_blocking_fds()
+    client_tui_base.terminal.restore_opost()
+    sys.stdout.write(client_tui_base.TERMINAL_CLEANUP)
+    sys.stdout.flush()
+    client_tui_base.terminal.flush_stdin()
+    TelnetSessionApp().run()
     sys.stdout.write("\x1b[999;999H\n" + client_tui_base.TERMINAL_CLEANUP + "\n")
     sys.stdout.flush()
