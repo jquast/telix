@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 GMCP_SUBPROTOCOL = "gmcp.mudstandards.org"
 TELNET_SUBPROTOCOL = "telnet.mudstandards.org"
-WS_SUBPROTOCOLS = [websockets.typing.Subprotocol(GMCP_SUBPROTOCOL), websockets.typing.Subprotocol(TELNET_SUBPROTOCOL)]  # type: ignore[attr-defined]
+WS_SUBPROTOCOLS = [websockets.typing.Subprotocol(GMCP_SUBPROTOCOL), websockets.typing.Subprotocol(TELNET_SUBPROTOCOL)]
 
 
 async def run_ws_client(
@@ -257,8 +257,8 @@ async def _run_telnet_over_ws(
             return
         writer.always_will = always_will
         writer.always_do = always_do
-        writer.always_wont = always_wont  # type: ignore[attr-defined]
-        writer.always_dont = always_dont  # type: ignore[attr-defined]
+        writer.always_wont = always_wont
+        writer.always_dont = always_dont
         writer.passive_do = {telnetlib3.telopt.GMCP}
         writer._encoding_explicit = encoding not in ("utf8", "utf-8", False)
         if gmcp_modules:

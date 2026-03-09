@@ -15,6 +15,22 @@ from .client_tui_macros import MacroEditPane, MacroEditScreen  # noqa: F401
 from .client_tui_highlights import HighlightTuple, HighlightEditPane, HighlightEditScreen  # noqa: F401
 from .client_tui_autoreplies import AutoreplyTuple, AutoreplyEditPane, AutoreplyEditScreen  # noqa: F401
 
+__all__ = [
+    "ThemeEditPane",
+    "ProgressBarTuple",
+    "ProgressBarEditPane",
+    "ProgressBarEditScreen",
+    "MacroEditPane",
+    "MacroEditScreen",
+    "HighlightTuple",
+    "HighlightEditPane",
+    "HighlightEditScreen",
+    "AutoreplyTuple",
+    "AutoreplyEditPane",
+    "AutoreplyEditScreen",
+    "invert_ts",
+]
+
 
 def invert_ts(iso_str: str) -> str:
     """

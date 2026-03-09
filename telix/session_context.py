@@ -10,7 +10,7 @@ import telnetlib3._session_context  # pylint: disable=no-name-in-module
 from . import mslp, macros, autoreply, ws_transport, gmcp_snapshot, ssh_transport
 
 if TYPE_CHECKING:
-    from . import rooms, highlighter, progressbars, scripts
+    from . import rooms, scripts, highlighter, progressbars
 
 
 class CommandQueue:
@@ -163,7 +163,7 @@ class TelixSessionContext(telnetlib3._session_context.TelnetSessionContext):
         self.send_naws: Callable[[], None] | None = None
 
         # scripting
-        self.script_manager: "scripts.ScriptManager | None" = None
+        self.script_manager: scripts.ScriptManager | None = None
 
         # debounced timestamp persistence
         self.macros_dirty: bool = False

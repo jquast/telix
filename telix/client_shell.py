@@ -116,6 +116,7 @@ def load_configs(ctx: "session_context.TelixSessionContext") -> None:
     ctx.history_file = paths.history_path(ctx.session_key)
 
     from . import scripts as scripts_mod
+
     scripts_dir = str(paths.xdg_config_dir() / "scripts")
     os.makedirs(scripts_dir, exist_ok=True)
     ctx.script_manager = scripts_mod.ScriptManager(scripts_dir=scripts_dir, log=log)
@@ -469,7 +470,7 @@ async def telix_client_shell(
                 telnet_writer,
                 tty_shell,
                 stdin,
-                raw_stdout,  # type: ignore[arg-type]
+                raw_stdout,
                 keyboard_escape,
                 state,
                 handle_close,
@@ -549,7 +550,7 @@ async def ssh_client_shell(ssh_reader: ssh_transport.SSHReader, ssh_writer: ssh_
                 ssh_writer,  # type: ignore[arg-type]
                 tty_shell,
                 stdin,
-                raw_stdout,  # type: ignore[arg-type]
+                raw_stdout,
                 keyboard_escape,
                 state,
                 handle_close,
@@ -650,7 +651,7 @@ async def ws_client_shell(ws_reader: ws_transport.WebSocketReader, ws_writer: ws
                 ws_writer,  # type: ignore[arg-type]
                 tty_shell,
                 stdin,
-                raw_stdout,  # type: ignore[arg-type]
+                raw_stdout,
                 keyboard_escape,
                 state,
                 handle_close,

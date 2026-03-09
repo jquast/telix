@@ -13,6 +13,7 @@ suppress_warnings = ["image.nonlocal_uri", "myst.header"]
 
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "myst_parser",

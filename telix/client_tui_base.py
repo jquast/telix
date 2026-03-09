@@ -47,7 +47,6 @@ TERMINAL_CLEANUP = (
 )
 
 
-
 PRIMARY_PASTE_COMMANDS = (
     ("xclip", "-selection", "primary", "-o"),
     ("xsel", "--primary", "--output"),
@@ -147,7 +146,14 @@ FLAG_TO_WIDGET: dict[str, str] = {
 }
 
 
-def navigate_from_button(key, focused, buttons, target, screen, event):
+def navigate_from_button(
+    key: str,
+    focused: textual.widgets.Button,
+    buttons: list[typing.Any],
+    target: typing.Any,
+    screen: "textual.screen.Screen[object]",
+    event: textual.events.Key,
+) -> None:
     """
     Handle arrow navigation when a button in the column is focused.
 
@@ -170,7 +176,9 @@ def navigate_from_button(key, focused, buttons, target, screen, event):
         event.prevent_default()
 
 
-def navigate_from_table(key, buttons, screen, event):
+def navigate_from_table(
+    key: str, buttons: list[typing.Any], screen: "textual.screen.Screen[object]", event: textual.events.Key
+) -> None:
     """
     Handle arrow navigation when the data table is focused.
 
@@ -1390,14 +1398,22 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
                 with textual.containers.Horizontal(id="server-type-col"):
                     yield textual.widgets.Label("Server Type", id="server-type-label")
                     with textual.widgets.RadioSet(id="server-type-radio"):
-                        yield textual.widgets.RadioButton("BBS", value=is_ssh or cfg.server_type == "bbs", id="type-bbs")
-                        yield textual.widgets.RadioButton("Mud", value=not is_ssh and cfg.server_type == "mud", id="type-mud")
+                        yield textual.widgets.RadioButton(
+                            "BBS", value=is_ssh or cfg.server_type == "bbs", id="type-bbs"
+                        )
+                        yield textual.widgets.RadioButton(
+                            "Mud", value=not is_ssh and cfg.server_type == "mud", id="type-mud"
+                        )
             with textual.containers.Horizontal(id="proto-details-row"):
                 with textual.containers.Horizontal(id="protocol-col"):
                     yield textual.widgets.Label("Protocol", classes="conn-label")
                     with textual.widgets.RadioSet(id="protocol-radio"):
-                        yield textual.widgets.RadioButton("telnet", value=proto_id_init == "proto-telnet", id="proto-telnet")
-                        yield textual.widgets.RadioButton("telnets", value=proto_id_init == "proto-telnets", id="proto-telnets")
+                        yield textual.widgets.RadioButton(
+                            "telnet", value=proto_id_init == "proto-telnet", id="proto-telnet"
+                        )
+                        yield textual.widgets.RadioButton(
+                            "telnets", value=proto_id_init == "proto-telnets", id="proto-telnets"
+                        )
                         yield textual.widgets.RadioButton("ws", value=proto_id_init == "proto-ws", id="proto-ws")
                         yield textual.widgets.RadioButton("wss", value=proto_id_init == "proto-wss", id="proto-wss")
                         yield textual.widgets.RadioButton("ssh", value=proto_id_init == "proto-ssh", id="proto-ssh")
@@ -1411,7 +1427,9 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
                         textual.widgets.Label("Port", classes="conn-label"),
                         textual.widgets.Input(
                             value=str(cfg.port),
-                            placeholder="22" if is_ssh else ("443" if cfg.ssl else ("80" if cfg.protocol == "websocket" else "23")),
+                            placeholder="22"
+                            if is_ssh
+                            else ("443" if cfg.ssl else ("80" if cfg.protocol == "websocket" else "23")),
                             id="port",
                         ),
                         classes="field-row",
@@ -1419,8 +1437,11 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
                     yield textual.containers.Horizontal(
                         textual.widgets.Label("Path", classes="conn-label"),
                         textual.widgets.Input(
-                            value=cfg.ws_path, placeholder="/ws", id="ws-path",
-                            tooltip="WebSocket path appended to URL", classes="field-input",
+                            value=cfg.ws_path,
+                            placeholder="/ws",
+                            id="ws-path",
+                            tooltip="WebSocket path appended to URL",
+                            classes="field-input",
                         ),
                         classes="field-row",
                         id="ws-path-row",
@@ -1429,16 +1450,22 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
                         yield textual.containers.Horizontal(
                             textual.widgets.Label("User", classes="conn-label"),
                             textual.widgets.Input(
-                                value=cfg.ssh_username, placeholder="username", id="ssh-username",
-                                tooltip="SSH login username (empty = system login)", classes="field-input",
+                                value=cfg.ssh_username,
+                                placeholder="username",
+                                id="ssh-username",
+                                tooltip="SSH login username (empty = system login)",
+                                classes="field-input",
                             ),
                             classes="field-row",
                         )
                         yield textual.containers.Horizontal(
                             textual.widgets.Label("Key", classes="conn-label"),
                             textual.widgets.Input(
-                                value=cfg.ssh_key_file, placeholder="path to private key", id="ssh-key-file",
-                                tooltip="Path to SSH private key file (empty = password auth)", classes="field-input",
+                                value=cfg.ssh_key_file,
+                                placeholder="path to private key",
+                                id="ssh-key-file",
+                                tooltip="Path to SSH private key file (empty = password auth)",
+                                classes="field-input",
                             ),
                             classes="field-row",
                         )
@@ -1469,9 +1496,13 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
                 yield textual.widgets.Label("Terminal Mode")
                 with textual.widgets.RadioSet(id="mode-radio"):
                     is_ssh = cfg.protocol == "ssh"
-                    yield textual.widgets.RadioButton("Auto-detect", value=not is_ssh and cfg.mode == "auto", id="mode-auto")
+                    yield textual.widgets.RadioButton(
+                        "Auto-detect", value=not is_ssh and cfg.mode == "auto", id="mode-auto"
+                    )
                     yield textual.widgets.RadioButton("Raw mode", value=is_ssh or cfg.mode == "raw", id="mode-raw")
-                    yield textual.widgets.RadioButton("Line mode", value=not is_ssh and cfg.mode == "line", id="mode-line")
+                    yield textual.widgets.RadioButton(
+                        "Line mode", value=not is_ssh and cfg.mode == "line", id="mode-line"
+                    )
             with textual.containers.Vertical(id="repl-col"), textual.containers.Horizontal(classes="switch-row"):
                 repl_dim = "" if cfg.mode != "raw" else " dimmed"
                 yield textual.widgets.Label("Advanced REPL", id="repl-label", classes=f"field-label{repl_dim}")
@@ -1637,7 +1668,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
             self.apply_server_type(event.pressed.id)  # type: ignore[arg-type]
         elif event.radio_set.id == "protocol-radio":
             proto_id = event.pressed.id
-            self.apply_protocol_visibility(proto_id)
+            self.apply_protocol_visibility(proto_id or "")
             server_type_radio = self.query_one("#server-type-radio", textual.widgets.RadioSet)
             if proto_id == "proto-ssh":
                 self.apply_server_type("type-bbs")
@@ -2610,7 +2641,8 @@ def patch_writer_thread_queue() -> None:
     prevents the deadlock.
     """
     import textual.drivers._writer_thread as wt
-    wt.MAX_QUEUED_WRITES = 0
+
+    wt.MAX_QUEUED_WRITES = 0  # type: ignore[misc]
 
 
 def restore_blocking_fds(logfile: str = "") -> None:

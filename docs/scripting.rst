@@ -73,29 +73,29 @@ Sending commands
 
     **Backtick directives** (processed by the client, not sent to the server)
 
-    ========================= ================================================
-    Directive                 Effect
-    ========================= ================================================
-    `` `delay 1s` ``          Pause 1 second (also ``500ms``, ``0.5s``)
-    `` `when HP%>=80` ``      Stop the chain unless condition is met.
-                              Keys: ``HP%``, ``MP%``, ``HP``, ``MP``, or any
-                              captured variable.  Ops: ``>=``, ``<=``, ``>``,
-                              ``<``, ``=``
-    `` `until died\.` ``      Wait up to 4 s (default) for a regex pattern.
-    `` `until 10 pattern` ``  Wait up to 10 s.  Pattern is case-insensitive.
-    `` `untils 2 DEAD` ``     Same as ``until`` but case-sensitive.
-    `` `travel abc123` ``     Navigate to a room by GMCP room ID.
-    `` `travel abc123 noreply` `` Travel with autoreplies disabled.
-    `` `return` ``            Return to the room where the current macro started.
-    `` `home` ``              Fast-travel to the home room of the current area.
-    `` `autodiscover` ``      BFS-explore unvisited exits (add ``limit N``,
-                              ``dfs``, ``autosearch``, ``noreply``, etc.).
-    `` `randomwalk` ``        Random walk preferring unvisited exits (same
-                              optional args as ``autodiscover``).
-    `` `resume` ``            Resume the last autodiscover/randomwalk.
-    `` `script module.fn` ``  Start a script as a background task.
-    `` `stopscript` ``        Cancel all running scripts.
-    ========================= ================================================
+    ============================== ================================================
+    Directive                      Effect
+    ============================== ================================================
+    `` `delay 1s` ``               Pause 1 second (also ``500ms``, ``0.5s``)
+    `` `when HP%>=80` ``           Stop the chain unless condition is met.
+                                   Keys: ``HP%``, ``MP%``, ``HP``, ``MP``, or any
+                                   captured variable.  Ops: ``>=``, ``<=``, ``>``,
+                                   ``<``, ``=``
+    `` `until died\.` ``           Wait up to 4 s (default) for a regex pattern.
+    `` `until 10 pattern` ``       Wait up to 10 s.  Pattern is case-insensitive.
+    `` `untils 2 DEAD` ``          Same as ``until`` but case-sensitive.
+    `` `travel abc123` ``          Navigate to a room by GMCP room ID.
+    `` `travel abc123 noreply` ``  Travel with autoreplies disabled.
+    `` `return` ``                 Return to the room where the current macro started.
+    `` `home` ``                   Fast-travel to the home room of the current area.
+    `` `autodiscover` ``           BFS-explore unvisited exits (add ``limit N``,
+                                   ``dfs``, ``autosearch``, ``noreply``, etc.).
+    `` `randomwalk` ``             Random walk preferring unvisited exits (same
+                                   optional args as ``autodiscover``).
+    `` `resume` ``                 Resume the last autodiscover/randomwalk.
+    `` `script module.fn` ``       Start a script as a background task.
+    `` `stopscript` ``             Cancel all running scripts.
+    ============================== ================================================
 
     Full command syntax and more examples: :ref:`user-manual:command syntax`.
 
@@ -209,7 +209,6 @@ everything before it is the importable module path:
 
 - `` `script demo` `` -- imports ``demo``, calls ``run(ctx)``
 - `` `script combat.hunt` `` -- imports ``combat``, calls ``hunt(ctx)``
-- `` `script ai.bot.run` `` -- imports ``ai.bot``, calls ``run(ctx)``
 
 Stopping scripts
 ----------------
@@ -231,16 +230,12 @@ a script from inside another script::
     await ctx.send("`script hunt`")
 
 This starts ``hunt`` as a new background task and returns immediately -- it does
-**not** wait for ``hunt`` to finish.  Both scripts then run concurrently.
+**not** wait for the ``hunt`` to finish.  Both scripts run concurrently!
 
 To run scripts sequentially, import and call the function directly::
 
     import combat
-
-    async def loop(ctx, *args):
-        while True:
-            await combat.hunt(ctx, "goblin")   # wait for hunt to finish
-            await ctx.prompts(2)               # let the room settle
+    await combat.hunt(ctx, "goblin")   # waits for hunt to finish
 
 Multi-condition waits
 ---------------------
@@ -264,19 +259,6 @@ condition fires first::
         for t in pending:
             t.cancel()
         ctx.print("[hunt] done")
-
-Packages
---------
-
-Subdirectory scripts work by having a ``scripts/ai/`` directory with an
-``__init__.py``::
-
-    scripts/
-      ai/
-        __init__.py
-        bot.py
-
-Then `` `script ai.bot.run` `` imports the ``ai.bot`` module and calls ``run(ctx)``.
 
 Complete examples
 -----------------

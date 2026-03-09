@@ -822,11 +822,7 @@ class ToolbarRenderer:
     """
 
     def __init__(
-        self,
-        ctx: "TelixSessionContext",
-        scroll: Any,
-        out: asyncio.StreamWriter,
-        rprompt_text: str = "",
+        self, ctx: "TelixSessionContext", scroll: Any, out: asyncio.StreamWriter, rprompt_text: str = ""
     ) -> None:
         """Initialize toolbar renderer for *ctx*."""
         self.ctx = ctx

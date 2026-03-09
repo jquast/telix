@@ -9,7 +9,7 @@ import textual.events
 
 # local
 import telix.rooms
-from . import client_tui_base
+from . import client_tui_base, terminal
 
 
 class TelnetSessionApp(textual.app.App[None]):
@@ -54,10 +54,10 @@ def tui_main() -> None:
     """Launch the Textual TUI session manager."""
     client_tui_base.patch_writer_thread_queue()
     client_tui_base.restore_blocking_fds()
-    client_tui_base.terminal.restore_opost()
+    terminal.restore_opost()
     sys.stdout.write(client_tui_base.TERMINAL_CLEANUP)
     sys.stdout.flush()
-    client_tui_base.terminal.flush_stdin()
+    terminal.flush_stdin()
     TelnetSessionApp().run()
     sys.stdout.write("\x1b[999;999H\n" + client_tui_base.TERMINAL_CLEANUP + "\n")
     sys.stdout.flush()

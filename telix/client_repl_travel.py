@@ -6,7 +6,8 @@ import random
 import asyncio
 import logging
 import collections
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
+from collections.abc import Callable, Awaitable
 
 # 3rd party
 import telnetlib3.stream_writer
@@ -31,7 +32,9 @@ STUCK_RETRY_DELAY = 5.0
 SETTLE_YIELD_DELAY = 0.05
 
 
-async def settle_autoreplies(engine, wait_fn, noreply):
+async def settle_autoreplies(
+    engine: "Optional[AutoreplyEngine]", wait_fn: Optional[Callable[[], Awaitable[Any]]], noreply: bool
+) -> None:
     """
     Wait for exclusive autoreplies to finish before moving.
 
@@ -63,7 +66,9 @@ async def settle_autoreplies(engine, wait_fn, noreply):
             break
 
 
-def correct_room_edge(graph, prev_num, old_target, new_target, direction):
+def correct_room_edge(
+    graph: "Optional[RoomGraph]", prev_num: str, old_target: str, new_target: str, direction: str
+) -> None:
     """
     Rewrite a graph exit so *direction* from *prev_num* points at *new_target*.
 
@@ -84,7 +89,9 @@ def correct_room_edge(graph, prev_num, old_target, new_target, direction):
         adj_exits[direction] = new_target
 
 
-def repath(room_graph, destination, current, log_fn):
+def repath(
+    room_graph: "Optional[RoomGraph]", destination: str, current: str, log_fn: Callable[[str], None]
+) -> list[Any]:
     """
     Re-pathfind from *current* to *destination* using *room_graph*.
 
@@ -371,7 +378,7 @@ async def fast_travel(
 
                 if destination and actual and actual != destination and reroute_count < max_reroutes:
 
-                    def log_reroute(msg):
+                    def log_reroute(msg: str) -> None:
                         log.info("%s", msg)
                         if echo_fn is not None:
                             echo_fn(msg)

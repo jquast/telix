@@ -1,7 +1,6 @@
 """Windows terminal operations for the telix REPL (stubs)."""
 
 import os
-import sys
 import msvcrt
 import contextlib
 from collections.abc import Generator

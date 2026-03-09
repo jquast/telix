@@ -18,13 +18,14 @@ import asyncio
 import logging
 import importlib
 import collections
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # 3rd party
 import wcwidth
 
 if TYPE_CHECKING:
     from .session_context import TelixSessionContext
+    from . import rooms
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +34,8 @@ class ScriptOutputBuffer:
     """
     Per-script output accumulator with pattern and prompt waiting.
 
-    Each running script has its own buffer so that concurrent scripts do not
-    interfere with each other's output matching.
+    Each running script has its own buffer so that concurrent scripts do not interfere with each other's output
+    matching.
 
     :param max_lines: Maximum number of lines to retain (default 200).
     :param max_turns: Maximum number of prompt-delimited turns to retain (default 50).
@@ -49,15 +50,14 @@ class ScriptOutputBuffer:
         self._current_turn_lines: list[str] = []
         self._output_event: asyncio.Event = asyncio.Event()
         self._prompt_event: asyncio.Event = asyncio.Event()
-        self._waiters: list[tuple[re.Pattern[str], "asyncio.Future[re.Match[str] | None]"]] = []
+        self._waiters: list[tuple[re.Pattern[str], asyncio.Future[re.Match[str] | None]]] = []
         self.max_lines = max_lines
 
     def feed(self, text: str) -> None:
         """
         Feed server output text into the buffer.
 
-        Strips ANSI sequences, accumulates lines, and resolves any registered
-        pattern waiters.
+        Strips ANSI sequences, accumulates lines, and resolves any registered pattern waiters.
 
         :param text: Raw server output text (may contain ANSI sequences).
         """
@@ -78,7 +78,7 @@ class ScriptOutputBuffer:
         self._lines.extend(new_lines)
         self._current_turn_lines.extend(new_lines)
         if len(self._lines) > self.max_lines:
-            self._lines = self._lines[-self.max_lines:]
+            self._lines = self._lines[-self.max_lines :]
 
         self._output_event.set()
         self._resolve_waiters()
@@ -198,27 +198,21 @@ class ScriptContext:
     """
     User-facing API handed to scripts as their ``ctx`` argument.
 
-    Wraps the session context and script output buffer to provide a clean,
-    stable interface for script authors.
+    Wraps the session context and script output buffer to provide a clean, stable interface for script authors.
 
     :param session_ctx: The live session context.
     :param buf: Per-script output buffer.
     :param log_inst: Logger for the script.
     """
 
-    def __init__(
-        self,
-        session_ctx: "TelixSessionContext",
-        buf: ScriptOutputBuffer,
-        log_inst: logging.Logger,
-    ) -> None:
+    def __init__(self, session_ctx: "TelixSessionContext", buf: ScriptOutputBuffer, log_inst: logging.Logger) -> None:
         """Initialize ScriptContext."""
         self._ctx = session_ctx
         self._buf = buf
         self._log = log_inst
 
     @property
-    def gmcp(self) -> dict:
+    def gmcp(self) -> dict[str, Any]:
         """The full GMCP data dict from the session context."""
         return self._ctx.gmcp_data
 
@@ -228,24 +222,24 @@ class ScriptContext:
         return self._ctx.current_room_num
 
     @property
-    def room_graph(self):
+    def room_graph(self) -> "rooms.RoomStore | None":
         """The :class:`~telix.rooms.RoomStore` for this session, or ``None``."""
         return self._ctx.room_graph
 
     @property
-    def captures(self) -> dict:
+    def captures(self) -> dict[str, Any]:
         """Highlight capture variables for this session."""
         return self._ctx.captures
 
     @property
-    def room(self):
+    def room(self) -> "rooms.Room | None":
         """The current :class:`~telix.rooms.Room`, or ``None`` if unknown."""
         rg = self._ctx.room_graph
         if rg is None or not self._ctx.current_room_num:
             return None
         return rg.get_room(self._ctx.current_room_num)
 
-    def gmcp_get(self, dotted_path: str):
+    def gmcp_get(self, dotted_path: str) -> Any:
         """
         Retrieve a value from the GMCP data dict by dot-separated path.
 
@@ -275,7 +269,7 @@ class ScriptContext:
                 return None
         return node
 
-    def get_room(self, num: str):
+    def get_room(self, num: str) -> "rooms.Room | None":
         """
         Look up a room by number.
 
@@ -287,7 +281,7 @@ class ScriptContext:
             return None
         return rg.get_room(str(num))
 
-    def neighbors(self) -> dict:
+    def neighbors(self) -> dict[str, str]:
         """
         Return the exits from the current room.
 
@@ -344,7 +338,7 @@ class ScriptContext:
 
     async def prompt(self, timeout: float = 30.0) -> bool:
         """
-        Wait for the next server prompt (GA/EOR).
+        Wait for the next GA/EOR signal from the server.
 
         :param timeout: Maximum seconds to wait.
         :returns: ``True`` if prompt arrived within *timeout*.
@@ -373,7 +367,7 @@ class ScriptContext:
         """
         return self._buf.output(clear)
 
-    def turns(self, n: int = 5) -> list:
+    def turns(self, n: int = 5) -> list[str]:
         """
         Return the last *n* prompt-delimited output turns.
 
@@ -450,11 +444,11 @@ class ScriptManager:
         """Initialize ScriptManager."""
         self.scripts_dir = scripts_dir
         self._log = log or logging.getLogger(__name__)
-        self._tasks: dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._buffers: dict[str, ScriptOutputBuffer] = {}
         self._mtimes: dict[str, float] = {}
 
-    def _load_module(self, module_path: str):
+    def _load_module(self, module_path: str) -> Any:
         """
         Import (or reload) a module from the scripts search path.
 
@@ -503,7 +497,7 @@ class ScriptManager:
 
         return mod
 
-    def start_script(self, session_ctx: "TelixSessionContext", spec: str) -> "asyncio.Task":
+    def start_script(self, session_ctx: "TelixSessionContext", spec: str) -> "asyncio.Task[Any]":
         """
         Load and start a script.
 
@@ -528,7 +522,7 @@ class ScriptManager:
         if "." in token:
             dot = token.rfind(".")
             module_path = token[:dot]
-            fn_name = token[dot + 1:]
+            fn_name = token[dot + 1 :]
         else:
             module_path = token
             fn_name = "run"
@@ -557,7 +551,7 @@ class ScriptManager:
         self._tasks[task_key] = task
         self._buffers[task_key] = buf
 
-        def on_done(t: asyncio.Task) -> None:
+        def on_done(t: asyncio.Task[Any]) -> None:
             self._tasks.pop(task_key, None)
             self._buffers.pop(task_key, None)
             self._log.info("script %r finished", task_key)
@@ -566,7 +560,7 @@ class ScriptManager:
         self._log.info("script %r started", task_key)
         return task
 
-    def stop_script(self, name: "str | None" = None) -> list:
+    def stop_script(self, name: "str | None" = None) -> list[str]:
         """
         Cancel a running script or all running scripts.
 
@@ -582,9 +576,9 @@ class ScriptManager:
             self._tasks.clear()
             self._buffers.clear()
         else:
-            task = self._tasks.get(name)
-            if task is not None and not task.done():
-                task.cancel()
+            t = self._tasks.get(name)
+            if t is not None and not t.done():
+                t.cancel()
                 stopped.append(name)
         return stopped
 
@@ -602,7 +596,7 @@ class ScriptManager:
         for buf in list(self._buffers.values()):
             buf.on_prompt()
 
-    def active_scripts(self) -> list:
+    def active_scripts(self) -> list[str]:
         """
         Return names of currently running scripts.
 

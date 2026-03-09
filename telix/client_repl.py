@@ -21,6 +21,7 @@ import blessed.line_editor
 import telnetlib3.client_shell
 
 from . import terminal
+from . import highlighter
 from .macros import build_macro_dispatch
 from .autoreply import AutoreplyEngine
 from .highlighter import HighlightEngine
@@ -97,8 +98,8 @@ from .client_repl_commands import (  # noqa: F401  # noqa: F401
     TRAVEL_RE,
     BACKTICK_RE,
     COMMAND_DELAY,
-    MOVE_MAX_RETRIES,
     SCRIPT_CMD_RE,
+    MOVE_MAX_RETRIES,
     STOPSCRIPT_CMD_RE,
     send_chained,
     collapse_runs,
@@ -942,8 +943,12 @@ class ReplSession:
         ar_highlight = builtin_rule.highlight if builtin_rule else highlighter.DEFAULT_AUTOREPLY_HIGHLIGHT
         ar_enabled = builtin_rule.enabled if builtin_rule is not None else True
         self.ctx.highlight_engine = HighlightEngine(
-            hl_rules, ar_rules, self.blessed_term, self.ctx,
-            autoreply_highlight=ar_highlight, autoreply_enabled=ar_enabled,
+            hl_rules,
+            ar_rules,
+            self.blessed_term,
+            self.ctx,
+            autoreply_highlight=ar_highlight,
+            autoreply_enabled=ar_enabled,
         )
         self.ctx.highlight_engine.enabled = prev_enabled
 
@@ -1648,12 +1653,6 @@ class ReplSession:
                     self.replay_buf.append(colored.encode())
                     self.stdout.write(bt.save.encode())
 
-                    if self.ga_detected:
-                        try:
-                            await asyncio.wait_for(self.prompt_ready.wait(), timeout=2.0)
-                        except asyncio.TimeoutError:
-                            pass
-
                     if self.autoreply_engine is not None:
                         self.autoreply_engine.cancel()
                     disc_task = self.ctx.discover_task
@@ -1666,6 +1665,12 @@ class ReplSession:
                     if ft_task is not None and not ft_task.done():
                         ft_task.cancel()
                         self.ctx.travel_task = None
+
+                    if self.ga_detected:
+                        try:
+                            await asyncio.wait_for(self.prompt_ready.wait(), timeout=2.0)
+                        except asyncio.TimeoutError:
+                            pass
 
                     if self.telnet_writer.will_echo:
                         self.telnet_writer.write(line + "\r\n")  # type: ignore[arg-type]
@@ -1705,10 +1710,10 @@ class ReplSession:
                             mgr = self.ctx.script_manager
                             if mgr is not None:
                                 stopped = mgr.stop_script(ss.group(1))
-                                echo = self.ctx.echo_command
-                                if echo is not None:
+                                echo_fn = self.ctx.echo_command
+                                if echo_fn is not None:
                                     for sname in stopped:
-                                        echo(f"[stopscript] stopped: {sname}")
+                                        echo_fn(f"[stopscript] stopped: {sname}")
                             parts = parts[1:]
                         elif parts and TRAVEL_RE.match(parts[0]):
                             remainder = await handle_travel_commands(parts, self.ctx, self.telnet_writer.log)
@@ -1791,9 +1796,7 @@ class ReplSession:
         ) as (scroll, _):
             self.scroll = scroll
             self.blessed_term = get_term()
-            self.toolbar = ToolbarRenderer(
-                ctx=self.ctx, scroll=scroll, out=self.stdout, rprompt_text=self.conn_info
-            )
+            self.toolbar = ToolbarRenderer(ctx=self.ctx, scroll=scroll, out=self.stdout, rprompt_text=self.conn_info)
 
             if self.banner_lines:
                 for bl in self.banner_lines:

@@ -221,7 +221,7 @@ class AutoreplyEditPane(client_tui_base.EditListPane):
             if not isinstance(pkg_data, dict):
                 continue
             if base_key in pkg_data:
-                return pkg_name
+                return str(pkg_name)
         return ""
 
     def on_mount(self) -> None:

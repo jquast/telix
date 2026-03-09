@@ -24,8 +24,7 @@ if sys.platform == "win32":
 # local
 from telix.paths import DATA_DIR, history_path
 from telix.macros import Macro, load_macros, save_macros
-from telix.autoreply import SearchBuffer, AutoreplyEngine, AutoreplyRule
-from telix.highlighter import HighlightRule, RE_FLAGS
+from telix.autoreply import SearchBuffer, AutoreplyRule, AutoreplyEngine
 from telix.client_repl import (
     TRAVEL_RE,
     STYLE_NORMAL,
@@ -50,6 +49,7 @@ from telix.client_repl import (
     split_incomplete_esc,
     handle_travel_commands,
 )
+from telix.highlighter import RE_FLAGS, HighlightRule
 from telix.session_context import CommandQueue, TelixSessionContext
 from telix.client_repl_render import SEXTANT, scramble_password
 from telix.client_repl_travel import MAX_STUCK_RETRIES
@@ -2062,6 +2062,7 @@ async def test_read_input_password_no_command_expansion(monkeypatch: pytest.Monk
 async def test_read_input_timeout_rearms_after_background_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
     """rearm_after_subprocess is called on idle timeout when subprocess_needs_rearm is True."""
     import contextlib
+
     import telix.client_repl as repl_module
 
     pytest.importorskip("blessed")
@@ -2139,10 +2140,7 @@ class TestRefreshHighlightEngineBuiltin:
         term = self.make_term({"black_on_peru": "\x1b[PERU]", "black_on_beige": "\x1b[BEIGE]"})
         ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
         builtin = HighlightRule(
-            pattern=re.compile(r"<Autoreply pattern>", RE_FLAGS),
-            highlight="black_on_peru",
-            enabled=True,
-            builtin=True,
+            pattern=re.compile(r"<Autoreply pattern>", RE_FLAGS), highlight="black_on_peru", enabled=True, builtin=True
         )
         repl = self.make_repl([builtin], ar_rules, term)
 
@@ -2158,10 +2156,7 @@ class TestRefreshHighlightEngineBuiltin:
         term = self.make_term({"black_on_peru": "\x1b[PERU]"})
         ar_rules = [AutoreplyRule(pattern=re.compile("monster", RE_FLAGS), reply="flee", enabled=True)]
         builtin = HighlightRule(
-            pattern=re.compile(r"<Autoreply pattern>", RE_FLAGS),
-            highlight="black_on_peru",
-            enabled=False,
-            builtin=True,
+            pattern=re.compile(r"<Autoreply pattern>", RE_FLAGS), highlight="black_on_peru", enabled=False, builtin=True
         )
         repl = self.make_repl([builtin], ar_rules, term)
 
@@ -2184,7 +2179,9 @@ def test_rearm_after_subprocess_clears_blessed_size_cache(monkeypatch):
 
     repl = object.__new__(ReplSession)
     repl.last_resize_size = [24, 80]
-    repl.tty_shell = types.SimpleNamespace(_resize_pending=types.SimpleNamespace(is_set=lambda: False, clear=lambda: None))
+    repl.tty_shell = types.SimpleNamespace(
+        _resize_pending=types.SimpleNamespace(is_set=lambda: False, clear=lambda: None)
+    )
 
     repl_module.subprocess_needs_rearm = True
     repl.rearm_after_subprocess()
@@ -2197,12 +2194,15 @@ class TestWriteHint:
 
     def setup_method(self):
         import io
+
         import blessed
+
         self.buf = io.BytesIO()
+        buf = self.buf
 
         class FakeWriter:
-            def write(inner_self, data):
-                self.buf.write(data)
+            def write(self, data):
+                buf.write(data)
 
         self.writer = FakeWriter()
         self.bt = blessed.Terminal(force_styling=True)
@@ -2213,6 +2213,7 @@ class TestWriteHint:
     def test_no_autoreply_plain_uses_reverse(self):
         """Non-autoreply plain hint uses bt.reverse, not on_color_rgb."""
         from telix.client_repl_render import write_hint
+
         write_hint("some hint", self.writer, self.bt, autoreply=False)
         out = self._output()
         assert str(self.bt.reverse) in out
@@ -2221,6 +2222,7 @@ class TestWriteHint:
     def test_no_autoreply_with_progress_uses_reverse(self):
         """Non-autoreply hint with progress uses bt.reverse for the remaining portion."""
         from telix.client_repl_render import write_hint
+
         write_hint("abcdef", self.writer, self.bt, progress=0.5, autoreply=False)
         out = self._output()
         assert str(self.bt.reverse) in out
@@ -2228,5 +2230,6 @@ class TestWriteHint:
     def test_empty_hint_writes_nothing(self):
         """Empty hint string produces no output."""
         from telix.client_repl_render import write_hint
+
         write_hint("", self.writer, self.bt, autoreply=False)
         assert self._output() == ""

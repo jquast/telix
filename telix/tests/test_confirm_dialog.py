@@ -31,8 +31,7 @@ def mock_thread(monkeypatch: Any) -> Any:
     monkeypatch.setattr("telix.client_repl.restore_after_subprocess", lambda buf: None)
     monkeypatch.setattr("telix.client_repl.terminal_cleanup", lambda: "")
     monkeypatch.setattr(
-        "telix.client_repl.get_term",
-        lambda: MagicMock(change_scroll_region=MagicMock(return_value=""), height=24),
+        "telix.client_repl.get_term", lambda: MagicMock(change_scroll_region=MagicMock(return_value=""), height=24)
     )
     return Holder
 
@@ -47,7 +46,6 @@ def test_confirmed_returns_true(mock_thread: Any) -> None:
     mock_thread.data = {"confirmed": True}
     ok = confirm_dialog("Test", "body")
     assert ok is True
-
 
 
 def test_warning_passed_in_command(mock_thread: Any) -> None:

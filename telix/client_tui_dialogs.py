@@ -12,6 +12,7 @@ live in ``client_tui_rooms``, ``client_tui_captures``, and
 import sys
 import json
 import typing
+from typing import Any
 
 # 3rd party
 import textual.app
@@ -24,6 +25,8 @@ import textual.containers
 # local
 from . import client_tui_base, client_tui_editors
 from .client_tui_app import TelnetSessionApp, tui_main  # noqa: F401
+
+__all__ = ["TelnetSessionApp", "tui_main"]
 from .client_tui_rooms import (  # noqa: F401
     HOME_STYLE,
     ARROW_STYLE,
@@ -272,7 +275,7 @@ class TabbedEditorScreen(textual.screen.Screen[None]):
         self.app.exit()
 
 
-def run_unified_editor(params: dict) -> None:
+def run_unified_editor(params: dict[str, Any]) -> None:
     """
     Launch the tabbed editor in the current (worker) thread.
 
@@ -283,9 +286,7 @@ def run_unified_editor(params: dict) -> None:
     :param params: Parameter dict for all editor panes (same structure as the JSON blob
         read by :func:`unified_editor_main`).
     """
-    client_tui_base.launch_editor_in_thread(
-        TabbedEditorScreen(params), session_key=params.get("session_key", "")
-    )
+    client_tui_base.launch_editor_in_thread(TabbedEditorScreen(params), session_key=params.get("session_key", ""))
 
 
 def unified_editor_main() -> None:

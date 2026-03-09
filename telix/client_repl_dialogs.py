@@ -11,7 +11,8 @@ import logging
 import tempfile
 import threading
 import contextlib
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Iterator
 
 from .help import get_help
 from .paths import CONFIG_DIR as config_dir
@@ -38,7 +39,7 @@ log = logging.getLogger(__name__)
 
 
 @contextlib.contextmanager
-def _patch_signal_for_thread() -> "contextlib.AbstractContextManager[None]":
+def _patch_signal_for_thread() -> Iterator[None]:
     """
     Forward ``signal.signal()`` calls from the TUI worker thread to the main thread.
 
@@ -74,7 +75,7 @@ def _patch_signal_for_thread() -> "contextlib.AbstractContextManager[None]":
     try:
         yield
     finally:
-        signal.signal = original  # type: ignore[assignment]
+        signal.signal = original
         original(signal.SIGWINCH, old_winch)
 
 
@@ -91,9 +92,7 @@ def _prepare_terminal() -> None:
 
 
 def _run_in_thread(
-    target: Callable[[], None],
-    replay_buf: Any | None = None,
-    cleanup_files: list[str] | None = None,
+    target: Callable[[], None], replay_buf: Any | None = None, cleanup_files: list[str] | None = None
 ) -> None:
     """
     Run a TUI callable in a worker thread with terminal and editor-active flag management.
@@ -170,8 +169,7 @@ def confirm_dialog(title: str, body: str, warning: str = "", replay_buf: Any | N
     )
     _prepare_terminal()
     _run_in_thread(
-        lambda: client_tui_dialogs.run_confirm_dialog(title, body, warning or "", result_path),
-        replay_buf=replay_buf,
+        lambda: client_tui_dialogs.run_confirm_dialog(title, body, warning or "", result_path), replay_buf=replay_buf
     )
 
     try:
@@ -535,8 +533,7 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
     elif editor_type == "highlights":
         path = ctx.highlights_file or os.path.join(config_dir, "highlights.json")
         target = lambda: client_tui_base.launch_editor_in_thread(  # noqa: E731
-            client_tui_editors.HighlightEditScreen(path=path, session_key=session_key),
-            session_key=session_key,
+            client_tui_editors.HighlightEditScreen(path=path, session_key=session_key), session_key=session_key
         )
     elif editor_type == "progressbars":
         path = ctx.progressbars_file or os.path.join(config_dir, "progressbars.json")
@@ -545,9 +542,7 @@ def launch_tui_editor(editor_type: str, ctx: "TelixSessionContext", replay_buf: 
             save_gmcp_snapshot(snap, session_key, ctx.gmcp_data)
             ctx.gmcp_dirty = False
         target = lambda: client_tui_base.launch_editor_in_thread(  # noqa: E731
-            client_tui_editors.ProgressBarEditScreen(
-                path=path, session_key=session_key, gmcp_snapshot_path=snap
-            ),
+            client_tui_editors.ProgressBarEditScreen(path=path, session_key=session_key, gmcp_snapshot_path=snap),
             session_key=session_key,
         )
     else:

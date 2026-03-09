@@ -314,9 +314,7 @@ class CapsScreen(textual.screen.Screen[None]):
 ChatViewerScreen = CapsScreen
 
 
-def run_chat_viewer(
-    chat_file: str, session_key: str = "", initial_channel: str = "", capture_file: str = ""
-) -> None:
+def run_chat_viewer(chat_file: str, session_key: str = "", initial_channel: str = "", capture_file: str = "") -> None:
     """
     Launch the Capture Window TUI in the current (worker) thread.
 

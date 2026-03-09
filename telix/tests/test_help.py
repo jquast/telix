@@ -41,7 +41,7 @@ def test_keybindings_contains_key_sections() -> None:
     assert "Line Editing" in result
     assert "Command Processing" in result
     assert "F1" in result
-    assert "Ctrl+]" in result
+    assert "Ctrl + ]" in result
 
 
 def test_unknown_topic_raises() -> None:
@@ -53,7 +53,7 @@ def test_render_help_md_no_gmcp() -> None:
     lines = render_help_md(has_gmcp=False)
     text = "\n".join(lines)
     assert "F1" in text
-    assert "Alt+M" in text
+    assert "Alt + M" in text
     assert "F3" not in text
     assert "Alt+R" not in text
 
@@ -63,4 +63,4 @@ def test_render_help_md_with_gmcp() -> None:
     text = "\n".join(lines)
     assert "F1" in text
     assert "F3" in text
-    assert "Alt+R" in text
+    assert "Alt + R" in text

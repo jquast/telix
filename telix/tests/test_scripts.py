@@ -1,18 +1,17 @@
 """Tests for scripts.py: ScriptOutputBuffer, ScriptContext, ScriptManager."""
 
-import asyncio
-import logging
 import re
 import sys
-import textwrap
 import types
+import asyncio
+import logging
+import textwrap
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from telix import scripts
 from telix.client_repl_commands import SCRIPT_CMD_RE, STOPSCRIPT_CMD_RE
-
 
 # ---------------------------------------------------------------------------
 # Backtick regex constants
@@ -33,7 +32,7 @@ class TestScriptCmdRe:
         assert m.group(1) == "combat.hunt"
 
     def test_matches_with_args(self):
-        m = SCRIPT_CMD_RE.match('`script rooms.goto 12345`')
+        m = SCRIPT_CMD_RE.match("`script rooms.goto 12345`")
         assert m is not None
         assert m.group(1) == "rooms.goto 12345"
 
@@ -305,7 +304,7 @@ class TestScriptContextSend:
         buf = scripts.ScriptOutputBuffer()
         ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
         sent = []
-        session_ctx.writer.write.side_effect = lambda s: sent.append(s)
+        session_ctx.writer.write.side_effect = sent.append
         await ctx.send("look")
         assert any("look" in s for s in sent)
 
@@ -317,7 +316,7 @@ class TestScriptContextSend:
         buf = scripts.ScriptOutputBuffer()
         ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
         sent = []
-        session_ctx.writer.write.side_effect = lambda s: sent.append(s)
+        session_ctx.writer.write.side_effect = sent.append
         await ctx.send("north|south")
         assert len([s for s in sent if s.strip()]) == 2
 
