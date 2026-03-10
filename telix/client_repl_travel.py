@@ -615,21 +615,7 @@ async def autodiscover(
                 await wait_fn()
 
             if room_change_cmd:
-                for sub_cmd in room_change_cmd.split(";"):
-                    sub_cmd = sub_cmd.strip()
-                    if not sub_cmd:
-                        continue
-                    if echo_fn is not None:
-                        echo_fn(sub_cmd)
-                    ctx.walk.active_command = sub_cmd
-                    ctx.walk.active_command_time = time.monotonic()
-                    if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
-                        ctx.writer.write(sub_cmd + "\r\n")
-                    else:
-                        ctx.writer.write((sub_cmd + "\r\n").encode("utf-8"))
-                    if wait_fn is not None:
-                        await wait_fn()
-                    ctx.walk.active_command = None
+                await client_repl_commands.execute_macro_commands(room_change_cmd, ctx, log)
 
             # Stay where we are -- next iteration re-discovers branches
             # from current position, so nearby clusters get swept without
@@ -880,21 +866,7 @@ async def randomwalk(
             ctx.walk.randomwalk_current = count_filled()
 
             if ctx.walk.randomwalk_room_change_cmd:
-                for sub_cmd in ctx.walk.randomwalk_room_change_cmd.split(";"):
-                    sub_cmd = sub_cmd.strip()
-                    if not sub_cmd:
-                        continue
-                    if echo_fn is not None:
-                        echo_fn(sub_cmd)
-                    ctx.walk.active_command = sub_cmd
-                    ctx.walk.active_command_time = time.monotonic()
-                    if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
-                        ctx.writer.write(sub_cmd + "\r\n")
-                    else:
-                        ctx.writer.write((sub_cmd + "\r\n").encode("utf-8"))
-                    if wait_fn is not None:
-                        await wait_fn()
-                    ctx.walk.active_command = None
+                await client_repl_commands.execute_macro_commands(ctx.walk.randomwalk_room_change_cmd, ctx, log)
 
             # Bounce detection: if we returned to the room we were in
             # 2 steps ago, we are ping-ponging between two rooms.

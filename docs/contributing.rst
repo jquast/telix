@@ -10,50 +10,27 @@ We welcome contributions via GitHub pull requests:
 Version API
 -----------
 
-This project uses `Semantic Versioning <https://semver.org/>`_ for
-scripting commands and data files.  Commands and configurations are
-expected to be backwards-compatible; when a breaking change is
+This project uses `Semantic Versioning <https://semver.org/>`_ for the scripting API, Commands and
+configuration files.  These are expected to be backwards-compatible; when a breaking change is
 necessary, the major version is incremented.
 
-This project does *not* follow semantic versioning for Python
-functions, classes, modules, or their signatures -- **any name can
-change at any time**.  It is not recommended to ``import telix`` for
-use in other projects; the version contract covers only the CLI and
-TUI interfaces.
+This project does *not* follow semantic versioning for Python functions, classes, modules, or their
+signatures -- **any name can change at any time**.  It is not recommended to ``import telix`` for
+use in other projects.
 
 Architecture
 ------------
 
-Telix is a TUI Telnet, WebSocket, and SSH client for MUD and BBS systems, layered on top of telnetlib3_, blessed_,
-wcwidth_, and textual_::
-
-    telix
-      |--> wcwidth
-      |
-      +--> websockets
-      |
-      |--> telnetlib3
-      |    |
-      |    +-->  wcwidth
-      |    |
-      +--> blessed
-      |    |
-      |    +-->  wcwidth
-      |    |
-      |    +-->  jinxed (windows)
-      |
-      textual
-           |
-           +--> rich
-                |
-                +--> wcwidth
+Telix is primarily a TUI interface for MUD scripting over Telnet. It also includes support for
+BBS, and the WebSocket and SSH protocol. Telix is mainly a TUI and automation/scripting layer
+above telnetlib3_, blessed_, wcwidth_, textual_, asyncssh_, websockets_ ::
 
 wcwidth_ is depended on by each of Telix, telnetlib3_, blessed_, and rich_.  wcwidth_ is used to
 measure the width of strings containing sequences and complex unicode. blessed_ is depended on for
 general terminal support for access to terminal sequence, feature detection, and keyboard handling,
-and to provide the repl for MUD connections. telnetlib3_ also requires blessed for the same, and,
-textual_ is used for all complex TUIs, which depends on its core library rich_.  For Windows
-systems, jinxed_ is used by both Telix and telnetlib3_ for msvcrt keyboard routines.
+and to provide the REPL for MUD connections. telnetlib3_ also requires blessed, and, textual_ is
+used for all complex TUIs, which depends on its core library rich_.  For Windows systems, jinxed_ is
+used by both Telix and telnetlib3_ for msvcrt keyboard routines.
 
 Telix code file overview::
 

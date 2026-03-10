@@ -601,7 +601,7 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
         if not triggers:
             cmd += " noreply"
         if room_change_cmd:
-            cmd += f" roomcmd {room_change_cmd}"
+            cmd += f" roomcmd {room_change_cmd.replace('`', chr(92) + '`')}"
         cmd += "`"
         result = json.dumps(
             {
@@ -831,7 +831,7 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
         if not triggers:
             cmd += " noreply"
         if room_change_cmd:
-            cmd += f" roomcmd {room_change_cmd}"
+            cmd += f" roomcmd {room_change_cmd.replace('`', chr(92) + '`')}"
         cmd += "`"
         result = json.dumps(
             {

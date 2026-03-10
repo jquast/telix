@@ -9,10 +9,10 @@ Telix
    intro
    user-manual
    commands
-   files
    scripting
-   contributing
+   files
    protocols
+   contributing
    history
 
 

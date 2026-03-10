@@ -8,8 +8,8 @@ A modern Telnet, WebSocket, and SSH client designed especially for BBSs_ and MUD
 Features
 --------
 
-- **Session Manager** to store and bookmark connections, bundled with an up-to-date directory of
-  over 1,700+ MUD and BBS servers.
+- **Session Manager** for configuring and bookmarking connections, bundled with an up-to-date
+  directory of over 1,700+ MUDs_ and BBSs_.
 - **Advanced Telnet** support for popular BBS and MUD protocols, NAWS (:rfc:`1073`), `GMCP`_,
   `MCCP`_, BINARY (:rfc:`856`), SGA (:rfc:`858`), ECHO (:rfc:`857`), EOR (:rfc:`885`), GA
   (:rfc:`854`), TTYPE (:rfc:`1091`), ENVIRON (:rfc:`1408`) / NEW_ENVIRON (:rfc:`1572`), and CHARSET

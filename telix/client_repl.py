@@ -93,7 +93,8 @@ from .client_repl_commands import (  # noqa: F401  # noqa: F401
     TRAVEL_RE,
     BACKTICK_RE,
     COMMAND_DELAY,
-    SCRIPT_CMD_RE,
+    ASYNC_CMD_RE,
+    AWAIT_CMD_RE,
     SCRIPTS_CMD_RE,
     MOVE_MAX_RETRIES,
     STOPSCRIPT_CMD_RE,
@@ -1402,8 +1403,12 @@ class ReplSession:
                         self.stdout.write(bt.save.encode())
                     self.prompt_pending = False
                     if self.trigger_engine is not None:
+                        if held:
+                            self.trigger_engine.feed(held)
                         self.trigger_engine.on_prompt()
                     if self.ctx.scripts.manager is not None:
+                        if held:
+                            self.ctx.scripts.manager.feed(held)
                         self.ctx.scripts.manager.on_prompt()
                     self.update_input_style()
                 continue
@@ -1697,13 +1702,24 @@ class ReplSession:
                         if parts and EDIT_THEME_RE.match(parts[0]):
                             launch_unified_editor("theme", self.ctx, self.replay_buf)
                             parts = parts[1:]
-                        elif parts and SCRIPT_CMD_RE.match(parts[0]):
-                            sm = SCRIPT_CMD_RE.match(parts[0])
+                        elif parts and ASYNC_CMD_RE.match(parts[0]):
+                            sm = ASYNC_CMD_RE.match(parts[0])
                             assert sm is not None
                             mgr = self.ctx.scripts.manager
                             if mgr is not None:
                                 try:
                                     mgr.start_script(self.ctx, sm.group(1))
+                                except Exception as exc:
+                                    self.telnet_writer.log.error("script error: %s", exc)
+                            parts = parts[1:]
+                        elif parts and AWAIT_CMD_RE.match(parts[0]):
+                            aw = AWAIT_CMD_RE.match(parts[0])
+                            assert aw is not None
+                            mgr = self.ctx.scripts.manager
+                            if mgr is not None:
+                                try:
+                                    task = mgr.start_script(self.ctx, aw.group(1))
+                                    await task
                                 except Exception as exc:
                                     self.telnet_writer.log.error("script error: %s", exc)
                             parts = parts[1:]

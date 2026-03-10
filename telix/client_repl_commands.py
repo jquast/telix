@@ -33,7 +33,8 @@ UNTIL_RE = re.compile(r"^`until(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
 UNTILS_RE = re.compile(r"^`untils(?:\s+(\d+(?:\.\d+)?))?\s+(.+)`$")
 
 REPL_ACTION_RE = re.compile(r"^`(help|disconnect|repaint|captures)`$", re.IGNORECASE)
-SCRIPT_CMD_RE = re.compile(r"^`script\s+(.+)`$", re.IGNORECASE)
+ASYNC_CMD_RE = re.compile(r"^`async\s+(.+)`$", re.IGNORECASE)
+AWAIT_CMD_RE = re.compile(r"^`await\s+(.+)`$", re.IGNORECASE)
 STOPSCRIPT_CMD_RE = re.compile(r"^`stopscript(?:\s+(\S+))?`$", re.IGNORECASE)
 SCRIPTS_CMD_RE = re.compile(r"^`scripts`$", re.IGNORECASE)
 EDIT_RE = re.compile(r"^`edit\s+(\w+)`$", re.IGNORECASE)
@@ -316,12 +317,23 @@ async def dispatch_one(
                 return StepResult.ABORT
         return StepResult.HANDLED
 
-    sm = SCRIPT_CMD_RE.match(cmd)
+    sm = ASYNC_CMD_RE.match(cmd)
     if sm:
         mgr = hooks.ctx.scripts.manager
         if mgr is not None:
             try:
                 mgr.start_script(hooks.ctx, sm.group(1))
+            except Exception as exc:
+                hooks.log.error("script error: %s", exc)
+        return StepResult.HANDLED
+
+    aw = AWAIT_CMD_RE.match(cmd)
+    if aw:
+        mgr = hooks.ctx.scripts.manager
+        if mgr is not None:
+            try:
+                task = mgr.start_script(hooks.ctx, aw.group(1))
+                await task
             except Exception as exc:
                 hooks.log.error("script error: %s", exc)
         return StepResult.HANDLED

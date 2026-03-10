@@ -121,8 +121,10 @@ BFS-explore unvisited exits from nearby rooms.  Optional arguments
 - **limit** -- maximum exits to explore (default 999)
 - **bfs** / **dfs** -- search strategy (default bfs)
 - **noreply** -- completely disable trigger processing during the walk
-- **roomcmd** *cmds* -- semicolon-separated commands to send in each new room
-  (everything after ``roomcmd`` is treated as the command string)
+- **roomcmd** *cmds* -- commands to run in each new room; everything after
+  ``roomcmd`` is the command string, processed through the full client pipeline
+  (semicolons wait for prompt, ``|`` sends immediately, backtick commands run
+  locally -- escape backticks inside the string as ``\```)
 
 | Example | Effect |
 |---------|--------|
@@ -130,7 +132,7 @@ BFS-explore unvisited exits from nearby rooms.  Optional arguments
 | `` `autodiscover 50` `` | Explore up to 50 exits |
 | `` `autodiscover dfs noreply` `` | DFS explore with triggers disabled |
 | `` `autodiscover roomcmd search;survey` `` | Explore, running search and survey in each room |
-| `` `autodiscover noreply roomcmd script hunt` `` | Explore with triggers off, running a hunt script |
+| `` `autodiscover noreply roomcmd \`async hunt\`` `` | Explore with triggers off, running a hunt script |
 
 ### Random Walk
 
@@ -140,8 +142,10 @@ arguments (in any order after the verb, except ``roomcmd`` which must be last):
 - **limit** -- maximum steps (default 999)
 - **visit_level** -- minimum visits per room before stopping (default 2)
 - **noreply** -- completely disable trigger processing during the walk
-- **roomcmd** *cmds* -- semicolon-separated commands to send in each new room
-  (everything after ``roomcmd`` is treated as the command string)
+- **roomcmd** *cmds* -- commands to run in each new room; everything after
+  ``roomcmd`` is the command string, processed through the full client pipeline
+  (semicolons wait for prompt, ``|`` sends immediately, backtick commands run
+  locally -- escape backticks inside the string as ``\```)
 
 | Example | Effect |
 |---------|--------|
@@ -149,12 +153,17 @@ arguments (in any order after the verb, except ``roomcmd`` which must be last):
 | `` `randomwalk 100` `` | Random walk up to 100 steps |
 | `` `randomwalk noreply` `` | Walk with triggers disabled |
 | `` `randomwalk roomcmd search;survey` `` | Walk, running search and survey in each room |
-| `` `randomwalk noreply roomcmd search;survey;script hunt` `` | Walk with triggers off and full room sweep |
+| `` `randomwalk noreply roomcmd search;survey;\`async hunt\`` `` | Walk with triggers off and full room sweep |
 
 ### Script
 
 Run an async Python script.  Scripts are searched in the current directory
 and ``~/.config/telix/scripts/``.
+
+`` `async NAME` `` fires the script in the background and returns immediately;
+`` `await NAME` `` runs the script and waits for it to finish before
+continuing -- useful inside ``roomcmd`` sequences where you need the script to
+complete before the walk moves on.
 
 **Warning:** Scripts run concurrently and asynchronously.  Multiple scripts
 (or a script combined with active triggers) can send commands simultaneously,
@@ -163,8 +172,10 @@ potentially flooding the server with rapid input -- a "server storm".  Use
 
 | Example | Effect |
 |---------|--------|
-| `` `script NAME` `` | Run async Python script NAME |
-| `` `script MODULE.FUNC` `` | Run a specific named async function from MODULE |
+| `` `async NAME` `` | Fire-and-forget async Python script NAME |
+| `` `async MODULE.FUNC` `` | Run a specific named async function from MODULE |
+| `` `await NAME` `` | Run script NAME and block until it finishes |
+| `` `await MODULE.FUNC arg` `` | Run a specific function and wait for completion |
 | `` `scripts` `` | List all currently running scripts |
 | `` `stopscript` `` | Stop all running scripts |
 | `` `stopscript NAME` `` | Stop the named script |

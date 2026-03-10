@@ -727,6 +727,18 @@ def test_randomwalk_dialog_default_room_change_cmd() -> None:
     assert screen.default_triggers is False
 
 
+def test_randomwalk_dialog_backtick_escaped_in_command(tmp_path: Any) -> None:
+    """Backticks in roomcmd are escaped with backslash in the generated command string."""
+    result_file = str(tmp_path / "result.json")
+    screen = RandomwalkDialogScreen(result_file=result_file)
+    screen.write_result(True, 2, room_change_cmd="search;`script hunt`")
+
+    with open(result_file, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["room_change_cmd"] == "search;`script hunt`"
+    assert data["command"] == r"`randomwalk 999 2 roomcmd search;\`script hunt\``"
+
+
 def test_autodiscover_dialog_writes_bfs(tmp_path: Any) -> None:
     result_file = str(tmp_path / "result.json")
     screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")

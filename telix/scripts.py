@@ -17,6 +17,7 @@ import shlex
 import typing
 import asyncio
 import logging
+import traceback
 import importlib
 import collections
 from typing import TYPE_CHECKING
@@ -359,11 +360,11 @@ class ScriptContext:
                 return False
         return True
 
-    def output(self, clear: bool = False) -> str:
+    def output(self, clear: bool = True) -> str:
         """
         Return accumulated server output text.
 
-        :param clear: If ``True``, clear the buffer after returning.
+        :param clear: If ``True``, clear the buffer after returning (default ``True``).
         :returns: Output text string.
         """
         return self._buf.output(clear)
@@ -407,14 +408,18 @@ class ScriptContext:
                 return True
             await asyncio.sleep(poll_interval)
 
-    def print(self, text: str) -> None:
+    def print(self, *args: typing.Any, sep: str = " ") -> None:
         """
-        Write *text* to the terminal scroll region (cyan).
+        Write args to the terminal scroll region (cyan).
 
-        Uses the same echo mechanism as trigger notifications.
+        Behaves like the built-in :func:`print`: multiple positional arguments
+        are joined with *sep*, and non-string values are converted via
+        :func:`str`.  Uses the same echo mechanism as trigger notifications.
 
-        :param text: Text to display.
+        :param args: Values to display.
+        :param sep: Separator string inserted between values (default ``" "``).
         """
+        text = sep.join(str(a) for a in args)
         echo = self._ctx.prompt.echo
         if echo is not None:
             echo(text)
@@ -598,14 +603,25 @@ class ScriptManager:
 
         task_key = token
 
-        mod = self._load_module(module_path)
-        fn = getattr(mod, fn_name, None)
-        if fn is None:
-            raise ValueError(f"script {module_path!r} has no function {fn_name!r}")
-
         buf = ScriptOutputBuffer()
         script_log = logging.getLogger(f"telix.script.{task_key}")
         ctx = ScriptContext(session_ctx, buf, script_log)
+
+        try:
+            mod = self._load_module(module_path)
+        except Exception:
+            script_log.exception("script %r failed to import", task_key)
+            for line in traceback.format_exc().splitlines():
+                ctx.print(line)
+
+            async def _noop() -> None:
+                pass
+
+            return asyncio.ensure_future(_noop())
+
+        fn = getattr(mod, fn_name, None)
+        if fn is None:
+            raise ValueError(f"script {module_path!r} has no function {fn_name!r}")
 
         async def run_script() -> None:
             try:
@@ -615,6 +631,8 @@ class ScriptManager:
                 raise
             except Exception:
                 script_log.exception("script %r raised an exception", task_key)
+                for line in traceback.format_exc().splitlines():
+                    ctx.print(line)
 
         task = asyncio.ensure_future(run_script())
         self._tasks[task_key] = task

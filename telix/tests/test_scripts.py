@@ -12,7 +12,8 @@ import pytest
 
 from telix import scripts
 from telix.client_repl_commands import (
-    SCRIPT_CMD_RE,
+    ASYNC_CMD_RE,
+    AWAIT_CMD_RE,
     STOPSCRIPT_CMD_RE,
     SCRIPTS_CMD_RE,
     DispatchHooks,
@@ -25,29 +26,54 @@ from telix.client_repl_commands import (
 # ---------------------------------------------------------------------------
 
 
-class TestScriptCmdRe:
-    """SCRIPT_CMD_RE matches backtick-enclosed script commands."""
+class TestAsyncCmdRe:
+    """ASYNC_CMD_RE matches backtick-enclosed async (fire-and-forget) script commands."""
 
     def test_matches_bare_module(self):
-        m = SCRIPT_CMD_RE.match("`script demo`")
+        m = ASYNC_CMD_RE.match("`async demo`")
         assert m is not None
         assert m.group(1) == "demo"
 
     def test_matches_dotted_function(self):
-        m = SCRIPT_CMD_RE.match("`script combat.hunt`")
+        m = ASYNC_CMD_RE.match("`async combat.hunt`")
         assert m is not None
         assert m.group(1) == "combat.hunt"
 
     def test_matches_with_args(self):
-        m = SCRIPT_CMD_RE.match("`script rooms.goto 12345`")
+        m = ASYNC_CMD_RE.match("`async rooms.goto 12345`")
         assert m is not None
         assert m.group(1) == "rooms.goto 12345"
 
     def test_does_not_match_plain_text(self):
-        assert SCRIPT_CMD_RE.match("script demo") is None
+        assert ASYNC_CMD_RE.match("async demo") is None
 
     def test_case_insensitive(self):
-        assert SCRIPT_CMD_RE.match("`SCRIPT demo`") is not None
+        assert ASYNC_CMD_RE.match("`ASYNC demo`") is not None
+
+
+class TestAwaitCmdRe:
+    """AWAIT_CMD_RE matches backtick-enclosed await (blocking) script commands."""
+
+    def test_matches_bare_module(self):
+        m = AWAIT_CMD_RE.match("`await demo`")
+        assert m is not None
+        assert m.group(1) == "demo"
+
+    def test_matches_dotted_function(self):
+        m = AWAIT_CMD_RE.match("`await combat.hunt`")
+        assert m is not None
+        assert m.group(1) == "combat.hunt"
+
+    def test_matches_with_args(self):
+        m = AWAIT_CMD_RE.match("`await rooms.goto 12345`")
+        assert m is not None
+        assert m.group(1) == "rooms.goto 12345"
+
+    def test_does_not_match_plain_text(self):
+        assert AWAIT_CMD_RE.match("await demo") is None
+
+    def test_case_insensitive(self):
+        assert AWAIT_CMD_RE.match("`AWAIT demo`") is not None
 
 
 class TestScriptsCmdRe:
@@ -292,6 +318,34 @@ class TestScriptContextPrint:
         buf = scripts.ScriptOutputBuffer()
         ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
         ctx.print("silent")
+
+    def test_non_string_argument_is_converted(self):
+        session_ctx = make_ctx()
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx.print(42)
+        session_ctx.prompt.echo.assert_called_once_with("42")
+
+    def test_list_argument_is_converted(self):
+        session_ctx = make_ctx()
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx.print([1, 2, 3])
+        session_ctx.prompt.echo.assert_called_once_with("[1, 2, 3]")
+
+    def test_multiple_args_joined_with_space(self):
+        session_ctx = make_ctx()
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx.print("hp:", 100)
+        session_ctx.prompt.echo.assert_called_once_with("hp: 100")
+
+    def test_multiple_args_custom_sep(self):
+        session_ctx = make_ctx()
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx.print("a", "b", "c", sep=", ")
+        session_ctx.prompt.echo.assert_called_once_with("a, b, c")
 
 
 class TestScriptContextProperties:
@@ -609,6 +663,109 @@ class TestScriptsDispatch:
         hooks = make_dispatch_hooks(None, echoed)
         result = await dispatch_one("`scripts`", 0, 0, frozenset(), hooks)
         assert result is StepResult.HANDLED
+
+
+class TestAwaitDispatch:
+    """Backtick `await` command blocks until the script task completes."""
+
+    @pytest.mark.asyncio
+    async def test_await_blocks_until_done(self):
+        """dispatch_one with `await` waits for the script to finish before returning."""
+        completed = []
+        mod = make_fake_module("run", "completed.append(1)")
+        mod.__dict__["completed"] = completed
+        mgr = scripts.ScriptManager()
+        echoed = []
+        hooks = make_dispatch_hooks(mgr, echoed)
+
+        with patch.dict(sys.modules, {"await_script": mod}):
+            result = await dispatch_one("`await await_script`", 0, 0, frozenset(), hooks)
+
+        assert result is StepResult.HANDLED
+        assert completed == [1]
+
+    @pytest.mark.asyncio
+    async def test_await_no_manager(self):
+        """dispatch_one with `await` and no manager returns HANDLED without error."""
+        echoed = []
+        hooks = make_dispatch_hooks(None, echoed)
+        result = await dispatch_one("`await some_script`", 0, 0, frozenset(), hooks)
+        assert result is StepResult.HANDLED
+
+
+class TestScriptManagerExceptionReporting:
+    """ScriptManager reports script exceptions via ctx.print."""
+
+    @pytest.mark.asyncio
+    async def test_assert_error_printed(self):
+        mod = make_fake_module("run", "assert False, 'boom'")
+        mgr = scripts.ScriptManager()
+        session_ctx = make_ctx()
+
+        with patch.dict(sys.modules, {"fail_script": mod}):
+            mgr.start_script(session_ctx, "fail_script")
+
+        await asyncio.sleep(0.1)
+        calls = session_ctx.prompt.echo.call_args_list
+        assert calls, "ctx.print was never called"
+        printed = "\n".join(str(c) for c in calls)
+        assert "AssertionError" in printed
+
+    @pytest.mark.asyncio
+    async def test_exception_message_included(self):
+        mod = make_fake_module("run", "raise ValueError('bad value')")
+        mgr = scripts.ScriptManager()
+        session_ctx = make_ctx()
+
+        with patch.dict(sys.modules, {"fail_script2": mod}):
+            mgr.start_script(session_ctx, "fail_script2")
+
+        await asyncio.sleep(0.1)
+        calls = session_ctx.prompt.echo.call_args_list
+        assert calls
+        printed = "\n".join(str(c) for c in calls)
+        assert "bad value" in printed
+
+    @pytest.mark.asyncio
+    async def test_cancelled_not_printed(self):
+        mod = make_fake_module("run", "await asyncio.sleep(10)")
+        mgr = scripts.ScriptManager()
+        session_ctx = make_ctx()
+
+        with patch.dict(sys.modules, {"cancel_script": mod}):
+            mgr.start_script(session_ctx, "cancel_script")
+
+        mgr.stop_script("cancel_script")
+        await asyncio.sleep(0.1)
+        session_ctx.prompt.echo.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_import_error_printed(self):
+        """Import-time errors are printed via ctx.print, not silently swallowed."""
+        mgr = scripts.ScriptManager()
+        session_ctx = make_ctx()
+
+        with patch("importlib.import_module", side_effect=SyntaxError("unexpected EOF")):
+            mgr.start_script(session_ctx, "bad_script")
+
+        await asyncio.sleep(0.1)
+        calls = session_ctx.prompt.echo.call_args_list
+        assert calls, "ctx.print was never called for import error"
+        printed = "\n".join(str(c) for c in calls)
+        assert "SyntaxError" in printed
+
+    @pytest.mark.asyncio
+    async def test_import_error_returns_task(self):
+        """start_script returns a task even when the module fails to import."""
+        mgr = scripts.ScriptManager()
+        session_ctx = make_ctx()
+
+        with patch("importlib.import_module", side_effect=ImportError("no module named 'missing'")):
+            task = mgr.start_script(session_ctx, "missing_script")
+
+        assert task is not None
+        await asyncio.sleep(0.1)
+        assert task.done()
 
 
 class TestScriptManagerFeed:
