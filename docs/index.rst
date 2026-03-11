@@ -10,6 +10,7 @@ Telix
    session-manager
    commands
    scripting
+   scripting-api
    keybindings
    macros
    triggers
