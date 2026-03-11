@@ -7,29 +7,8 @@ interface.  They are useful for logic that goes beyond the "find pattern and
 respond" capability of Triggers_: hunting loops, healing routines, mapping
 runs, or any sequence that depends on timing or server output.
 
-Triggering scripts
-------------------
-
-Scripts are started by the `` `async` `` or `` `await` `` commands (see
-`Launching scripts`_ below).
-
-Run a script and wait for completion::
-
-    await module.func_name
-
-Run a script asynchronously (in the background)::
-
-    async module.func_name
-
-These commands can be used anywhere that Commands_ may be used:
-
-- **REPL**: type `` `async module.fn` `` at the prompt
-- **Trigger reply field**: set reply as `` `async module.fn` ``
-- **Macro text**: include `` `async module.fn` `` in macro text
-- **autowalk** and **autodiscover**: include `` `async module.fn` `` in room-change command.
-
 Quickstart
-~~~~~~~~~~
+----------
 
 Create a file named ``demo.py`` in the current directory where ``telix`` is
 launched or in ``~/.config/telix/scripts/``::
@@ -50,17 +29,24 @@ Example output::
     [demo] You are in: Mayor's office (caladan)
     [demo] Exits: west
 
-Lifecycle
----------
+Starting
+--------
 
-If you wish, multiple scripts can run at the same time. Asynchronous programming
-is very useful but can also get out of control, and may accidentally flood the server
-with bad commands.
+Telix looks for scripts in this order:
 
-To stop everything immediately, press **Alt + Q**.
+1. Current working directory
+2. ``~/.config/telix/scripts/``
 
-Launching scripts
-~~~~~~~~~~~~~~~~~
+Scripts are started by the `` `async` `` or `` `await` `` commands.  Every time a script is
+launched, the last-modified time is checked and reloaded if necessary. Save a script file at any
+time and then call it to see any new changes (or errors!).
+
+`` `await NAME` ``
+    Start a script and block until it finishes before continuing, preferred for most trigger, macro,
+    or autowalk/autodiscover integration this is preferred, as you would want the script to run to
+    completion before continuing::
+
+        `await combat.hunt`
 
 `` `async NAME` ``
     Start a script in the background and return immediately.  The script runs
@@ -68,48 +54,35 @@ Launching scripts
 
         `async combat.hunt`
 
-`` `await NAME` ``
-    Start a script and block until it finishes before continuing.  Useful
-    inside ``roomcmd`` sequences where you need the script to complete before
-    the walk moves on::
+    This loads ``combat.py`` and calls ``hunt(ctx)`` asynchronously.
 
-        `await combat.hunt`
+With either command calls, the function name can be omitted, and is then assumed as ``run``. 
 
-Search path
-~~~~~~~~~~~
+- `` `async demo` `` loads ``demo.py``, calls ``run(ctx)``.
 
-Telix looks for scripts in this order:
+Scripts can accept optional arguments as strings, using shell-like syntax::
 
-1. Current working directory -- launch telix from your project folder and
-   scripts there are found automatically.
-2. ``~/.config/telix/scripts/`` -- a good place for scripts you want
-   available everywhere.
+    `async combat.hunt goblin 12345`
 
-The last part of the script name is the function to call; everything before
-it is the file to load:
+And receive them as optional arguments::
 
-- `` `async demo` `` -- loads ``demo.py``, calls ``run(ctx)``
-- `` `async combat.hunt` `` -- loads ``combat.py``, calls ``hunt(ctx)``
+    async def hunt(ctx: ScriptContext, target: Optional[str] = None, room_id: Optional[str] = None) -> None:
+        ...
 
-Reloading
-~~~~~~~~~
+These can be used anywhere Commands_ are accepted:
 
-Every time a script is launched, telix will check whether the file has been modified and reload if
-necessary. Save a script file at any time and then call it to see any new changes (or errors!).
-
-Listing active scripts
-~~~~~~~~~~~~~~~~~~~~~~
-
-`` `scripts` ``
-    Show the names of all currently running scripts::
-
-        [scripts] running: combat.hunt
-        [scripts] running: healer.top_up
-
-    If nothing is running: ``[scripts] no scripts running``.
+- **REPL**: type `` `async module.func_name` `` at the prompt
+- **Trigger reply field**: set reply as `` `async module.func_name` ``
+- **Macro text**: include `` `async module.func_name` `` in macro text
+- **autowalk** and **autodiscover**: include `` `async module.func_name` `` in room-change command.
 
 Stopping
-~~~~~~~~
+--------
+
+Asynchronous programming is very useful but can also get out of control, and may accidentally flood
+the server with bad commands.
+
+Scripts may be stopped at any time, by another script or by embedded commands,
 
 `` `stopscript` ``
     Stop all running scripts.  Each name is printed as it stops:
@@ -120,10 +93,23 @@ Stopping
 `` `stopscript combat.hunt` ``
     Stop only the named script.
 
-Chaining
-~~~~~~~~
+To stop everything immediately, press **Alt + Q**, a default macro for `` `stopscript` ``
 
-You could launch a another script by sending a command through ``ctx.send``::
+Listing
+-------
+
+`` `scripts` ``
+    Show the names of all currently running scripts::
+
+        [scripts] running: combat.hunt
+        [scripts] running: healer.top_up
+
+    If nothing is running: ``[scripts] no scripts running``.
+
+Chaining
+--------
+
+You can launch another script in the background by sending a command through ``ctx.send``::
 
     await ctx.send("`async hunt`")
 
@@ -136,22 +122,6 @@ As python scripts, you may also just import and call functions directly::
     import combat
     await combat.hunt(ctx, "goblin")
 
-IDE support
------------
-
-Adding a type annotation to ``ctx`` should provide auto-complete and type checking to an IDE, or
-otherwise use a linter (mypy, flake8) is suggested to catch mistakes before running scripts::
-
-    from __future__ import annotations
-    from typing import TYPE_CHECKING
-
-    if TYPE_CHECKING:
-        from telix.scripts import ScriptContext
-
-    async def run(ctx: ScriptContext) -> None:
-        ctx.send("look")          # Pylance/mypy: error -- missing await
-        await ctx.send("look")    # correct
-
 The ``ctx`` object
 ------------------
 
@@ -159,8 +129,8 @@ Every script receives a ``ctx`` argument. This is a "God variable", and provides
 access to all known information about the MUD Session and scripting capabilities
 of Telix.
 
-Sending commands
-~~~~~~~~~~~~~~~~
+Send
+~~~~
 
 ``await ctx.send(line)``
     Send a command to the server.  Supports the same syntax as the REPL:
@@ -172,8 +142,8 @@ Sending commands
     Backtick directives like `` `async` `` and `` `until` `` are handled by the client, not sent to
     the server.  See Commands_ for the full list of available backtick commands.
 
-Prompt waiting
-~~~~~~~~~~~~~~
+Prompts
+~~~~~~~
 
 ``await ctx.prompt(timeout=30.0)``
     Wait for the server's next prompt.  Returns ``True`` if it arrived within
@@ -182,8 +152,8 @@ Prompt waiting
 ``await ctx.prompts(n, timeout=30.0)``
     Wait for *n* prompts in a row.  Useful for pacing a sequence of commands.
 
-Output buffering
-~~~~~~~~~~~~~~~~
+Output
+~~~~~~
 
 ``ctx.output(clear=True)``
     Return everything the server has sent since the script started, as a single
@@ -206,13 +176,26 @@ Condition polling
 
 ``await ctx.condition_met(key, op, threshold, poll_interval=0.25)``
     Wait until a numeric condition becomes true, checking every
-    *poll_interval* seconds.
-
-    *key* can be ``"HP%"``, ``"MP%"``, ``"HP"``, ``"MP"``, or the name of any
-    highlight capture variable.  *op* is one of ``">"``, ``"<"``, ``">="``,
+    *poll_interval* seconds.  *op* is one of ``">"``, ``"<"``, ``">="``,
     ``"<="``, ``"="``.
 
-    Works well inside :func:`asyncio.wait` -- see `Multi-condition waits`_ below.
+    *key* resolves in this order:
+
+    1. **Common vitals** -- ``"HP%"``, ``"MP%"``, ``"HP"``, ``"MP"`` are
+       computed from ``Char.Vitals`` using a set of known field aliases
+       (``hp``/``maxhp``, ``mana``/``maxmp``, etc.).
+    2. **Any GMCP percentage** -- append ``%`` to any field name and telix
+       searches every GMCP package for a matching ``Foo`` / ``MaxFoo`` pair
+       and computes the ratio.  Both fields must live in the same package
+       dict::
+
+           await ctx.condition_met("Water%", "<", 50)
+           # works if Char.Guild.Stats contains both "Water" and "MaxWater"
+
+    3. **Any GMCP raw value** -- the bare field name is searched across all
+       package dicts.
+    4. **Highlight capture variable** -- any variable captured by a
+       highlight rule, by name (or ``Name`` / ``MaxName`` for ``%``).
 
 Terminal output
 ~~~~~~~~~~~~~~~
@@ -316,34 +299,11 @@ Walk control
     ``True`` if autodiscover, randomwalk, or travel is currently running.
 
 ``ctx.stop_walk()``
-    Stop any active walk.  Call this before sending your own movement commands
-    to avoid conflicts::
+    Stop any active walk::
 
         async def scout(ctx: ScriptContext, *args: str) -> None:
             if ctx.walk_active:
                 ctx.stop_walk()
-                await ctx.prompt()
-            await ctx.send("look")
-
-Arguments
----------
-
-Anything you type after the script name is passed to the function as
-positional string arguments::
-
-    `async rooms.goto 12345`
-    `async combat.hunt goblin "dark lair"`
-
-In the script, receive them via ``*args``::
-
-    async def goto(ctx: ScriptContext, *args: str) -> None:
-        room_id = args[0] if args else ""
-        ...
-
-    async def hunt(ctx: ScriptContext, *args: str) -> None:
-        target = args[0] if args else "goblin"
-        place = args[1] if len(args) > 1 else ""
-        ...
 
 Multi-condition waits
 ---------------------
@@ -438,3 +398,15 @@ Wait for a pattern then react::
             return
         await ctx.send(f"kill {target}")
         ctx.print("[hunt] fighting!")
+
+Room
+----
+
+.. automodule:: telnetlib3.server_base
+   :members: Room
+
+RoomStore
+---------
+
+.. automodule:: telnetlib3.server_base
+   :members: RoomStore

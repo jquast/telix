@@ -126,7 +126,7 @@ class ScriptOutputBuffer:
             text = text + "\n" + self._partial if text else self._partial
         return text
 
-    async def wait_for_pattern(self, pattern: re.Pattern[str], timeout: float) -> "re.Match[str] | None":
+    async def wait_for_pattern(self, pattern: re.Pattern[str], timeout: float | None) -> "re.Match[str] | None":
         """
         Wait for *pattern* to appear in the buffer within *timeout* seconds.
 
@@ -151,19 +151,25 @@ class ScriptOutputBuffer:
                 fut.cancel()
             return None
 
-    async def wait_for_prompt(self, timeout: float = 30.0) -> bool:
+    async def wait_for_prompt(self, timeout: float | None = 30.0) -> bool:
         """
         Wait until the next GA/EOR prompt signal.
 
-        :param timeout: Maximum seconds to wait.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
         :returns: ``True`` if prompt arrived, ``False`` on timeout.
         """
         target = self._prompt_count + 1
-        deadline = asyncio.get_event_loop().time() + timeout
+        if timeout is None:
+            deadline = None
+        else:
+            deadline = asyncio.get_event_loop().time() + timeout
         while self._prompt_count < target:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                return False
+            if deadline is not None:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return False
+            else:
+                remaining = None
             evt = self._prompt_event
             try:
                 await asyncio.wait_for(evt.wait(), timeout=remaining)
@@ -327,21 +333,21 @@ class ScriptContext:
         self._log.info("script: sending %r", cmd)
         self._ctx.writer.write(cmd + "\r\n")
 
-    async def prompt(self, timeout: float = 30.0) -> bool:
+    async def prompt(self, timeout: float | None = 30.0) -> bool:
         """
         Wait for the next GA/EOR signal from the server.
 
-        :param timeout: Maximum seconds to wait.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
         :returns: ``True`` if prompt arrived within *timeout*.
         """
         return await self._buf.wait_for_prompt(timeout)
 
-    async def prompts(self, n: int, timeout: float = 30.0) -> bool:
+    async def prompts(self, n: int, timeout: float | None = 30.0) -> bool:
         """
         Wait for *n* consecutive server prompts.
 
         :param n: Number of prompts to wait for.
-        :param timeout: Timeout in seconds for *each* prompt.
+        :param timeout: Timeout in seconds for *each* prompt, or ``None`` to wait indefinitely.
         :returns: ``True`` if all prompts arrived; ``False`` if any timed out.
         """
         for _ in range(n):
@@ -367,12 +373,12 @@ class ScriptContext:
         """
         return self._buf.turns(n)
 
-    async def wait_for(self, pattern: str, timeout: float = 30.0) -> "re.Match[str] | None":
+    async def wait_for(self, pattern: str, timeout: float | None = 30.0) -> "re.Match[str] | None":
         """
         Wait for a regex pattern to appear in the server output.
 
         :param pattern: Regular expression string.
-        :param timeout: Maximum seconds to wait.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
         :returns: The :class:`re.Match` object, or ``None`` on timeout.
         """
         compiled = re.compile(pattern, re.IGNORECASE | re.MULTILINE | re.DOTALL)
@@ -457,7 +463,7 @@ class ScriptContext:
         """List of available chat channel dicts for this session."""
         return self._ctx.chat.channels
 
-    async def room_changed(self, timeout: float = 30.0) -> bool:
+    async def room_changed(self, timeout: float | None = 30.0) -> bool:
         """
         Wait until the next room transition (GMCP Room.Info received).
 
@@ -465,7 +471,7 @@ class ScriptContext:
         awaiting, so the caller is woken exactly once per transition even if
         another change fires immediately after.
 
-        :param timeout: Maximum seconds to wait.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
         :returns: ``True`` if a transition occurred; ``False`` on timeout.
         """
         evt = self._ctx.room.changed
@@ -475,7 +481,7 @@ class ScriptContext:
         except asyncio.TimeoutError:
             return False
 
-    async def gmcp_changed(self, package: str, timeout: float = 30.0) -> bool:
+    async def gmcp_changed(self, package: str, timeout: float | None = 30.0) -> bool:
         """
         Wait until the next GMCP packet for *package* is received.
 
@@ -483,7 +489,7 @@ class ScriptContext:
         same package reuse it.
 
         :param package: GMCP package name, e.g. ``"Char.Vitals"``.
-        :param timeout: Maximum seconds to wait.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
         :returns: ``True`` if a packet arrived; ``False`` on timeout.
         """
         events = self._ctx.gmcp.package_events
