@@ -6,7 +6,7 @@ Introduction
 A modern Telnet, WebSocket, and SSH client designed especially for BBSs_ and MUDs_
 
 
-.. figure:: https://dxtz6bzwq9sxx.cloudfront.net/telix-demo.gif
+.. figure:: https://dxtz6bzwq9sxx.cloudfront.net/telix-demo.gif?v=2
    :alt: Video recording showing off TUI controls of Telix
 
 Features
@@ -173,18 +173,18 @@ Documentation
 
 Full documentation at https://telix.readthedocs.io/.
 
-.. |pypi_downloads| image:: https://img.shields.io/pypi/dm/telix.svg?logo=pypi
+.. |pypi_downloads| image:: https://img.shields.io/pypi/dm/telix.svg?logo=pypi&v=2
     :alt: Downloads
     :target: https://pypi.org/project/telix/
-.. |codecov| image:: https://codecov.io/gh/jquast/telix/branch/master/graph/badge.svg
+.. |codecov| image:: https://codecov.io/gh/jquast/telix/branch/master/graph/badge.svg?v=2
     :alt: codecov.io Code Coverage
     :target: https://codecov.io/gh/jquast/telix/
-.. |license| image:: https://img.shields.io/pypi/l/telix.svg
+.. |license| image:: https://img.shields.io/pypi/l/telix.svg?v=2
     :target: https://pypi.org/project/telix/
     :alt: License
-.. |linux| image:: https://img.shields.io/badge/Linux-yes-success?logo=linux
+.. |linux| image:: https://img.shields.io/badge/Linux-yes-success?logo=linux&v=2
     :alt: Linux supported
-.. |windows| image:: https://img.shields.io/badge/Windows-yes-success?logo=windows
+.. |windows| image:: https://img.shields.io/badge/Windows-yes-success?logo=windows&v=2
     :alt: Windows supported
-.. |mac| image:: https://img.shields.io/badge/MacOS-yes-success?logo=apple
+.. |mac| image:: https://img.shields.io/badge/MacOS-yes-success?logo=apple&v=2
     :alt: MacOS supported
