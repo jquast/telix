@@ -1,6 +1,6 @@
 ## Room Mapping
 
-**Keys:** F3 Random walk -- F4 Autodiscover -- F5 Resume -- Alt+R Room browser
+**Keys:** F3 Random walk -- F4 Autodiscover -- F5 Resume -- Alt + R Room browser
 
 When the server sends GMCP `Room.Info` messages, Telix builds an
 incrementally-growing room graph stored in SQLite at
@@ -16,9 +16,9 @@ The room graph supports:
 - Blocked exits to prevent travel through dangerous areas
 - ID rotation detection for rooms that change hash each visit
 
-### Room Browser (Alt+R)
+### Room Browser (Alt + R)
 
-Press **Alt+R** to open the room browser.  Rooms can be filtered by area,
+Press **Alt + R** to open the room browser.  Rooms can be filtered by area,
 sorted by name/ID/distance/last-visited, and traveled to directly.
 
 Room markers:

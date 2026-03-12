@@ -1,6 +1,6 @@
 ## Progress Bar Editor
 
-**Default key:** Alt+B
+**Default key:** Alt + B
 
 Configure GMCP-driven progress bars for the toolbar.  Each bar maps
 a GMCP package field pair (value + max) to a colored bar display.

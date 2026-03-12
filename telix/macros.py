@@ -310,7 +310,10 @@ def build_macro_dispatch(macros: list[Macro], ctx: "TelixSessionContext", log: l
 
             def on_done(t: asyncio.Task[None]) -> None:
                 if not t.cancelled() and t.exception() is not None:
-                    log.warning("macro execution failed: %s", t.exception())
+                    msg = f"macro execution failed: {t.exception()}"
+                    log.error(msg)
+                    if ctx.prompt.echo is not None:
+                        ctx.prompt.echo(msg)
 
             task.add_done_callback(on_done)
 

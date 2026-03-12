@@ -53,7 +53,13 @@ def _patch_signal_for_thread() -> Iterator[None]:
 
     The main thread is blocked in ``t.join()`` for the duration of the TUI, so replacing
     the module-level ``signal.signal`` reference here is race-free.
+
+    On Windows, SIGWINCH does not exist so this context manager is a no-op.
     """
+    if not hasattr(signal, "SIGWINCH"):
+        yield
+        return
+
     original = signal.signal
     tui_handlers: dict[int, typing.Any] = {}
 

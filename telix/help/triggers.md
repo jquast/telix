@@ -1,10 +1,10 @@
 ## Trigger Editor
 
-**Default key:** Alt+T -- **Toggle all triggers:** Alt+Shift+T
+**Default key:** Alt + T -- **Toggle all triggers:** Alt + Shift + T
 
 **Warning:** Triggers fire automatically on every matching server line.
 A badly written or over-broad trigger pattern can send commands in a tight
-loop, flooding the server -- a "server storm".  Press **Alt+Shift+T** to
+loop, flooding the server -- a "server storm".  Press **Alt + Shift + T** to
 disable all triggers immediately without opening the editor.
 
 Triggers automatically send commands when a **regex pattern** matches
@@ -34,7 +34,7 @@ the first match wins unless a rule is marked **Always**.
   the default case-insensitive matching.
 - **W (When)** -- a vital-percentage condition gate is set on this rule.
 - **X (disabled)** -- the rule is disabled and won't match.  Toggle via the
-  Enabled switch in the form, or use Alt+Shift+T in-session to disable
+  Enabled switch in the form, or use Alt + Shift + T in-session to disable
   all triggers globally.
 
 ### Form Fields

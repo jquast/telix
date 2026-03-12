@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # std imports
 import json
+import signal
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -12,6 +13,14 @@ import pytest
 
 # local
 from telix.client_repl import confirm_dialog
+from telix.client_repl_dialogs import _patch_signal_for_thread
+
+
+def test_patch_signal_noop_without_sigwinch(monkeypatch):
+    """Context manager is a no-op when signal.SIGWINCH is absent (Windows)."""
+    monkeypatch.delattr(signal, "SIGWINCH", raising=False)
+    with _patch_signal_for_thread():
+        assert signal.signal is signal.signal
 
 
 @pytest.fixture()

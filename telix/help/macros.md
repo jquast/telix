@@ -1,6 +1,6 @@
 ## Macro Editor
 
-**Default key:** Alt+M
+**Default key:** Alt + M
 
 Macros bind a **keystroke** to a **command sequence**.  When the key is
 pressed during a telnet session, the command text is expanded and executed
@@ -21,24 +21,24 @@ disable a builtin, but you cannot delete it.
 | F3 | Random walk dialog |
 | F4 | Autodiscover dialog |
 | F5 | Resume last walk |
-| Alt+H | Edit highlights |
-| Alt+M | Edit macros |
-| Alt+T | Edit triggers |
-| Alt+R | Edit rooms |
-| Alt+C | Chat viewer / captures |
-| Alt+B | Edit bars |
-| Alt+E | Edit theme |
-| Alt+Shift+H | Toggle highlights |
-| Alt+Shift+T | Toggle triggers |
-| Alt+Q | Stop all running scripts |
-| Ctrl+L | Repaint screen |
-| Ctrl+] | Disconnect |
+| Alt + H | Edit highlights |
+| Alt + M | Edit macros |
+| Alt + T | Edit triggers |
+| Alt + R | Edit rooms |
+| Alt + C | Chat viewer / captures |
+| Alt + B | Edit bars |
+| Alt + E | Edit theme |
+| Alt + Shift + H | Toggle highlights |
+| Alt + Shift + T | Toggle triggers |
+| Alt + Q | Stop all running scripts |
+| Ctrl + L | Repaint screen |
+| Ctrl + ] | Disconnect |
 
 ### Table Columns
 
 | Column | Meaning |
 |--------|---------|
-| **Key** | The keystroke that triggers the macro (e.g. F2, Ctrl+A) |
+| **Key** | The keystroke that triggers the macro (e.g. F2, Ctrl + A) |
 | **Command Text** | The command sequence to execute |
 | **Last** | Timestamp of the last time this macro was triggered |
 

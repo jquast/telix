@@ -105,7 +105,7 @@ Travel back to the room where the current macro started executing.
 ### Home
 
 Fast travel to the home room of your current area.  Set a home room
-in the room browser (Alt+R) using the Home button.
+in the room browser (Alt + R) using the Home button.
 
 | Example | Effect |
 |---------|--------|
@@ -166,7 +166,7 @@ complete before the walk moves on.
 **Warning:** Scripts run concurrently and asynchronously.  Multiple scripts
 (or a script combined with active triggers) can send commands simultaneously,
 potentially flooding the server with rapid input -- a "server storm".  Use
-`` `stopscript` `` or press **Alt+Q** to stop all running scripts immediately.
+`` `stopscript` `` or press **Alt + Q** to stop all running scripts immediately.
 
 | Example | Effect |
 |---------|--------|

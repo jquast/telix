@@ -1,6 +1,6 @@
 ## Highlight Editor
 
-**Default key:** Alt+H -- **Toggle all highlights:** Alt+Shift+H
+**Default key:** Alt + H -- **Toggle all highlights:** Alt + Shift + H
 
 Highlights apply visual styles to server output when a regex pattern
 matches.  Rules are evaluated in order; multiple rules can match the
@@ -27,7 +27,7 @@ same text.
 - **C (Captured)** -- extract regex groups into named variables and log
   matched lines to a capture channel (see Captures below).
 - **X (disabled)** -- the rule is disabled and won't match.  Toggle via the
-  Enabled switch in the form, or use Alt+Shift+H in-session to disable
+  Enabled switch in the form, or use Alt + Shift + H in-session to disable
   all highlights globally.
 
 ### Form Fields
@@ -94,7 +94,7 @@ Single-line rules continue to work unchanged.
 ### Captures
 
 When **Captured** is enabled on a highlight rule, the full matched line
-is logged to a capture channel visible in the **Capture Window** (Alt+C).
+is logged to a capture channel visible in the **Capture Window** (Alt + C).
 
 **Capture Name** sets the channel.  It can be a fixed name like `tells`
 or a group reference like `\1` that resolves dynamically per match.
@@ -117,7 +117,7 @@ captures `Adrenaline=\1` and `MaxAdrenaline=\2` lets you write
 
 ### Capture Window (Alt+C)
 
-Press **Alt+C** to open the Capture Window.  It shows both GMCP chat
+Press **Alt + C** to open the Capture Window.  It shows both GMCP chat
 messages and highlight capture logs in a unified tabbed view.  Use
 **Tab** / **Shift+Tab** to cycle channels.
 

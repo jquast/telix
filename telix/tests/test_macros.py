@@ -153,6 +153,32 @@ def test_toggle_dispatch_alternates():
     assert sent == ["survey on", "survey off", "survey on"]
 
 
+def test_macro_error_echoed_and_logged(caplog):
+    pytest.importorskip("blessed")
+
+    echoed: list[str] = []
+    prompt = types.SimpleNamespace(echo=echoed.append)
+    ctx = types.SimpleNamespace(prompt=prompt)
+
+    async def raise_exec(text, ctx, log):
+        raise RuntimeError("boom")
+
+    macro = Macro(key="KEY_F9", text="fail;")
+    log = logging.getLogger("test")
+
+    with patch("telix.client_repl.execute_macro_commands", raise_exec):
+        dispatch = build_macro_dispatch([macro], ctx, log)
+        handler = dispatch["KEY_F9"]
+        loop = asyncio.new_event_loop()
+        with caplog.at_level(logging.ERROR):
+            loop.run_until_complete(handler())
+            loop.run_until_complete(asyncio.sleep(0))
+        loop.close()
+
+    assert any("boom" in e for e in echoed)
+    assert "macro execution failed" in caplog.text
+
+
 def test_non_toggle_macro_unchanged(tmp_path):
     fp = tmp_path / "macros.json"
     original = [Macro(key="KEY_F5", text="look;")]
