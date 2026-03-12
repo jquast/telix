@@ -134,7 +134,7 @@ def _run_in_thread(
     finally:
         subprocess_is_active = False
         if thread_exc is not None:
-            log.error("TUI thread failed: %s", thread_exc)
+            log.error("TUI thread failed", exc_info=thread_exc)
         restore_after_subprocess(replay_buf)
         for path in cleanup_files or ():
             try:
