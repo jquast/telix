@@ -16,11 +16,13 @@ from telix.client_repl import confirm_dialog
 from telix.client_repl_dialogs import _patch_signal_for_thread
 
 
-def test_patch_signal_noop_without_sigwinch(monkeypatch):
-    """Context manager is a no-op when signal.SIGWINCH is absent (Windows)."""
+def test_patch_signal_skips_winch_without_sigwinch(monkeypatch):
+    """SIGWINCH forwarding is skipped when signal.SIGWINCH is absent (Windows)."""
     monkeypatch.delattr(signal, "SIGWINCH", raising=False)
+    original = signal.signal
     with _patch_signal_for_thread():
-        assert signal.signal is signal.signal
+        assert signal.signal is not original
+    assert signal.signal is original
 
 
 @pytest.fixture()

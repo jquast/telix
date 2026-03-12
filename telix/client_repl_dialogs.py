@@ -54,12 +54,9 @@ def _patch_signal_for_thread() -> Iterator[None]:
     The main thread is blocked in ``t.join()`` for the duration of the TUI, so replacing
     the module-level ``signal.signal`` reference here is race-free.
 
-    On Windows, SIGWINCH does not exist so this context manager is a no-op.
+    On Windows, SIGWINCH does not exist so only the ``safe_signal`` interceptor is
+    installed; the SIGWINCH forwarding is skipped.
     """
-    if not hasattr(signal, "SIGWINCH"):
-        yield
-        return
-
     original = signal.signal
     tui_handlers: dict[int, typing.Any] = {}
 
@@ -69,18 +66,21 @@ def _patch_signal_for_thread() -> Iterator[None]:
         tui_handlers[signum] = handler
         return None
 
+    has_sigwinch = hasattr(signal, "SIGWINCH")
+
     def forward_sigwinch(sig: int, frame: typing.Any) -> None:
         h = tui_handlers.get(signal.SIGWINCH)
         if callable(h):
             h(sig, frame)
 
     signal.signal = safe_signal  # type: ignore[assignment]
-    old_winch = original(signal.SIGWINCH, forward_sigwinch)
+    old_winch = original(signal.SIGWINCH, forward_sigwinch) if has_sigwinch else None
     try:
         yield
     finally:
         signal.signal = original
-        original(signal.SIGWINCH, old_winch)
+        if has_sigwinch:
+            original(signal.SIGWINCH, old_winch)
 
 
 def _prepare_terminal() -> None:
