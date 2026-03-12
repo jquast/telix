@@ -6,7 +6,7 @@ Introduction
 A modern Telnet, WebSocket, and SSH client designed especially for BBSs_ and MUDs_
 
 
-.. figure:: https://dxtz6bzwq9sxx.cloudfront.net/telix-demo2.gif
+.. figure:: https://dxtz6bzwq9sxx.cloudfront.net/telix-demo.gif
    :alt: Video recording showing off TUI controls of Telix
 
 Features
