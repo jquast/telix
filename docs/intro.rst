@@ -3,7 +3,11 @@
 Introduction
 ============
 
-A modern Telnet, WebSocket, and SSH client designed especially for BBSs_ and MUDs_.
+A modern Telnet, WebSocket, and SSH client designed especially for BBSs_ and MUDs_
+
+
+.. figure:: https://dxtz6bzwq9sxx.cloudfront.net/telix-demo.gif
+   :alt: Video recording showing off TUI controls of Telix
 
 Features
 --------
@@ -17,10 +21,8 @@ Features
 - **MUD Features** Easy-to-use TUI interface to create macros, triggers, highlights, room mapping,
   fast travel, random walk, autodiscover, progress bars, chat, and captures through a common
   `Command <https://telix.readthedocs.io/en/latest/commands.html>`_ interface, or advanced
-  programming with asyncio python `Scripting
+  programming with asyncio Python `Scripting
   <https://telix.readthedocs.io/en/latest/scripting.html>`_.
-
-
 - **BBS/Scene Art** support for `CP437`_, `PETSCII`_, `ATASCII`_, `iCE colors`_, by translation of
   ANSI color codes and legacy encodings to modern 24-bit color codes and terminal encoding (usually
   utf-8).

@@ -2084,14 +2084,17 @@ async def test_read_input_timeout_rearms_after_background_subprocess(monkeypatch
         _resize_pending=types.SimpleNamespace(is_set=lambda: False, clear=lambda: None)
     )
 
+    repaint_calls: list[int] = []
     monkeypatch.setattr(ReplSession, "update_input_style", lambda self: None)
     monkeypatch.setattr(ReplSession, "render_editor", lambda self, *args: "")
     monkeypatch.setattr(ReplSession, "input_width", lambda self: 80)
+    monkeypatch.setattr(ReplSession, "_repaint", lambda self: repaint_calls.append(1))
     monkeypatch.setattr(repl_module, "subprocess_needs_rearm", True)
 
     await repl.read_input()
 
     assert repl_module.subprocess_needs_rearm is False
+    assert repaint_calls == [1]
 
 
 class TestRefreshHighlightEngineBuiltin:

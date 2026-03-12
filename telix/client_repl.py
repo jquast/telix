@@ -1232,7 +1232,7 @@ class ReplSession:
         self.stdout.write(osc.encode())
         self.stdout.write(bt.normal_cursor.encode())
 
-    def rearm_after_subprocess(self) -> None:
+    def rearm_after_subprocess(self) -> bool:
         """
         Flush stale input and re-enable in-band resize after subprocess.
 
@@ -1241,10 +1241,12 @@ class ReplSession:
         subprocess was running (stale resize notifications, key echos),
         records the current terminal size to suppress a redundant
         ``on_resize_repaint``, and re-enables DEC mode 2048.
+
+        :returns: ``True`` if a subprocess was reaped and a repaint is needed.
         """
         global subprocess_needs_rearm
         if not subprocess_needs_rearm:
-            return
+            return False
         subprocess_needs_rearm = False
         terminal.flush_stdin()
         try:
@@ -1257,6 +1259,7 @@ class ReplSession:
             self.tty_shell._resize_pending.clear()
         sys.stdout.write("\x1b[?2048h")
         sys.stdout.flush()
+        return True
 
     def on_resize_repaint(self, rows: int, cols: int) -> None:
         """Repaint screen after terminal resize."""
@@ -1554,7 +1557,8 @@ class ReplSession:
                     continue
 
                 if not key:
-                    self.rearm_after_subprocess()
+                    if self.rearm_after_subprocess():
+                        self._repaint()
                     if self.tty_shell._resize_pending.is_set():
                         self.tty_shell._resize_pending.clear()
                         self.fire_resize()
@@ -1577,9 +1581,7 @@ class ReplSession:
                     result = action()
                     if asyncio.iscoroutine(result):
                         await result
-                    needs_repaint = subprocess_needs_rearm
-                    self.rearm_after_subprocess()
-                    if needs_repaint:
+                    if self.rearm_after_subprocess():
                         self._repaint()
                     else:
                         self.stdout.write(bt.hide_cursor.encode())
