@@ -283,46 +283,51 @@ def test_default_limit_99(store: RoomStore) -> None:
     assert len(result) == 99
 
 
-def test_toggle_bookmark(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "Room One"})
-    r = store.get_room("1")
-    assert r is not None
-    assert not r.bookmarked
-    assert store.toggle_bookmark("1") is True
-    r = store.get_room("1")
-    assert r is not None
-    assert r.bookmarked
-    assert store.toggle_bookmark("1") is False
-    r = store.get_room("1")
-    assert r is not None
-    assert not r.bookmarked
+@pytest.mark.parametrize("method,attr", [
+    ("toggle_bookmark", "bookmarked"),
+    ("toggle_blocked", "blocked"),
+    ("toggle_marked", "marked"),
+])
+def test_toggle_marker(store: RoomStore, method, attr) -> None:
+    store.update_room({"num": "1", "name": "Room"})
+    assert not getattr(store.get_room("1"), attr)
+    assert getattr(store, method)("1") is True
+    assert getattr(store.get_room("1"), attr)
+    assert getattr(store, method)("1") is False
+    assert not getattr(store.get_room("1"), attr)
 
 
-def test_toggle_bookmark_missing_room(store: RoomStore) -> None:
-    assert store.toggle_bookmark("999") is False
+@pytest.mark.parametrize("method", ["toggle_bookmark", "toggle_blocked", "toggle_marked"])
+def test_toggle_marker_missing(store: RoomStore, method) -> None:
+    assert getattr(store, method)("999") is False
 
 
-def test_search_by_name(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "Dark Forest", "area": "wild"})
-    store.update_room({"num": "2", "name": "Town Square", "area": "town"})
-    store.update_room({"num": "3", "name": "Forest Path", "area": "wild"})
-    results = store.search("forest")
-    assert len(results) == 2
-    assert all("forest" in r.name.lower() for r in results)
-
-
-def test_search_by_area(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "Room A", "area": "caladan"})
-    store.update_room({"num": "2", "name": "Room B", "area": "arrakis"})
-    results = store.search("caladan")
-    assert len(results) == 1
-    assert results[0].num == "1"
-
-
-def test_search_case_insensitive(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "DARK FOREST"})
-    assert len(store.search("dark")) == 1
-    assert len(store.search("DARK")) == 1
+@pytest.mark.parametrize("rooms,query,expected_count", [
+    (
+        [("1", "Dark Forest", "wild"), ("2", "Town Square", "town"), ("3", "Forest Path", "wild")],
+        "forest",
+        2,
+    ),
+    (
+        [("1", "Room A", "caladan"), ("2", "Room B", "arrakis")],
+        "caladan",
+        1,
+    ),
+    (
+        [("1", "DARK FOREST", "")],
+        "dark",
+        1,
+    ),
+    (
+        [("1", "Room A", ""), ("2", "Room B", "")],
+        "",
+        2,
+    ),
+])
+def test_search(store: RoomStore, rooms, query, expected_count) -> None:
+    for num, name, area in rooms:
+        store.update_room({"num": num, "name": name, "area": area})
+    assert len(store.search(query)) == expected_count
 
 
 def test_search_bookmarked_first(store: RoomStore) -> None:
@@ -332,12 +337,6 @@ def test_search_bookmarked_first(store: RoomStore) -> None:
     results = store.search("room")
     assert results[0].num == "2"
     assert results[1].num == "1"
-
-
-def test_search_empty_query(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "Room A"})
-    store.update_room({"num": "2", "name": "Room B"})
-    assert len(store.search("")) == 2
 
 
 def test_alias_is_room_store() -> None:
@@ -570,22 +569,6 @@ def test_room_summaries_names_stripped(store: RoomStore) -> None:
     assert names["2"] == "Ridge."
 
 
-def test_toggle_blocked(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "Hall"})
-    assert store.toggle_blocked("1") is True
-    r = store.get_room("1")
-    assert r is not None
-    assert r.blocked
-    assert store.toggle_blocked("1") is False
-    r = store.get_room("1")
-    assert r is not None
-    assert not r.blocked
-
-
-def test_toggle_blocked_missing(store: RoomStore) -> None:
-    assert store.toggle_blocked("999") is False
-
-
 def test_toggle_home_one_per_area(store: RoomStore) -> None:
     store.update_room({"num": "1", "name": "A", "area": "town"})
     store.update_room({"num": "2", "name": "B", "area": "town"})
@@ -601,22 +584,6 @@ def test_toggle_home_one_per_area(store: RoomStore) -> None:
     assert store.get_home_for_area("wild") == "3"
     assert store.toggle_home("2") is False
     assert store.get_home_for_area("town") is None
-
-
-def test_toggle_marked(store: RoomStore) -> None:
-    store.update_room({"num": "1", "name": "Room"})
-    assert store.toggle_marked("1") is True
-    r = store.get_room("1")
-    assert r is not None
-    assert r.marked
-    assert store.toggle_marked("1") is False
-    r = store.get_room("1")
-    assert r is not None
-    assert not r.marked
-
-
-def test_toggle_marked_missing(store: RoomStore) -> None:
-    assert store.toggle_marked("999") is False
 
 
 def test_markers_are_exclusive(store: RoomStore) -> None:

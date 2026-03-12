@@ -608,41 +608,22 @@ def test_help_screen_creates(topic: str) -> None:
     assert screen.pane.topic == topic
 
 
-def test_help_topic_macro_contains_key_sections() -> None:
-    content = get_help_topic("macro")
-    assert "## Macro Editor" in content
-    assert "## Command Syntax" in content
-    assert "## Backtick Commands" in content
-    assert "`autodiscover`" in content
-    assert "`randomwalk`" in content
-    assert "`resume`" in content
-
-
-def test_help_topic_trigger_contains_key_sections() -> None:
-    content = get_help_topic("trigger")
-    assert "## Trigger Editor" in content
-    assert "### Flags Explained" in content
-    assert "### Pattern Syntax" in content
-    assert "### Backreferences in Reply" in content
-    assert "### Condition Gate" in content
-    assert "\\1" in content
-
-
-def test_help_topic_highlight_contains_key_sections() -> None:
-    content = get_help_topic("highlight")
-    assert "## Highlight Editor" in content
-    assert "### Flags Explained" in content
-    assert "### Style Names" in content
-    assert "bold_red" in content
-
-
-def test_help_topic_session_contains_key_sections() -> None:
-    content = get_help_topic("session")
-    assert "## Session Manager" in content
-    assert "### Keyboard Shortcuts" in content
-    assert "### Bookmarks" in content
-    assert "### Flags" in content
-    assert "### Search" in content
+@pytest.mark.parametrize(
+    "topic, expected_strings",
+    [
+        ("macro", ["## Macro Editor", "## Command Syntax", "## Backtick Commands",
+                    "`autodiscover`", "`randomwalk`", "`resume`"]),
+        ("trigger", ["## Trigger Editor", "### Flags Explained", "### Pattern Syntax",
+                      "### Backreferences in Reply", "### Condition Gate", "\\1"]),
+        ("highlight", ["## Highlight Editor", "### Flags Explained", "### Style Names", "bold_red"]),
+        ("session", ["## Session Manager", "### Keyboard Shortcuts", "### Bookmarks",
+                      "### Flags", "### Search"]),
+    ],
+)
+def test_help_topic_contains_key_sections(topic, expected_strings):
+    content = get_help_topic(topic)
+    for s in expected_strings:
+        assert s in content
 
 
 def test_randomwalk_dialog_writes_visit_level(tmp_path: Any) -> None:
@@ -739,28 +720,17 @@ def test_randomwalk_dialog_backtick_escaped_in_command(tmp_path: Any) -> None:
     assert data["command"] == r"`randomwalk 999 2 roomcmd search;\`script hunt\``"
 
 
-def test_autodiscover_dialog_writes_bfs(tmp_path: Any) -> None:
+@pytest.mark.parametrize("strategy", ["bfs", "dfs"])
+def test_autodiscover_dialog_writes_strategy(tmp_path, strategy):
     result_file = str(tmp_path / "result.json")
-    screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="bfs")
-    screen.write_result(True, "bfs")
+    screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy=strategy)
+    screen.write_result(True, strategy)
 
     with open(result_file, encoding="utf-8") as f:
         data = json.load(f)
     assert data["confirmed"] is True
-    assert data["strategy"] == "bfs"
-    assert data["command"] == "`autodiscover bfs`"
-
-
-def test_autodiscover_dialog_writes_dfs(tmp_path: Any) -> None:
-    result_file = str(tmp_path / "result.json")
-    screen = AutodiscoverDialogScreen(result_file=result_file, default_strategy="dfs")
-    screen.write_result(True, "dfs")
-
-    with open(result_file, encoding="utf-8") as f:
-        data = json.load(f)
-    assert data["confirmed"] is True
-    assert data["strategy"] == "dfs"
-    assert data["command"] == "`autodiscover dfs`"
+    assert data["strategy"] == strategy
+    assert data["command"] == f"`autodiscover {strategy}`"
 
 
 def test_autodiscover_dialog_cancel(tmp_path: Any) -> None:
@@ -874,62 +844,31 @@ class TestTabbedEditorScreen:
         ids = [tab_id for _, tab_id in EDITOR_TABS]
         assert ids == ["highlights", "rooms", "macros", "triggers", "captures", "bars", "theme"]
 
-    def test_create_pane_macros(self, tmp_path: Any) -> None:
+    @pytest.mark.parametrize(
+        "tab_id, expected_class",
+        [
+            ("macros", MacroEditPane),
+            ("triggers", TriggerEditPane),
+            ("highlights", HighlightEditPane),
+            ("bars", ProgressBarEditPane),
+            ("rooms", RoomBrowserPane),
+            ("captures", CapsPane),
+            ("theme", ThemeEditPane),
+        ],
+    )
+    def test_create_pane(self, tmp_path, tab_id, expected_class):
         params = self.make_params(tmp_path)
         screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("macros")
-        assert isinstance(pane, MacroEditPane)
-        assert pane.id == "macros"
-
-    def test_create_pane_triggers(self, tmp_path: Any) -> None:
-        params = self.make_params(tmp_path)
-        screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("triggers")
-        assert isinstance(pane, TriggerEditPane)
-        assert pane.id == "triggers"
-
-    def test_create_pane_highlights(self, tmp_path: Any) -> None:
-        params = self.make_params(tmp_path)
-        screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("highlights")
-        assert isinstance(pane, HighlightEditPane)
-        assert pane.id == "highlights"
-
-    def test_create_pane_bars(self, tmp_path: Any) -> None:
-        params = self.make_params(tmp_path)
-        screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("bars")
-        assert isinstance(pane, ProgressBarEditPane)
-        assert pane.id == "bars"
-
-    def test_create_pane_rooms(self, tmp_path: Any) -> None:
-        params = self.make_params(tmp_path)
-        screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("rooms")
-        assert isinstance(pane, RoomBrowserPane)
-        assert pane.id == "rooms"
-
-    def test_create_pane_captures(self, tmp_path: Any) -> None:
-        params = self.make_params(tmp_path)
-        screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("captures")
-        assert isinstance(pane, CapsPane)
-        assert pane.id == "captures"
-
-    def test_create_pane_theme(self, tmp_path: Any) -> None:
-        params = self.make_params(tmp_path)
-        screen = TabbedEditorScreen(params)
-        pane = screen.create_pane("theme")
-        assert isinstance(pane, ThemeEditPane)
-        assert pane.id == "theme"
+        pane = screen.create_pane(tab_id)
+        assert isinstance(pane, expected_class)
+        assert pane.id == tab_id
 
 
 class TestActionConnectScreenRefresh:
-    def test_screen_refresh_after_suspend(self, tui_tmp_paths: Any) -> None:
-        """screen.refresh() is called after returning from app.suspend()."""
+    @pytest.fixture
+    def connect_screen(self, tui_tmp_paths):
         screen = SessionListScreen()
         screen.sessions = {"srv": SessionConfig(name="srv", host="example.com")}
-
         screen.selected_key = MagicMock(return_value="srv")
         screen.save = MagicMock()
         screen.refresh_table = MagicMock()
@@ -945,7 +884,10 @@ class TestActionConnectScreenRefresh:
         mock_app.suspend.return_value.__exit__ = MagicMock(return_value=False)
         screen._app = mock_app
         type(screen).app = property(lambda self: self._app)
+        return screen
 
+    def test_screen_refresh_after_suspend(self, connect_screen):
+        """screen.refresh() is called after returning from app.suspend()."""
         with (
             patch("telix.client_tui_session_manager.subprocess.Popen") as mock_popen,
             patch("telix.client_tui_session_manager.os.get_terminal_size") as mock_ts,
@@ -955,31 +897,12 @@ class TestActionConnectScreenRefresh:
         ):
             mock_ts.return_value = MagicMock(lines=24, columns=80)
             mock_popen.return_value = MagicMock(returncode=0)
+            connect_screen.action_connect()
 
-            screen.action_connect()
+        connect_screen._screen.refresh.assert_called_once()
 
-        mock_screen.refresh.assert_called_once()
-
-    def test_nonzero_exit_calls_os_exit(self, tui_tmp_paths: Any) -> None:
+    def test_nonzero_exit_calls_os_exit(self, connect_screen):
         """os._exit() is called with the subprocess returncode on non-zero exit."""
-        screen = SessionListScreen()
-        screen.sessions = {"srv": SessionConfig(name="srv", host="example.com")}
-        screen.selected_key = MagicMock(return_value="srv")
-        screen.save = MagicMock()
-        screen.refresh_table = MagicMock()
-        screen.select_row = MagicMock()
-        screen.notify = MagicMock()
-
-        mock_screen = MagicMock()
-        screen._screen = mock_screen
-        type(screen).screen = property(lambda self: self._screen)
-
-        mock_app = MagicMock()
-        mock_app.suspend.return_value.__enter__ = MagicMock()
-        mock_app.suspend.return_value.__exit__ = MagicMock(return_value=False)
-        screen._app = mock_app
-        type(screen).app = property(lambda self: self._app)
-
         mock_proc = MagicMock()
         mock_proc.returncode = 1
 
@@ -993,7 +916,7 @@ class TestActionConnectScreenRefresh:
             patch("telix.client_tui_session_manager.sys.stdin"),
             patch("telix.client_tui_session_manager.os._exit") as mock_os_exit,
         ):
-            screen.action_connect()
+            connect_screen.action_connect()
         mock_os_exit.assert_called_once_with(1)
 
 
@@ -1038,3 +961,160 @@ class TestReadPrimarySelection:
 
         with patch("telix.client_tui_session_manager.subprocess.run", side_effect=fake_run):
             assert read_primary_selection() == "ok"
+
+
+from telix.client_tui import HighlightTuple
+
+
+def test_highlight_tuple_defaults():
+    """HighlightTuple has expected defaults."""
+    ht = HighlightTuple(pattern="", highlight="")
+    assert ht.pattern == ""
+    assert ht.highlight == ""
+    assert ht.enabled is True
+    assert ht.stop_movement is False
+    assert ht.builtin is False
+    assert ht.case_sensitive is False
+    assert ht.multiline is False
+    assert ht.captured is False
+    assert ht.capture_name == "captures"
+    assert ht.captures == ()
+
+
+def test_highlight_matches_search_pattern(tmp_path):
+    """HighlightEditPane.matches_search matches on pattern and highlight text."""
+    path = str(tmp_path / "highlights.json")
+    pane = HighlightEditPane(path=path)
+    pane.rules = [
+        HighlightTuple("gold coins", "bold_yellow"),
+        HighlightTuple("silver", "dim_white"),
+    ]
+    assert pane.matches_search(0, "gold")
+    assert pane.matches_search(0, "yellow")
+    assert not pane.matches_search(0, "silver")
+    assert pane.matches_search(1, "silver")
+
+
+def test_highlight_load_save_roundtrip(tmp_path):
+    """Highlights saved then loaded produce equivalent rules."""
+    path = str(tmp_path / "highlights.json")
+    sk = "test:4000"
+    pane = HighlightEditPane(path=path, session_key=sk)
+    pane.rules = [
+        HighlightTuple("test pattern", "bold_red", enabled=True, stop_movement=True),
+        HighlightTuple("another", "dim_green", case_sensitive=True, multiline=True),
+    ]
+    pane.save_to_file()
+
+    pane2 = HighlightEditPane(path=path, session_key=sk)
+    pane2.load_from_file()
+    user_rules = [r for r in pane2.rules if not r.builtin]
+    assert len(user_rules) == 2
+    assert user_rules[0].pattern == "test pattern"
+    assert user_rules[0].highlight == "bold_red"
+    assert user_rules[0].stop_movement is True
+    assert user_rules[1].pattern == "another"
+    assert user_rules[1].case_sensitive is True
+    assert user_rules[1].multiline is True
+
+
+def test_trigger_tuple_defaults():
+    """TriggerTuple has expected defaults."""
+    tt = TriggerTuple("pat", "reply")
+    assert tt.always is False
+    assert tt.enabled is True
+    assert tt.when is None
+    assert tt.immediate is False
+    assert tt.last_fired == ""
+    assert tt.case_sensitive is False
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        ("gold", True),
+        ("get", True),
+        ("silver", False),
+    ],
+)
+def test_trigger_matches_search(tmp_path, query, expected):
+    """TriggerEditPane.matches_search matches on pattern and reply text."""
+    path = str(tmp_path / "triggers.json")
+    pane = TriggerEditPane(path=path)
+    pane.rules = [TriggerTuple("gold coins", "get gold")]
+    assert pane.matches_search(0, query) == expected
+
+
+def test_trigger_gmcp_source_choices_no_snapshot(tmp_path):
+    """Without a snapshot file, gmcp_source_choices returns only (none)."""
+    path = str(tmp_path / "triggers.json")
+    pane = TriggerEditPane(path=path)
+    assert pane.gmcp_source_choices() == [("(none)", "")]
+
+
+def test_trigger_gmcp_source_choices_with_snapshot(tmp_path):
+    """Only packages with numeric fields appear in gmcp_source_choices."""
+    snap = tmp_path / "snapshot.json"
+    snap.write_text(json.dumps({
+        "packages": {
+            "Char.Vitals": {"data": {"hp": 100, "maxhp": 200}},
+            "Char.Status": {"data": {"name": "test"}},
+        }
+    }))
+    path = str(tmp_path / "triggers.json")
+    pane = TriggerEditPane(path=path, gmcp_snapshot_path=str(snap))
+    choices = pane.gmcp_source_choices()
+    labels = [label for label, _ in choices]
+    assert "Char.Vitals" in labels
+    assert "Char.Status" not in labels
+
+
+def test_trigger_gmcp_field_choices(tmp_path):
+    """gmcp_field_choices returns numeric fields and percent pairs."""
+    snap = tmp_path / "snapshot.json"
+    snap.write_text(json.dumps({
+        "packages": {
+            "Char.Vitals": {"data": {"hp": 100, "maxhp": 200}},
+            "Char.Status": {"data": {"name": "test"}},
+        }
+    }))
+    path = str(tmp_path / "triggers.json")
+    pane = TriggerEditPane(path=path, gmcp_snapshot_path=str(snap))
+    choices = pane.gmcp_field_choices("Char.Vitals")
+    values = [v for _, v in choices]
+    assert "hp" in values
+    assert "maxhp" in values
+    assert "hp%" in values
+
+
+def test_trigger_gmcp_field_choices_no_source(tmp_path):
+    """gmcp_field_choices with empty source returns only (none)."""
+    path = str(tmp_path / "triggers.json")
+    pane = TriggerEditPane(path=path)
+    assert pane.gmcp_field_choices("") == [("(none)", "")]
+
+
+def test_macro_blessed_display_strips_prefix():
+    """blessed_display strips KEY_ prefix."""
+    assert MacroEditPane.blessed_display("KEY_F5") == "F5"
+
+
+def test_macro_blessed_display_no_prefix():
+    """blessed_display preserves names without KEY_ prefix."""
+    assert MacroEditPane.blessed_display("ctrl_a") == "ctrl_a"
+
+
+@pytest.mark.parametrize(
+    "macros, query, expected",
+    [
+        ([("KEY_F5", "look;", True, "", False, "", False, "")], "f5", True),
+        ([("KEY_F5", "look;", True, "", False, "", False, "")], "look", True),
+        ([("KEY_F5", "look;", True, "", True, "stop looking", False, "")], "stop", True),
+    ],
+)
+def test_macro_matches_search(tmp_path, macros, query, expected):
+    """MacroEditPane.matches_search matches on key, command, and toggle text."""
+    path = str(tmp_path / "macros.json")
+    pane = MacroEditPane(path=path)
+    pane.macros = macros
+    assert pane.matches_search(0, query) == expected

@@ -49,6 +49,8 @@ class BarConfig(typing.NamedTuple):
     text_color_empty: str = "auto"
     display_order: int = 0
     side: str = "left"
+    bar_type: str = "bar"
+    label_format: str = "{value}"
 
 
 #: All Rich named colors for the custom color picker.
@@ -216,6 +218,8 @@ def detect_progressbars(gmcp_data: dict[str, typing.Any]) -> list[BarConfig]:
             continue
         detect_pairs(pkg_name, pkg_data, bars, seen)
 
+    detect_labels(gmcp_data, bars, seen)
+
     for i, bar in enumerate(bars):
         bars[i] = bar._replace(display_order=i)
     return bars
@@ -313,6 +317,38 @@ def detect_standard(gmcp_data: dict[str, typing.Any], bars: list[BarConfig], see
     status = gmcp_data.get("Char.Status")
     if isinstance(status, dict):
         try_aliases(status, "Char.Status", XP_ALIASES, "XP", ("purple", "cyan"), True, bars, seen)
+
+
+def detect_labels(
+    gmcp_data: dict[str, typing.Any], bars: list[BarConfig], seen: set[tuple[str, str, str]]
+) -> None:
+    """Detect label-type bars for level and money from ``Char.Status``."""
+    status = gmcp_data.get("Char.Status")
+    if not isinstance(status, dict):
+        return
+    label_defs = (
+        ("level", "Level", "Lv.{value}"),
+        ("money", "Money", "${value:,}"),
+    )
+    for field, name, fmt in label_defs:
+        if field not in status:
+            continue
+        key = ("Char.Status", field, "")
+        if key in seen:
+            continue
+        seen.add(key)
+        bars.append(
+            BarConfig(
+                name=name,
+                gmcp_package="Char.Status",
+                value_field=field,
+                max_field="",
+                enabled=True,
+                side="left",
+                bar_type="label",
+                label_format=fmt,
+            )
+        )
 
 
 def is_numeric(value: typing.Any) -> bool:
@@ -418,6 +454,8 @@ def dict_to_bar(entry: dict[str, typing.Any], idx: int) -> BarConfig:
         text_color_empty=str(entry.get("text_color_empty", "auto")),
         display_order=int(entry.get("display_order", idx)),
         side=str(entry.get("side", "left")),
+        bar_type=str(entry.get("bar_type", "bar")),
+        label_format=str(entry.get("label_format", "{value}")),
     )
 
 
@@ -441,4 +479,7 @@ def bar_to_dict(bar: BarConfig) -> dict[str, typing.Any]:
         result["text_color_fill"] = bar.text_color_fill
     if bar.text_color_empty != "auto":
         result["text_color_empty"] = bar.text_color_empty
+    if bar.bar_type == "label":
+        result["bar_type"] = bar.bar_type
+        result["label_format"] = bar.label_format
     return result

@@ -20,7 +20,7 @@ launched or in ``~/.config/telix/scripts/``::
         ctx.print(f"[demo] You are in: {room.name} ({room.area})")
         ctx.print(f"[demo] Exits: {', '.join(room.exits)}")
 
-Then in the Telix REPL, run it::
+Then in the Telix REPL, run it using backtick command::
 
     `async demo`
 
@@ -37,18 +37,18 @@ Telix looks for scripts in this order:
 1. Current working directory
 2. ``~/.config/telix/scripts/``
 
-Scripts are started by the `` `async` `` or `` `await` `` commands.  Every time a script is
+Scripts are started by the :samp:`\`async\`` or :samp:`\`await\`` commands.  Every time a script is
 launched, the last-modified time is checked and reloaded if necessary. Save a script file at any
 time and then call it to see any new changes (or errors!).
 
-`` `await NAME` ``
+:samp:`\`await NAME\``
     Start a script and block until it finishes before continuing, preferred for most trigger, macro,
     or autowalk/autodiscover integration this is preferred, as you would want the script to run to
     completion before continuing::
 
         `await combat.hunt`
 
-`` `async NAME` ``
+:samp:`\`async NAME\``
     Start a script in the background and return immediately.  The script runs
     concurrently with everything else::
 
@@ -58,7 +58,7 @@ time and then call it to see any new changes (or errors!).
 
 With either command calls, the function name can be omitted, and is then assumed as ``run``.
 
-- `` `async demo` `` loads ``demo.py``, calls ``run(ctx)``.
+- :samp:`\`async demo\`` loads ``demo.py``, calls ``run(ctx)``.
 
 Scripts can accept optional arguments as strings, using shell-like syntax::
 
@@ -71,10 +71,10 @@ And receive them as optional arguments::
 
 These can be used anywhere :doc:`commands` are accepted:
 
-- **REPL**: type `` `async module.func_name` `` at the prompt
-- **Trigger reply field**: set reply as `` `async module.func_name` ``
-- **Macro text**: include `` `async module.func_name` `` in macro text
-- **autowalk** and **autodiscover**: include `` `async module.func_name` `` in room-change command.
+- **REPL**: type :samp:`\`async module.func_name\`` at the prompt
+- **Trigger reply field**: set reply as :samp:`\`async module.func_name\``
+- **Macro text**: include :samp:`\`async module.func_name\`` in macro text
+- **autowalk** and **autodiscover**: include :samp:`\`async module.func_name\`` in room-change command.
 
 Stopping
 --------
@@ -84,21 +84,21 @@ the server with bad commands.
 
 Scripts may be stopped at any time, by another script or by embedded commands,
 
-`` `stopscript` ``
+:samp:`\`stopscript\``
     Stop all running scripts.  Each name is printed as it stops:
     ``[stopscript] stopped: combat.hunt``.
 
     This command is bound to **Alt + Q** by default.
 
-`` `stopscript combat.hunt` ``
+:samp:`\`stopscript combat.hunt\``
     Stop only the named script.
 
-To stop everything immediately, press **Alt + Q**, a default macro for `` `stopscript` ``
+To stop everything immediately, press **Alt + Q**, a default macro for :samp:`\`stopscript\``
 
 Listing
 -------
 
-`` `scripts` ``
+:samp:`\`scripts\``
     Show the names of all currently running scripts::
 
         [scripts] running: combat.hunt

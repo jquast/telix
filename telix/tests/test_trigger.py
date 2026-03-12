@@ -31,52 +31,24 @@ from telix.trigger import (
 )
 
 
-def test_search_buffer_add_text_strips_ansi():
+@pytest.mark.parametrize(
+    "chunks, expected_lines, expected_partial",
+    [
+        (["\x1b[31mhello\x1b[m\n"], ["hello"], ""),
+        (["partial"], [], "partial"),
+        (["partial", " more\n"], ["partial more"], ""),
+        (["line1\nline2\nline3\n"], ["line1", "line2", "line3"], ""),
+        (["line1\npartial"], ["line1"], "partial"),
+        (["Sailor\r\nGuard\r\n"], ["Sailor", "Guard"], ""),
+        ([""], [], ""),
+    ],
+)
+def test_search_buffer_add_text(chunks, expected_lines, expected_partial):
     buf = SearchBuffer(max_lines=100)
-    buf.add_text("\x1b[31mhello\x1b[m\n")
-    assert buf.lines == ["hello"]
-
-
-def test_search_buffer_add_text_no_newline_is_partial():
-    buf = SearchBuffer(max_lines=100)
-    result = buf.add_text("partial")
-    assert result is False
-    assert buf.partial == "partial"
-    assert buf.lines == []
-
-
-def test_search_buffer_add_text_newline_completes_line():
-    buf = SearchBuffer(max_lines=100)
-    buf.add_text("partial")
-    result = buf.add_text(" more\n")
-    assert result is True
-    assert buf.lines == ["partial more"]
-    assert not buf.partial
-
-
-def test_search_buffer_add_text_multiple_lines():
-    buf = SearchBuffer(max_lines=100)
-    result = buf.add_text("line1\nline2\nline3\n")
-    assert result is True
-    assert buf.lines == ["line1", "line2", "line3"]
-
-
-def test_search_buffer_add_text_trailing_partial():
-    buf = SearchBuffer(max_lines=100)
-    buf.add_text("line1\npartial")
-    assert buf.lines == ["line1"]
-    assert buf.partial == "partial"
-
-
-def test_search_buffer_add_text_strips_cr():
-    buf = SearchBuffer(max_lines=100)
-    buf.add_text("Sailor\r\nGuard\r\n")
-    assert buf.lines == ["Sailor", "Guard"]
-
-
-def test_search_buffer_add_text_empty():
-    buf = SearchBuffer(max_lines=100)
-    assert buf.add_text("") is False
+    for chunk in chunks:
+        buf.add_text(chunk)
+    assert buf.lines == expected_lines
+    assert buf.partial == expected_partial
 
 
 def test_search_buffer_cull_old_lines():
@@ -231,53 +203,35 @@ def test_save_triggers_unicode(tmp_path):
     assert loaded[0].reply == "bonjour;"
 
 
-def test_substitute_groups_single():
-    m = re.search(r"(\w+) gold", "50 gold coins")
+@pytest.mark.parametrize(
+    "regex, text, template, expected",
+    [
+        (r"(\w+) gold", "50 gold coins", "take \\1 gold", "take 50 gold"),
+        (r"(\w+) (\w+)", "hello world", "\\2 \\1", "world hello"),
+        (r"hello", "hello world", "say hello", "say hello"),
+        (r"(\w+)", "hello", "\\1 \\5", "hello \\5"),
+    ],
+)
+def test_substitute_groups(regex, text, template, expected):
+    m = re.search(regex, text)
     assert m is not None
-    assert substitute_groups("take \\1 gold", m) == "take 50 gold"
+    assert substitute_groups(template, m) == expected
 
 
-def test_substitute_groups_multiple():
-    m = re.search(r"(\w+) (\w+)", "hello world")
-    assert m is not None
-    assert substitute_groups("\\2 \\1", m) == "world hello"
-
-
-def test_substitute_groups_none():
-    m = re.search(r"hello", "hello world")
-    assert m is not None
-    assert substitute_groups("say hello", m) == "say hello"
-
-
-def test_substitute_groups_invalid_index():
-    m = re.search(r"(\w+)", "hello")
-    assert m is not None
-    assert substitute_groups("\\1 \\5", m) == "hello \\5"
-
-
-def test_extract_group_source_simple():
-    assert extract_group_source(r"(amplifier|enhancer|shield)", 1) == "amplifier|enhancer|shield"
-
-
-def test_extract_group_source_second_group():
-    assert extract_group_source(r"(foo)(bar|baz)", 2) == "bar|baz"
-
-
-def test_extract_group_source_non_capturing_skipped():
-    assert extract_group_source(r"(?:prefix)(real)", 1) == "real"
-
-
-def test_extract_group_source_named_group():
-    assert extract_group_source(r"(?P<item>sword|axe)", 1) == "sword|axe"
-
-
-def test_extract_group_source_out_of_range():
-    assert extract_group_source(r"(foo)", 2) is None
-
-
-def test_extract_group_source_nested():
-    assert extract_group_source(r"((inner)outer)", 1) == "(inner)outer"
-    assert extract_group_source(r"((inner)outer)", 2) == "inner"
+@pytest.mark.parametrize(
+    "pattern, group, expected",
+    [
+        (r"(amplifier|enhancer|shield)", 1, "amplifier|enhancer|shield"),
+        (r"(foo)(bar|baz)", 2, "bar|baz"),
+        (r"(?:prefix)(real)", 1, "real"),
+        (r"(?P<item>sword|axe)", 1, "sword|axe"),
+        (r"(foo)", 2, None),
+        (r"((inner)outer)", 1, "(inner)outer"),
+        (r"((inner)outer)", 2, "inner"),
+    ],
+)
+def test_extract_group_source(pattern, group, expected):
+    assert extract_group_source(pattern, group) == expected
 
 
 @pytest.mark.parametrize(
@@ -446,25 +400,19 @@ def test_trigger_engine_cancel_when_idle():
     assert engine.reply_chain is None
 
 
-def test_send_command_empty_string():
+@pytest.mark.parametrize(
+    "command, expected_written",
+    [
+        ("", []),
+        ("   ", []),
+        ("look", ["look\r\n"]),
+    ],
+)
+def test_send_command(command, expected_written):
     writer, written = mock_writer()
     engine = TriggerEngine([], writer, writer.log)
-    engine.send_command("")
-    assert not written
-
-
-def test_send_command_whitespace_only():
-    writer, written = mock_writer()
-    engine = TriggerEngine([], writer, writer.log)
-    engine.send_command("   ")
-    assert not written
-
-
-def test_send_command_valid():
-    writer, written = mock_writer()
-    engine = TriggerEngine([], writer, writer.log)
-    engine.send_command("look")
-    assert "look\r\n" in written
+    engine.send_command(command)
+    assert written == expected_written
 
 
 def test_sent_commands_bounded(monkeypatch):
@@ -1165,53 +1113,32 @@ def test_check_condition_string_compare(when, gmcp_data, ok):
     assert result is ok
 
 
-def test_save_triggers_when_roundtrip(tmp_path):
+@pytest.mark.parametrize(
+    "kwargs, attr, expected",
+    [
+        (dict(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50", "mp%": ">30"}),
+         "when", {"hp%": ">50", "mp%": ">30"}),
+        (dict(pattern=re.compile(r"ship arrived"), reply="enter ship;", immediate=True),
+         "immediate", True),
+        (dict(pattern=re.compile(r"DEAD", re.MULTILINE | re.DOTALL), reply="loot;", case_sensitive=True),
+         "case_sensitive", True),
+    ],
+)
+def test_save_triggers_roundtrip(tmp_path, kwargs, attr, expected):
     fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50", "mp%": ">30"})]
-    save_triggers(str(fp), rules, "test:23")
+    save_triggers(str(fp), [TriggerRule(**kwargs)], "test:23")
     loaded = load_triggers(str(fp), "test:23")
-    assert loaded[0].when == {"hp%": ">50", "mp%": ">30"}
+    assert getattr(loaded[0], attr) == expected
+    if attr == "case_sensitive" and expected is True:
+        assert not (loaded[0].pattern.flags & re.IGNORECASE)
 
 
-def test_save_triggers_when_empty_not_saved(tmp_path):
+@pytest.mark.parametrize("key", ["when", "immediate", "case_sensitive"])
+def test_save_triggers_default_not_saved(tmp_path, key):
     fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"x"), reply="y;")]
-    save_triggers(str(fp), rules, "test:23")
+    save_triggers(str(fp), [TriggerRule(pattern=re.compile(r"x"), reply="y;")], "test:23")
     raw = json.loads(fp.read_text())
-    assert "when" not in raw["test:23"]["triggers"][0]
-
-
-def test_save_triggers_immediate_roundtrip(tmp_path):
-    fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"ship arrived"), reply="enter ship;", immediate=True)]
-    save_triggers(str(fp), rules, "test:23")
-    loaded = load_triggers(str(fp), "test:23")
-    assert loaded[0].immediate is True
-
-
-def test_save_triggers_immediate_false_not_saved(tmp_path):
-    fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"x"), reply="y;")]
-    save_triggers(str(fp), rules, "test:23")
-    raw = json.loads(fp.read_text())
-    assert "immediate" not in raw["test:23"]["triggers"][0]
-
-
-def test_save_triggers_case_sensitive_roundtrip(tmp_path):
-    fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"DEAD", re.MULTILINE | re.DOTALL), reply="loot;", case_sensitive=True)]
-    save_triggers(str(fp), rules, "test:23")
-    loaded = load_triggers(str(fp), "test:23")
-    assert loaded[0].case_sensitive is True
-    assert not (loaded[0].pattern.flags & re.IGNORECASE)
-
-
-def test_save_triggers_case_sensitive_false_not_saved(tmp_path):
-    fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"x"), reply="y;")]
-    save_triggers(str(fp), rules, "test:23")
-    raw = json.loads(fp.read_text())
-    assert "case_sensitive" not in raw["test:23"]["triggers"][0]
+    assert key not in raw["test:23"]["triggers"][0]
 
 
 def test_load_triggers_case_insensitive_by_default(tmp_path):
@@ -1403,53 +1330,23 @@ async def test_trigger_engine_stamps_last_fired():
 
 
 @pytest.mark.asyncio
-async def test_inline_when_passes_fires_commands():
-    ctx, written = mock_writer_with_vitals(80, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="`when hp%>50`;kill bear;")]
+@pytest.mark.parametrize(
+    "hp, mp, when_expr, should_fire",
+    [
+        (80, 50, "hp%>50", True),
+        (30, 50, "hp%>50", False),
+        (80, 50, "hp>50", True),
+        (30, 50, "hp>50", False),
+        (80, 50, "mp>30", True),
+    ],
+)
+async def test_inline_when(hp, mp, when_expr, should_fire):
+    ctx, written = mock_writer_with_vitals(hp, 100, mp, 100)
+    rules = [TriggerRule(pattern=re.compile(r"bear"), reply=f"`when {when_expr}`;kill bear;")]
     engine = TriggerEngine(rules, ctx, ctx.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.02)
-    assert any("kill bear" in w for w in written)
-
-
-@pytest.mark.asyncio
-async def test_inline_when_fails_aborts_chain():
-    ctx, written = mock_writer_with_vitals(30, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="`when hp%>50`;kill bear;")]
-    engine = TriggerEngine(rules, ctx, ctx.log)
-    engine.feed("A bear appears.\n")
-    await asyncio.sleep(0.02)
-    assert not any("kill bear" in w for w in written)
-
-
-@pytest.mark.asyncio
-async def test_inline_when_raw_hp_passes():
-    ctx, written = mock_writer_with_vitals(80, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="`when hp>50`;kill bear;")]
-    engine = TriggerEngine(rules, ctx, ctx.log)
-    engine.feed("A bear appears.\n")
-    await asyncio.sleep(0.02)
-    assert any("kill bear" in w for w in written)
-
-
-@pytest.mark.asyncio
-async def test_inline_when_raw_hp_fails():
-    ctx, written = mock_writer_with_vitals(30, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="`when hp>50`;kill bear;")]
-    engine = TriggerEngine(rules, ctx, ctx.log)
-    engine.feed("A bear appears.\n")
-    await asyncio.sleep(0.02)
-    assert not any("kill bear" in w for w in written)
-
-
-@pytest.mark.asyncio
-async def test_inline_when_raw_mp_passes():
-    ctx, written = mock_writer_with_vitals(80, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="`when mp>30`;kill bear;")]
-    engine = TriggerEngine(rules, ctx, ctx.log)
-    engine.feed("A bear appears.\n")
-    await asyncio.sleep(0.02)
-    assert any("kill bear" in w for w in written)
+    assert any("kill bear" in w for w in written) == should_fire
 
 
 @pytest.mark.asyncio
@@ -1538,24 +1435,29 @@ async def test_pipe_immediate_send_skips_wait_fn():
     assert len(wait_calls) == 1
 
 
-def test_status_text_initially_empty():
+def make_status_ctx(with_commands=False, **writer_kwargs):
+    """Build a minimal ctx namespace for status/progress tests."""
+    writer_kwargs.setdefault("write", lambda s: None)
+    writer = types.SimpleNamespace(**writer_kwargs)
     ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: None),
+        writer=writer,
         gmcp_data={},
         walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
     )
+    if with_commands:
+        ctx.commands = session_context.CommandState()
+    return ctx
+
+
+def test_status_text_initially_empty():
+    ctx = make_status_ctx()
     engine = TriggerEngine(rules=[], ctx=ctx, log=logging.getLogger("test"))
     assert engine.status_text == ""
 
 
 @pytest.mark.asyncio
 async def test_status_text_during_until():
-    ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: None),
-        gmcp_data={},
-        walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
-        commands=session_context.CommandState(),
-    )
+    ctx = make_status_ctx(with_commands=True)
     rules = [TriggerRule(pattern=re.compile(r"go"), reply="cmd1;`until 0.1 done`")]
     engine = TriggerEngine(rules, ctx, logging.getLogger("test"))
     engine.feed("go\n")
@@ -1569,12 +1471,7 @@ async def test_status_text_during_until():
 
 @pytest.mark.asyncio
 async def test_status_text_during_delay():
-    ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: None),
-        gmcp_data={},
-        walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
-        commands=session_context.CommandState(),
-    )
+    ctx = make_status_ctx(with_commands=True)
     rules = [TriggerRule(pattern=re.compile(r"go"), reply="`delay 50ms`;cmd1;")]
     engine = TriggerEngine(rules, ctx, logging.getLogger("test"))
     engine.feed("go\n")
@@ -1588,12 +1485,7 @@ async def test_status_text_during_delay():
 
 @pytest.mark.asyncio
 async def test_status_text_cleared_on_cancel():
-    ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: None),
-        gmcp_data={},
-        walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
-        commands=session_context.CommandState(),
-    )
+    ctx = make_status_ctx(with_commands=True)
     rules = [TriggerRule(pattern=re.compile(r"go"), reply="`until 0.1 nope`")]
     engine = TriggerEngine(rules, ctx, logging.getLogger("test"))
     engine.feed("go\n")
@@ -1605,12 +1497,7 @@ async def test_status_text_cleared_on_cancel():
 
 @pytest.mark.asyncio
 async def test_until_progress_tracks_elapsed():
-    ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: None),
-        gmcp_data={},
-        walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
-        commands=session_context.CommandState(),
-    )
+    ctx = make_status_ctx(with_commands=True)
     rules = [TriggerRule(pattern=re.compile(r"go"), reply="cmd1;`until 0.2 done`")]
     engine = TriggerEngine(rules, ctx, logging.getLogger("test"))
     assert engine.until_progress is None
@@ -1628,12 +1515,7 @@ async def test_until_progress_tracks_elapsed():
 
 @pytest.mark.asyncio
 async def test_until_progress_cleared_on_timeout():
-    ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=lambda s: None),
-        gmcp_data={},
-        walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
-        commands=session_context.CommandState(),
-    )
+    ctx = make_status_ctx(with_commands=True)
     rules = [TriggerRule(pattern=re.compile(r"go"), reply="cmd1;`until 0.02 nomatch`")]
     engine = TriggerEngine(rules, ctx, logging.getLogger("test"))
     engine.feed("go\n")
@@ -1647,11 +1529,7 @@ async def test_until_progress_cleared_on_timeout():
 async def test_status_text_masks_send_when_will_echo():
     """status_text shows '(masked)' instead of the command when will_echo is True."""
     sent: list[str] = []
-    ctx = types.SimpleNamespace(
-        writer=types.SimpleNamespace(write=sent.append, will_echo=True),
-        gmcp_data={},
-        walk=types.SimpleNamespace(active_command=None, active_command_time=0.0, randomwalk_active=False),
-    )
+    ctx = make_status_ctx(write=sent.append, will_echo=True)
     rules = [TriggerRule(pattern=re.compile(r"Password:"), reply="`delay 20ms`;secret")]
     engine = TriggerEngine(rules, ctx, logging.getLogger("test"))
     engine.feed("Password:\n")

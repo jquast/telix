@@ -12,6 +12,11 @@ div.sphinxsidebar {
     background-color: #efe9de;
 }
 
+/* Pin the layout to the left instead of centering on wide screens. */
+div.document {
+    margin: 0;
+}
+
 @media screen and (max-width: 940px) {
     div.sphinxsidebar {
         background: #efe9de;

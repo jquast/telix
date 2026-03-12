@@ -64,6 +64,8 @@ class WalkState:
     last_walk_room: str = ""
     last_walk_strategy: str = "bfs"
     last_walk_noreply: bool = False
+    last_walk_room_change_cmd: str = ""
+    last_walk_visit_level: int = 2
     last_walk_visited: set[str] = dataclasses.field(default_factory=set)
     last_walk_tried: set[tuple[str, str]] = dataclasses.field(default_factory=set)
 
@@ -155,6 +157,7 @@ class PromptState:
     wait_fn: typing.Any | None = None
     echo: typing.Any | None = None
     ready: typing.Any | None = None
+    repaint_input: typing.Any | None = None
 
 
 @dataclasses.dataclass

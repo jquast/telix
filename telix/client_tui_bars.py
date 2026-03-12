@@ -41,6 +41,8 @@ class ProgressBarTuple(typing.NamedTuple):
     text_color_empty: str = "auto"
     display_order: int = 0
     side: str = "left"
+    bar_type: str = "bar"
+    label_format: str = "{value}"
 
 
 class ProgressBarEditPane(client_tui_base.EditListPane):
@@ -72,6 +74,9 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
     #pb-side { max-width: 20; }
     #pb-preview-bar { height: 1; margin: 0 0 0 12; }
     #pb-preview-gradient { height: 1; margin: 0 0 0 12; }
+    #pb-bar-type { max-width: 20; }
+    #pb-label-format { max-width: 50; }
+    #pb-label-format-row { height: auto; margin: 0; }
     """
     )
 
@@ -152,6 +157,11 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Label("", classes="toggle-gap")
                             yield textual.widgets.Label("Enabled:", classes="toggle-label")
                             yield textual.widgets.Switch(value=True, id="pb-enabled")
+                        with textual.containers.Horizontal(id="pb-type-row", classes="field-row"):
+                            yield textual.widgets.Label("Type", classes="form-label")
+                            with textual.widgets.RadioSet(id="pb-bar-type"):
+                                yield textual.widgets.RadioButton("Progress Bar", id="pb-type-bar", value=True)
+                                yield textual.widgets.RadioButton("Label", id="pb-type-label")
                         with textual.containers.Horizontal(classes="field-row"):
                             yield textual.widgets.Label("Source", classes="form-label")
                             yield textual.widgets.Select[str](
@@ -166,6 +176,9 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
                             yield textual.widgets.Select[str](
                                 [], id="pb-max-select", allow_blank=True, prompt="Max field\u2026"
                             )
+                        with textual.containers.Horizontal(id="pb-label-format-row", classes="field-row"):
+                            yield textual.widgets.Label("Format", classes="form-label")
+                            yield textual.widgets.Input(placeholder="{value}", id="pb-label-format")
                         with textual.containers.Horizontal(id="pb-color-row1", classes="field-row"):
                             yield textual.widgets.Label("Color Mode", classes="form-label")
                             with textual.widgets.RadioSet(id="pb-color-mode"):
@@ -306,7 +319,10 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
             enabled = "Yes" if bar.enabled else "No"
             display_name = bar.name if len(bar.name) <= 19 else bar.name[:18] + "\u2026"
             val_f = bar.value_field if len(bar.value_field) <= 13 else bar.value_field[:12] + "\u2026"
-            max_f = bar.max_field if len(bar.max_field) <= 13 else bar.max_field[:12] + "\u2026"
+            if bar.bar_type == "label":
+                max_f = "(label)"
+            else:
+                max_f = bar.max_field if len(bar.max_field) <= 13 else bar.max_field[:12] + "\u2026"
             swatch = self.color_swatch(bar)
             row_pos = len(self.filtered_indices) - 1
             table.add_row(str(i + 1), display_name, bar.gmcp_package, val_f, max_f, enabled, swatch, key=str(row_pos))
@@ -327,6 +343,8 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         text_color_empty: str = "auto",
         display_order: int = 0,
         side: str = "left",
+        bar_type: str = "bar",
+        label_format: str = "{value}",
     ) -> None:
         is_travel = bool(name == progressbars.TRAVEL_BAR_NAME or (name and not gmcp_package))
         self.populating_form = True
@@ -368,8 +386,14 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         self.query_one("#progressbar-table").display = False
         self.query_one("#progressbar-form").display = True
         self.set_action_buttons_disabled(True)
+        is_label = bar_type == "label"
+        type_target = "#pb-type-label" if is_label else "#pb-type-bar"
+        self.query_one(type_target, textual.widgets.RadioButton).value = True
+        self.query_one("#pb-label-format", textual.widgets.Input).value = label_format
+        self.toggle_label_mode(is_label)
         self.preview_phase = 0.0
-        self.start_preview_timer()
+        if not is_label:
+            self.start_preview_timer()
         self.query_one("#pb-name", textual.widgets.Input).focus()
 
     def submit_form(self) -> None:
@@ -388,6 +412,8 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         text_color_fill = self.get_select_value("#pb-text-min", "auto")
         text_color_empty = self.get_select_value("#pb-text-max", "auto")
         side = "right" if self.query_one("#pb-side-right", textual.widgets.RadioButton).value else "left"
+        bar_type = "label" if self.query_one("#pb-type-label", textual.widgets.RadioButton).value else "bar"
+        label_format = self.query_one("#pb-label-format", textual.widgets.Input).value.strip() or "{value}"
         order = 0
         if self.editing_idx is not None:
             order = self.bars[self.editing_idx].display_order
@@ -405,6 +431,8 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
             text_color_empty=text_color_empty,
             display_order=order,
             side=side,
+            bar_type=bar_type,
+            label_format=label_format,
         )
         self.finalize_edit(entry, True)
 
@@ -435,6 +463,20 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         self.form_source_pkg = ""
         self.form_color_mode = ""
         super().hide_form()
+
+    def toggle_label_mode(self, is_label: bool) -> None:
+        """Show/hide form fields appropriate for label vs bar type."""
+        self.query_one("#pb-label-format-row").display = is_label
+        self.query_one("#pb-max-select", textual.widgets.Select).disabled = is_label
+        self.query_one("#pb-color-row1").display = not is_label
+        self.query_one("#pb-color-row2").display = not is_label
+        self.query_one("#pb-color-row3").display = not is_label
+        self.query_one("#pb-preview-bar").display = not is_label
+        self.query_one("#pb-preview-gradient").display = not is_label
+        if is_label:
+            self.stop_preview_timer()
+        else:
+            self.start_preview_timer()
 
     def start_preview_timer(self) -> None:
         """Start the animated preview at ~15 fps."""
@@ -548,7 +590,11 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         text_max_sel.value = preserve_text_empty if preserve_text_empty in text_vals else "auto"
 
     def on_radio_set_changed(self, event: textual.widgets.RadioSet.Changed) -> None:
-        """Toggle custom color fields and swap color options when mode changes."""
+        """Toggle custom color fields, bar type, and swap color options when mode changes."""
+        if event.radio_set.id == "pb-bar-type":
+            is_label = self.query_one("#pb-type-label", textual.widgets.RadioButton).value
+            self.toggle_label_mode(is_label)
+            return
         if event.radio_set.id == "pb-color-mode":
             is_custom = self.query_one("#pb-mode-custom", textual.widgets.RadioButton).value
             new_mode = "custom" if is_custom else "theme"

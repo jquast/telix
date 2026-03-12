@@ -825,13 +825,9 @@ class ToolbarRenderer:
         gmcp_data: dict[str, typing.Any] | None = self.ctx.gmcp_data or None  # inherited from TelnetSessionContext
 
         if gmcp_data:
-            status = gmcp_data.get("Char.Status")
-            if isinstance(status, dict):
-                self.status_slots(status, slots, is_ar_bg)
-
             bar_configs = self.ctx.progress.configs
             if bar_configs:
-                needs_reflash = self.config_driven_bars(gmcp_data, bar_configs, now, slots)
+                needs_reflash = self.config_driven_bars(gmcp_data, bar_configs, now, slots, is_ar_bg)
             else:
                 needs_reflash = self.default_bars(gmcp_data, now, slots)
 
@@ -895,6 +891,7 @@ class ToolbarRenderer:
         bar_configs: "list[progressbars.BarConfig]",
         now: float,
         slots: list[ToolbarSlot],
+        is_ar_bg: bool = False,
     ) -> bool:
         """Build vital bar slots from user-configured progress bar list."""
         from . import progressbars  # circular
@@ -911,6 +908,11 @@ class ToolbarRenderer:
             raw = pkg_data.get(cfg.value_field)
             if raw is None:
                 continue
+
+            if cfg.bar_type == "label":
+                self.label_slot(cfg, raw, i, is_ar_bg, slots)
+                continue
+
             maxval = pkg_data.get(cfg.max_field)
             tracker = self.bar_trackers.get(cfg.name)
             if tracker is None:
@@ -984,6 +986,44 @@ class ToolbarRenderer:
                     label="",
                 )
             )
+
+    @staticmethod
+    def label_slot(
+        cfg: "progressbars.BarConfig",
+        raw: typing.Any,
+        index: int,
+        is_ar_bg: bool,
+        slots: list[ToolbarSlot],
+    ) -> None:
+        """Add a label-type slot from a :class:`BarConfig`."""
+        from . import progressbars  # circular
+
+        try:
+            numeric = int(raw)
+        except (TypeError, ValueError):
+            numeric = raw
+        try:
+            text = segmented(cfg.label_format.format(value=numeric))
+        except (KeyError, ValueError, IndexError):
+            text = segmented(str(raw))
+        if is_ar_bg:
+            color = "#222222"
+        else:
+            hex_val = progressbars.get_theme_color_hex(cfg.color_name_max)
+            color = hex_val if hex_val else pal("muted")
+        fg = sgr_fg(color)
+        order = cfg.display_order if cfg.display_order else index + 2
+        slots.append(
+            ToolbarSlot(
+                priority=index + 1,
+                display_order=order,
+                width=wcswidth(text),
+                fragments=[(fg, text)],
+                side=cfg.side,
+                min_width=0,
+                label="",
+            )
+        )
 
     @staticmethod
     def vital_slot(

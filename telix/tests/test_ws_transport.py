@@ -427,12 +427,23 @@ class TestWsClientParser:
         args = parser.parse_args(["wss://example.com", "--no-repl"])
         assert args.no_repl is True
 
-    def test_no_repl_defaults_false(self) -> None:
+    @pytest.mark.parametrize(
+        "flag_name, default_value",
+        [
+            ("no_repl", False),
+            ("typescript", ""),
+            ("typescript_mode", "append"),
+            ("encoding", "utf-8"),
+            ("encoding_errors", "replace"),
+        ],
+    )
+    def test_parser_default_flags(self, flag_name, default_value):
+        """Parser flag defaults to expected value."""
         from telix.ws_client import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["wss://example.com"])
-        assert args.no_repl is False
+        assert getattr(args, flag_name) == default_value
 
     def test_typescript_flag_accepted(self) -> None:
         from telix.ws_client import build_parser
@@ -441,26 +452,12 @@ class TestWsClientParser:
         args = parser.parse_args(["wss://example.com", "--typescript", "path/file.txt"])
         assert args.typescript == "path/file.txt"
 
-    def test_typescript_defaults_empty(self) -> None:
-        from telix.ws_client import build_parser
-
-        parser = build_parser()
-        args = parser.parse_args(["wss://example.com"])
-        assert args.typescript == ""
-
     def test_logfile_mode_rewrite(self) -> None:
         from telix.ws_client import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["wss://example.com", "--logfile-mode", "rewrite"])
         assert args.logfile_mode == "rewrite"
-
-    def test_typescript_mode_defaults_append(self) -> None:
-        from telix.ws_client import build_parser
-
-        parser = build_parser()
-        args = parser.parse_args(["wss://example.com"])
-        assert args.typescript_mode == "append"
 
     def test_encoding_flag_accepted(self) -> None:
         from telix.ws_client import build_parser
@@ -469,26 +466,12 @@ class TestWsClientParser:
         args = parser.parse_args(["wss://example.com", "--encoding", "cp437"])
         assert args.encoding == "cp437"
 
-    def test_encoding_defaults_utf8(self) -> None:
-        from telix.ws_client import build_parser
-
-        parser = build_parser()
-        args = parser.parse_args(["wss://example.com"])
-        assert args.encoding == "utf-8"
-
     def test_encoding_errors_flag_accepted(self) -> None:
         from telix.ws_client import build_parser
 
         parser = build_parser()
         args = parser.parse_args(["wss://example.com", "--encoding-errors", "strict"])
         assert args.encoding_errors == "strict"
-
-    def test_encoding_errors_defaults_replace(self) -> None:
-        from telix.ws_client import build_parser
-
-        parser = build_parser()
-        args = parser.parse_args(["wss://example.com"])
-        assert args.encoding_errors == "replace"
 
     def test_subprotocols_list(self) -> None:
         """WS_SUBPROTOCOLS contains all three protocols in correct order."""
@@ -517,41 +500,27 @@ class TestWsClientParser:
 class TestExtractIac:
     """extract_iac parses IAC sequences from a binary telnet stream."""
 
-    def test_no_iac_passes_through(self):
-        """Data with no IAC bytes passes through unchanged."""
-        clean, events, remainder = extract_iac(b"hello world")
-        assert clean == b"hello world"
-        assert events == []
+    @pytest.mark.parametrize(
+        "data, expected_event, expected_param",
+        [
+            (b"hello world", None, None),
+            (b"text\xff\xfb\x01more", "will", b"\x01"),
+            (b"\xff\xfc\x01", "wont", b"\x01"),
+            (b"\xff\xfd\x18", "do", b"\x18"),
+            (b"\xff\xfe\x18", "dont", b"\x18"),
+            (b"\xff\xf9", "cmd", b"\xf9"),
+            (b"\xff\xef", "cmd", b"\xef"),
+        ],
+    )
+    def test_iac_extraction(self, data, expected_event, expected_param):
+        """Single IAC sequence is extracted correctly."""
+        clean, events, remainder = extract_iac(data)
+        if expected_event is None:
+            assert events == []
+            assert clean == data
+        else:
+            assert events == [(expected_event, expected_param)]
         assert remainder == b""
-
-    def test_iac_will_echo(self):
-        """IAC WILL ECHO is extracted as a will event."""
-        data = b"text\xff\xfb\x01more"
-        clean, events, remainder = extract_iac(data)
-        assert clean == b"textmore"
-        assert len(events) == 1
-        assert events[0] == ("will", b"\x01")
-        assert remainder == b""
-
-    def test_iac_wont_echo(self):
-        """IAC WONT ECHO is extracted as a wont event."""
-        data = b"\xff\xfc\x01"
-        clean, events, remainder = extract_iac(data)
-        assert clean == b""
-        assert events == [("wont", b"\x01")]
-        assert remainder == b""
-
-    def test_iac_do(self):
-        """IAC DO option is extracted as a do event."""
-        data = b"\xff\xfd\x18"
-        clean, events, remainder = extract_iac(data)
-        assert events == [("do", b"\x18")]
-
-    def test_iac_dont(self):
-        """IAC DONT option is extracted as a dont event."""
-        data = b"\xff\xfe\x18"
-        clean, events, remainder = extract_iac(data)
-        assert events == [("dont", b"\x18")]
 
     def test_iac_iac_escape(self):
         """IAC IAC produces a single 0xFF in output."""
@@ -560,20 +529,6 @@ class TestExtractIac:
         assert clean == b"a\xffb"
         assert events == []
         assert remainder == b""
-
-    def test_iac_ga(self):
-        """IAC GA is extracted as a cmd event."""
-        data = b"\xff\xf9"
-        clean, events, remainder = extract_iac(data)
-        assert clean == b""
-        assert events == [("cmd", b"\xf9")]
-        assert remainder == b""
-
-    def test_iac_eor(self):
-        """IAC CMD_EOR is extracted as a cmd event."""
-        data = b"\xff\xef"
-        clean, events, remainder = extract_iac(data)
-        assert events == [("cmd", b"\xef")]
 
     def test_mixed_data_and_iac(self):
         """Mixed data and IAC sequences return correct clean data and events."""

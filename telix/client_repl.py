@@ -841,6 +841,19 @@ class ReplSession:
         cursor_col = self.editor_cursor()
         self.stdout.write(self.blessed_term.move_yx(self.scroll.input_row, cursor_col).encode())
 
+    def repaint_input_line(self) -> None:
+        """Re-render the input line from a background task (e.g. after travel)."""
+        if self.scroll is None:
+            return
+        bt = self.blessed_term
+        bt_hide = bt.hide_cursor
+        self.stdout.write(bt_hide.encode())
+        self.update_input_style()
+        self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
+        self.toolbar.render(self.trigger_engine)
+        cursor_col = self.editor_cursor()
+        self.show_cursor(self.scroll.input_row, cursor_col)
+
     def render_editor(self, bt: "blessed.Terminal", row: int, width: int) -> str:
         """Render the line editor, scrambling password text."""
         raw = self.editor.render(bt, row, width)
@@ -969,6 +982,8 @@ class ReplSession:
         self.stdout.write(bt.save.encode())
         if self.trigger_engine is not None:
             self.trigger_engine.feed(text)
+        if self.ctx.scripts.manager is not None:
+            self.ctx.scripts.manager.feed(text)
         assert self.scroll is not None
         self.update_input_style()
         self.stdout.write(self.render_editor(bt, self.scroll.input_row, self.input_width()).encode())
@@ -1068,6 +1083,7 @@ class ReplSession:
                     resume=True,
                     strategy=self.ctx.walk.last_walk_strategy,
                     noreply=self.ctx.walk.last_walk_noreply,
+                    room_change_cmd=self.ctx.walk.last_walk_room_change_cmd,
                 )
             )
             t.add_done_callback(self.on_walk_done)
@@ -1078,8 +1094,15 @@ class ReplSession:
                 if task is not None:
                     task.cancel()
                 return
+            self.ctx.walk.randomwalk_room_change_cmd = self.ctx.walk.last_walk_room_change_cmd
             t = asyncio.ensure_future(
-                randomwalk(self.ctx, self.telnet_writer.log, resume=True, noreply=self.ctx.walk.last_walk_noreply)
+                randomwalk(
+                    self.ctx,
+                    self.telnet_writer.log,
+                    resume=True,
+                    noreply=self.ctx.walk.last_walk_noreply,
+                    visit_level=self.ctx.walk.last_walk_visit_level,
+                )
             )
             t.add_done_callback(self.on_walk_done)
             self.ctx.walk.randomwalk_task = t
@@ -1300,6 +1323,7 @@ class ReplSession:
         self.ctx.prompt.wait_fn = self.wait_for_prompt
         self.ctx.prompt.echo = self.echo_trigger
         self.ctx.prompt.ready = self.prompt_ready
+        self.ctx.prompt.repaint_input = self.repaint_input_line
         self.ctx.on_trigger_activity = self.on_trigger_activity
 
         self.refresh_trigger_engine()

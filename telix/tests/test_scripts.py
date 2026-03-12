@@ -21,97 +21,44 @@ from telix.client_repl_commands import (
     dispatch_one,
 )
 
-# ---------------------------------------------------------------------------
-# Backtick regex constants
-# ---------------------------------------------------------------------------
+NO_MATCH = object()
+MATCH_ONLY = object()
 
 
-class TestAsyncCmdRe:
-    """ASYNC_CMD_RE matches backtick-enclosed async (fire-and-forget) script commands."""
+class TestBacktickRegex:
+    """Backtick command regex matching."""
 
-    def test_matches_bare_module(self):
-        m = ASYNC_CMD_RE.match("`async demo`")
-        assert m is not None
-        assert m.group(1) == "demo"
-
-    def test_matches_dotted_function(self):
-        m = ASYNC_CMD_RE.match("`async combat.hunt`")
-        assert m is not None
-        assert m.group(1) == "combat.hunt"
-
-    def test_matches_with_args(self):
-        m = ASYNC_CMD_RE.match("`async rooms.goto 12345`")
-        assert m is not None
-        assert m.group(1) == "rooms.goto 12345"
-
-    def test_does_not_match_plain_text(self):
-        assert ASYNC_CMD_RE.match("async demo") is None
-
-    def test_case_insensitive(self):
-        assert ASYNC_CMD_RE.match("`ASYNC demo`") is not None
-
-
-class TestAwaitCmdRe:
-    """AWAIT_CMD_RE matches backtick-enclosed await (blocking) script commands."""
-
-    def test_matches_bare_module(self):
-        m = AWAIT_CMD_RE.match("`await demo`")
-        assert m is not None
-        assert m.group(1) == "demo"
-
-    def test_matches_dotted_function(self):
-        m = AWAIT_CMD_RE.match("`await combat.hunt`")
-        assert m is not None
-        assert m.group(1) == "combat.hunt"
-
-    def test_matches_with_args(self):
-        m = AWAIT_CMD_RE.match("`await rooms.goto 12345`")
-        assert m is not None
-        assert m.group(1) == "rooms.goto 12345"
-
-    def test_does_not_match_plain_text(self):
-        assert AWAIT_CMD_RE.match("await demo") is None
-
-    def test_case_insensitive(self):
-        assert AWAIT_CMD_RE.match("`AWAIT demo`") is not None
-
-
-class TestScriptsCmdRe:
-    """SCRIPTS_CMD_RE matches the bare `scripts` backtick command."""
-
-    def test_matches(self):
-        assert SCRIPTS_CMD_RE.match("`scripts`") is not None
-
-    def test_case_insensitive(self):
-        assert SCRIPTS_CMD_RE.match("`SCRIPTS`") is not None
-
-    def test_does_not_match_with_args(self):
-        assert SCRIPTS_CMD_RE.match("`scripts foo`") is None
-
-    def test_does_not_match_plain_text(self):
-        assert SCRIPTS_CMD_RE.match("scripts") is None
-
-
-class TestStopscriptCmdRe:
-    """STOPSCRIPT_CMD_RE matches backtick-enclosed stopscript commands."""
-
-    def test_matches_stop_all(self):
-        m = STOPSCRIPT_CMD_RE.match("`stopscript`")
-        assert m is not None
-        assert m.group(1) is None
-
-    def test_matches_named_script(self):
-        m = STOPSCRIPT_CMD_RE.match("`stopscript combat.hunt`")
-        assert m is not None
-        assert m.group(1) == "combat.hunt"
-
-    def test_does_not_match_plain_text(self):
-        assert STOPSCRIPT_CMD_RE.match("stopscript") is None
-
-
-# ---------------------------------------------------------------------------
-# ScriptOutputBuffer tests
-# ---------------------------------------------------------------------------
+    @pytest.mark.parametrize(
+        "regex, text, expected",
+        [
+            (ASYNC_CMD_RE, "`async demo`", "demo"),
+            (ASYNC_CMD_RE, "`async combat.hunt`", "combat.hunt"),
+            (ASYNC_CMD_RE, "`async rooms.goto 12345`", "rooms.goto 12345"),
+            (ASYNC_CMD_RE, "async demo", NO_MATCH),
+            (ASYNC_CMD_RE, "`ASYNC demo`", "demo"),
+            (AWAIT_CMD_RE, "`await demo`", "demo"),
+            (AWAIT_CMD_RE, "`await combat.hunt`", "combat.hunt"),
+            (AWAIT_CMD_RE, "`await rooms.goto 12345`", "rooms.goto 12345"),
+            (AWAIT_CMD_RE, "await demo", NO_MATCH),
+            (AWAIT_CMD_RE, "`AWAIT demo`", "demo"),
+            (SCRIPTS_CMD_RE, "`scripts`", MATCH_ONLY),
+            (SCRIPTS_CMD_RE, "`SCRIPTS`", MATCH_ONLY),
+            (SCRIPTS_CMD_RE, "`scripts foo`", NO_MATCH),
+            (SCRIPTS_CMD_RE, "scripts", NO_MATCH),
+            (STOPSCRIPT_CMD_RE, "`stopscript`", None),
+            (STOPSCRIPT_CMD_RE, "`stopscript combat.hunt`", "combat.hunt"),
+            (STOPSCRIPT_CMD_RE, "stopscript", NO_MATCH),
+        ],
+    )
+    def test_regex_match(self, regex, text, expected):
+        m = regex.match(text)
+        if expected is NO_MATCH:
+            assert m is None
+        elif expected is MATCH_ONLY:
+            assert m is not None
+        else:
+            assert m is not None
+            assert m.group(1) == expected
 
 
 class TestScriptOutputBufferFeed:
@@ -289,10 +236,6 @@ class TestScriptOutputBufferWaitForPrompt:
         assert result is False
 
 
-# ---------------------------------------------------------------------------
-# ScriptContext tests
-# ---------------------------------------------------------------------------
-
 
 def make_ctx():
     """Return a minimal mock TelixSessionContext."""
@@ -315,123 +258,74 @@ def make_ctx():
     return ctx
 
 
+def make_script_ctx(gmcp_data=None):
+    """Return a ScriptContext backed by a mock session with the given GMCP data."""
+    session_ctx = make_ctx()
+    if gmcp_data is not None:
+        session_ctx.gmcp_data = gmcp_data
+    return scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test")), session_ctx
+
+
 class TestScriptContextGmcpGet:
     """ScriptContext.gmcp_get traverses nested GMCP data."""
 
-    def test_top_level_key(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        vitals = ctx.gmcp_get("Char.Vitals")
-        assert isinstance(vitals, dict)
-
-    def test_nested_key(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char": {"Vitals": {"hp": 50}}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Char.Vitals.hp") == 50
-
-    def test_missing_key(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("No.Such.Key") is None
-
-    def test_pct_suffix(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Char.Guild.Stats.Water%") == pytest.approx(0.4)
-
-    def test_pct_suffix_missing_max(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Char.Guild.Stats.Water%") is None
-
-    def test_pct_suffix_zero_max(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 0}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Char.Guild.Stats.Water%") is None
-
-    def test_pct_suffix_case_insensitive_max(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 150, "maxwater": 200}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Char.Guild.Stats.Water%") == pytest.approx(0.75)
-
-    def test_bare_field_name(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Water") == 80
-
-    def test_bare_field_name_pct(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Water%") == pytest.approx(0.4)
-
-    def test_bare_field_name_missing(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp_get("Nope") is None
+    @pytest.mark.parametrize(
+        "gmcp_data, key, expected",
+        [
+            ({"Char.Vitals": {"hp": 80, "maxhp": 100}}, "Char.Vitals", {"hp": 80, "maxhp": 100}),
+            ({"Char": {"Vitals": {"hp": 50}}}, "Char.Vitals.hp", 50),
+            ({"Char.Vitals": {"hp": 80}}, "No.Such.Key", None),
+            ({"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}, "Char.Guild.Stats.Water%", pytest.approx(0.4)),
+            ({"Char.Guild.Stats": {"Water": 80}}, "Char.Guild.Stats.Water%", None),
+            ({"Char.Guild.Stats": {"Water": 80, "MaxWater": 0}}, "Char.Guild.Stats.Water%", None),
+            ({"Char.Guild.Stats": {"Water": 150, "maxwater": 200}}, "Char.Guild.Stats.Water%", pytest.approx(0.75)),
+            ({"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}, "Water", 80),
+            ({"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}, "Water%", pytest.approx(0.4)),
+            ({"Char.Guild.Stats": {"Water": 80}}, "Nope", None),
+        ],
+    )
+    def test_gmcp_get(self, gmcp_data, key, expected):
+        ctx, _ = make_script_ctx(gmcp_data)
+        result = ctx.gmcp_get(key)
+        if isinstance(expected, dict):
+            assert isinstance(result, dict)
+            assert result == expected
+        else:
+            assert result == expected
 
 
 class TestScriptContextPrint:
     """ScriptContext.print calls echo_command."""
 
     def test_delegates_to_echo_command(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
         ctx.print("hello world")
-        session_ctx.prompt.echo.assert_called_once_with("hello world")
+        sctx.prompt.echo.assert_called_once_with("hello world")
 
     def test_no_echo_command_does_not_crash(self):
-        session_ctx = make_ctx()
-        session_ctx.prompt.echo = None
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
+        sctx.prompt.echo = None
         ctx.print("silent")
 
     def test_non_string_argument_is_converted(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
         ctx.print(42)
-        session_ctx.prompt.echo.assert_called_once_with("42")
+        sctx.prompt.echo.assert_called_once_with("42")
 
     def test_list_argument_is_converted(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
         ctx.print([1, 2, 3])
-        session_ctx.prompt.echo.assert_called_once_with("[1, 2, 3]")
+        sctx.prompt.echo.assert_called_once_with("[1, 2, 3]")
 
     def test_multiple_args_joined_with_space(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
         ctx.print("hp:", 100)
-        session_ctx.prompt.echo.assert_called_once_with("hp: 100")
+        sctx.prompt.echo.assert_called_once_with("hp: 100")
 
     def test_multiple_args_custom_sep(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
         ctx.print("a", "b", "c", sep=", ")
-        session_ctx.prompt.echo.assert_called_once_with("a, b, c")
+        sctx.prompt.echo.assert_called_once_with("a, b, c")
 
 
 class TestScriptContextLogging:
@@ -442,9 +336,8 @@ class TestScriptContextLogging:
     )
     def test_log_level(self, method, logger_method):
         session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
         mock_log = MagicMock()
-        ctx = scripts.ScriptContext(session_ctx, buf, mock_log)
+        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), mock_log)
         getattr(ctx, method)("test message")
         getattr(mock_log, logger_method).assert_called_once_with("script: %s", "test message")
 
@@ -453,56 +346,55 @@ class TestScriptContextProperties:
     """ScriptContext property accessors."""
 
     def test_gmcp_property(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        assert ctx.gmcp is session_ctx.gmcp_data
+        ctx, sctx = make_script_ctx()
+        assert ctx.gmcp is sctx.gmcp_data
 
     def test_room_id(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, _ = make_script_ctx()
         assert ctx.room_id == "42"
 
     def test_captures(self):
-        session_ctx = make_ctx()
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, _ = make_script_ctx()
         assert ctx.captures["Kills"] == 5
 
 
 class TestConditionsMet:
-    """ScriptContext.conditions_met checks all conditions atomically."""
+    """ScriptContext.conditions_met and condition_met checks."""
 
     @pytest.mark.asyncio
-    async def test_all_true(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "50", "maxhp": "100", "mp": "80", "maxmp": "100"}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        result = await ctx.conditions_met(("hp%", "<", 100), ("mp%", ">", 50))
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_list_form(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "50", "maxhp": "100", "mp": "80", "maxmp": "100"}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        result = await ctx.conditions_met([("hp%", "<", 100), ("mp%", ">", 50)])
-        assert result is True
+    @pytest.mark.parametrize(
+        "gmcp_data, conditions, expected",
+        [
+            (
+                {"Char.Vitals": {"hp": "50", "maxhp": "100", "mp": "80", "maxmp": "100"}},
+                (("hp%", "<", 100), ("mp%", ">", 50)),
+                True,
+            ),
+            (
+                {"Char.Vitals": {"hp": "50", "maxhp": "100", "mp": "80", "maxmp": "100"}},
+                [("hp%", "<", 100), ("mp%", ">", 50)],
+                True,
+            ),
+        ],
+    )
+    async def test_immediate_result(self, gmcp_data, conditions, expected):
+        ctx, _ = make_script_ctx(gmcp_data)
+        if isinstance(conditions, list):
+            result = await ctx.conditions_met(conditions)
+        else:
+            result = await ctx.conditions_met(*conditions)
+        assert result is expected
 
     @pytest.mark.asyncio
     async def test_one_false_waits_for_update(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "100", "maxhp": "100", "mp": "80", "maxmp": "100"}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        ctx, sctx = make_script_ctx(
+            {"Char.Vitals": {"hp": "100", "maxhp": "100", "mp": "80", "maxmp": "100"}}
+        )
         task = asyncio.ensure_future(ctx.conditions_met(("hp%", "<", 100), ("mp%", ">", 50)))
         await asyncio.sleep(0)
         assert not task.done()
-        session_ctx.gmcp_data["Char.Vitals"]["hp"] = "50"
-        evt = session_ctx.gmcp.any_update
+        sctx.gmcp_data["Char.Vitals"]["hp"] = "50"
+        evt = sctx.gmcp.any_update
         evt.set()
         evt.clear()
         await asyncio.sleep(0)
@@ -510,35 +402,19 @@ class TestConditionsMet:
         assert task.result() is True
 
     @pytest.mark.asyncio
-    async def test_timeout_returns_false(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "100", "maxhp": "100"}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        result = await ctx.conditions_met(("hp%", "<", 50), timeout=0.05)
-        assert result is False
-
-
-class TestConditionMet:
-    """ScriptContext.condition_met timeout behaviour."""
-
-    @pytest.mark.asyncio
-    async def test_timeout_returns_false(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "100", "maxhp": "100"}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        result = await ctx.condition_met("hp%", "<", 50, timeout=0.05)
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_no_timeout_default(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "50", "maxhp": "100"}}
-        buf = scripts.ScriptOutputBuffer()
-        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
-        result = await ctx.condition_met("hp%", "<", 100)
-        assert result is True
+    @pytest.mark.parametrize(
+        "gmcp_data, method, args, expected",
+        [
+            ({"Char.Vitals": {"hp": "100", "maxhp": "100"}}, "conditions_met", (("hp%", "<", 50),), False),
+            ({"Char.Vitals": {"hp": "100", "maxhp": "100"}}, "condition_met", ("hp%", "<", 50), False),
+            ({"Char.Vitals": {"hp": "50", "maxhp": "100"}}, "condition_met", ("hp%", "<", 100), True),
+        ],
+    )
+    async def test_timeout_and_immediate(self, gmcp_data, method, args, expected):
+        ctx, _ = make_script_ctx(gmcp_data)
+        kwargs = {"timeout": 0.05} if not expected else {}
+        result = await getattr(ctx, method)(*args, **kwargs)
+        assert result is expected
 
 
 class TestScriptContextSend:
@@ -581,10 +457,6 @@ class TestScriptContextSend:
         await ctx.send("look")
         assert any("look" in s for s in sent)
 
-
-# ---------------------------------------------------------------------------
-# ScriptManager tests
-# ---------------------------------------------------------------------------
 
 
 def make_fake_module(fn_name: str, body: str) -> types.ModuleType:
@@ -756,43 +628,36 @@ class TestScriptContextNewProperties:
         assert ctx.chat_channels is channels
 
 
-class TestScriptContextRoomChanged:
-    """ScriptContext.room_changed awaitable."""
+class TestScriptContextEventChanged:
+    """ScriptContext.room_changed and gmcp_changed awaitables."""
 
     @pytest.mark.asyncio
-    async def test_fires_when_event_set(self):
-        session_ctx = make_ctx()
-        session_ctx.room.changed = asyncio.Event()
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+    async def test_room_changed_fires(self):
+        ctx, sctx = make_script_ctx()
+        sctx.room.changed = asyncio.Event()
 
         async def pulse():
             await asyncio.sleep(0.05)
-            session_ctx.room.changed.set()
-            session_ctx.room.changed.clear()
+            sctx.room.changed.set()
+            sctx.room.changed.clear()
 
         asyncio.ensure_future(pulse())
         assert await ctx.room_changed(timeout=1.0) is True
 
     @pytest.mark.asyncio
-    async def test_timeout_returns_false(self):
-        session_ctx = make_ctx()
-        session_ctx.room.changed = asyncio.Event()
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+    async def test_room_changed_timeout(self):
+        ctx, sctx = make_script_ctx()
+        sctx.room.changed = asyncio.Event()
         assert await ctx.room_changed(timeout=0.05) is False
 
-
-class TestScriptContextGmcpChanged:
-    """ScriptContext.gmcp_changed awaitable."""
-
     @pytest.mark.asyncio
-    async def test_fires_when_event_set(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp.package_events = {}
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+    async def test_gmcp_changed_fires(self):
+        ctx, sctx = make_script_ctx()
+        sctx.gmcp.package_events = {}
 
         async def pulse():
             await asyncio.sleep(0.05)
-            evt = session_ctx.gmcp.package_events.get("Char.Vitals")
+            evt = sctx.gmcp.package_events.get("Char.Vitals")
             if evt is not None:
                 evt.set()
                 evt.clear()
@@ -801,21 +666,19 @@ class TestScriptContextGmcpChanged:
         assert await ctx.gmcp_changed("Char.Vitals", timeout=1.0) is True
 
     @pytest.mark.asyncio
-    async def test_timeout_returns_false(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp.package_events = {}
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+    async def test_gmcp_changed_timeout(self):
+        ctx, sctx = make_script_ctx()
+        sctx.gmcp.package_events = {}
         assert await ctx.gmcp_changed("Char.Vitals", timeout=0.05) is False
 
     @pytest.mark.asyncio
     async def test_different_packages_independent(self):
-        session_ctx = make_ctx()
-        session_ctx.gmcp.package_events = {}
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
+        sctx.gmcp.package_events = {}
 
         async def pulse():
             await asyncio.sleep(0.05)
-            evt = session_ctx.gmcp.package_events.get("Char.Vitals")
+            evt = sctx.gmcp.package_events.get("Char.Vitals")
             if evt is not None:
                 evt.set()
                 evt.clear()
@@ -826,76 +689,65 @@ class TestScriptContextGmcpChanged:
 
     @pytest.mark.asyncio
     async def test_any_update_fires(self):
-        session_ctx = make_ctx()
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
 
         async def pulse():
             await asyncio.sleep(0.02)
-            session_ctx.gmcp.any_update.set()
-            session_ctx.gmcp.any_update.clear()
+            sctx.gmcp.any_update.set()
+            sctx.gmcp.any_update.clear()
 
         asyncio.ensure_future(pulse())
         assert await ctx.gmcp_changed(timeout=1.0) is True
 
     @pytest.mark.asyncio
     async def test_any_update_timeout(self):
-        session_ctx = make_ctx()
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+        ctx, sctx = make_script_ctx()
         assert await ctx.gmcp_changed(timeout=0.02) is False
 
 
 class TestScriptContextWalk:
     """ScriptContext.walk_active and stop_walk."""
 
-    def test_walk_active_all_none(self):
-        session_ctx = make_ctx()
-        session_ctx.walk.discover_task = None
-        session_ctx.walk.randomwalk_task = None
-        session_ctx.walk.travel_task = None
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
-        assert ctx.walk_active is False
+    @pytest.mark.parametrize(
+        "discover, randomwalk, travel, expected",
+        [
+            (None, None, None, False),
+            ("running", None, None, True),
+            ("done", "done", "done", False),
+        ],
+    )
+    def test_walk_active(self, discover, randomwalk, travel, expected):
+        _, sctx = make_script_ctx()
+        for attr, val in [("discover_task", discover), ("randomwalk_task", randomwalk), ("travel_task", travel)]:
+            if val is None:
+                setattr(sctx.walk, attr, None)
+            else:
+                task = MagicMock()
+                task.done.return_value = val == "done"
+                setattr(sctx.walk, attr, task)
+        ctx = scripts.ScriptContext(sctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+        assert ctx.walk_active is expected
 
-    def test_walk_active_discover_running(self):
-        session_ctx = make_ctx()
+    @pytest.mark.parametrize(
+        "done, should_cancel",
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
+    def test_stop_walk(self, done, should_cancel):
+        _, sctx = make_script_ctx()
         task = MagicMock()
-        task.done.return_value = False
-        session_ctx.walk.discover_task = task
-        session_ctx.walk.randomwalk_task = None
-        session_ctx.walk.travel_task = None
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
-        assert ctx.walk_active is True
-
-    def test_walk_active_all_done(self):
-        session_ctx = make_ctx()
-        task = MagicMock()
-        task.done.return_value = True
-        session_ctx.walk.discover_task = task
-        session_ctx.walk.randomwalk_task = task
-        session_ctx.walk.travel_task = task
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
-        assert ctx.walk_active is False
-
-    def test_stop_walk_cancels_running_tasks(self):
-        session_ctx = make_ctx()
-        task = MagicMock()
-        task.done.return_value = False
-        session_ctx.walk.discover_task = task
-        session_ctx.walk.randomwalk_task = None
-        session_ctx.walk.travel_task = None
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+        task.done.return_value = done
+        sctx.walk.discover_task = task
+        sctx.walk.randomwalk_task = None
+        sctx.walk.travel_task = None
+        ctx = scripts.ScriptContext(sctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
         ctx.stop_walk()
-        task.cancel.assert_called_once()
-
-    def test_stop_walk_skips_done_tasks(self):
-        session_ctx = make_ctx()
-        task = MagicMock()
-        task.done.return_value = True
-        session_ctx.walk.discover_task = task
-        session_ctx.walk.randomwalk_task = None
-        session_ctx.walk.travel_task = None
-        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
-        ctx.stop_walk()
-        task.cancel.assert_not_called()
+        if should_cancel:
+            task.cancel.assert_called_once()
+        else:
+            task.cancel.assert_not_called()
 
 
 class TestScriptContextRunningScripts:
@@ -1026,34 +878,26 @@ class TestScriptManagerExceptionReporting:
     """ScriptManager reports script exceptions via ctx.print."""
 
     @pytest.mark.asyncio
-    async def test_assert_error_printed(self):
-        mod = make_fake_module("run", "assert False, 'boom'")
+    @pytest.mark.parametrize(
+        "body, script_name, expected_substr",
+        [
+            ("assert False, 'boom'", "fail_assert", "AssertionError"),
+            ("raise ValueError('bad value')", "fail_value", "bad value"),
+        ],
+    )
+    async def test_exception_printed(self, body, script_name, expected_substr):
+        mod = make_fake_module("run", body)
         mgr = scripts.ScriptManager()
         session_ctx = make_ctx()
 
-        with patch.dict(sys.modules, {"fail_script": mod}):
-            mgr.start_script(session_ctx, "fail_script")
-
-        await asyncio.sleep(0.1)
-        calls = session_ctx.prompt.echo.call_args_list
-        assert calls, "ctx.print was never called"
-        printed = "\n".join(str(c) for c in calls)
-        assert "AssertionError" in printed
-
-    @pytest.mark.asyncio
-    async def test_exception_message_included(self):
-        mod = make_fake_module("run", "raise ValueError('bad value')")
-        mgr = scripts.ScriptManager()
-        session_ctx = make_ctx()
-
-        with patch.dict(sys.modules, {"fail_script2": mod}):
-            mgr.start_script(session_ctx, "fail_script2")
+        with patch.dict(sys.modules, {script_name: mod}):
+            mgr.start_script(session_ctx, script_name)
 
         await asyncio.sleep(0.1)
         calls = session_ctx.prompt.echo.call_args_list
         assert calls
         printed = "\n".join(str(c) for c in calls)
-        assert "bad value" in printed
+        assert expected_substr in printed
 
     @pytest.mark.asyncio
     async def test_cancelled_not_printed(self):
@@ -1069,23 +913,27 @@ class TestScriptManagerExceptionReporting:
         session_ctx.prompt.echo.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_import_error_printed(self):
-        """Import-time errors are printed via ctx.print, not silently swallowed."""
+    @pytest.mark.parametrize(
+        "side_effect, script_name, expected_substr",
+        [
+            (SyntaxError("unexpected EOF"), "bad_script", "SyntaxError"),
+        ],
+    )
+    async def test_import_error_printed(self, side_effect, script_name, expected_substr):
         mgr = scripts.ScriptManager()
         session_ctx = make_ctx()
 
-        with patch("importlib.import_module", side_effect=SyntaxError("unexpected EOF")):
-            mgr.start_script(session_ctx, "bad_script")
+        with patch("importlib.import_module", side_effect=side_effect):
+            mgr.start_script(session_ctx, script_name)
 
         await asyncio.sleep(0.1)
         calls = session_ctx.prompt.echo.call_args_list
-        assert calls, "ctx.print was never called for import error"
+        assert calls
         printed = "\n".join(str(c) for c in calls)
-        assert "SyntaxError" in printed
+        assert expected_substr in printed
 
     @pytest.mark.asyncio
     async def test_import_error_returns_task(self):
-        """start_script returns a task even when the module fails to import."""
         mgr = scripts.ScriptManager()
         session_ctx = make_ctx()
 
@@ -1098,14 +946,13 @@ class TestScriptManagerExceptionReporting:
 
     @pytest.mark.asyncio
     async def test_unawaited_coroutine_warning_captured(self, capsys):
-        """RuntimeWarning from an unawaited coroutine is captured by ctx.print, not stderr."""
         received = []
 
         async def bad_script(ctx, *args):
             async def internal_coro():
                 pass
 
-            internal_coro()  # deliberately unawaited
+            internal_coro()
 
         mod = types.ModuleType("warn_test_script")
         mod.run = bad_script
@@ -1123,14 +970,13 @@ class TestScriptManagerExceptionReporting:
 
     @pytest.mark.asyncio
     async def test_unawaited_coroutine_shows_location(self, capsys):
-        """The captured warning includes the source location (file:line)."""
         received = []
 
         async def locatable_script(ctx, *args):
             async def inner():
                 pass
 
-            inner()  # unawaited
+            inner()
 
         mod = types.ModuleType("loc_warn_script")
         mod.run = locatable_script
@@ -1146,14 +992,13 @@ class TestScriptManagerExceptionReporting:
 
     @pytest.mark.asyncio
     async def test_normal_exception_still_reported_with_warnings_active(self):
-        """Exception traceback is still printed even when warnings are redirected."""
         received = []
 
         async def failing_with_warning(ctx, *args):
             async def inner():
                 pass
 
-            inner()  # unawaited coroutine
+            inner()
             raise ValueError("deliberate error")
 
         mod = types.ModuleType("mixed_script")
@@ -1215,10 +1060,6 @@ class TestScriptManagerFeed:
         await asyncio.sleep(0.1)
         assert prompted == [True]
 
-
-# ---------------------------------------------------------------------------
-# CommandState tests
-# ---------------------------------------------------------------------------
 
 
 class TestCommandState:
@@ -1290,10 +1131,6 @@ class TestCommandState:
         cs.record("kill goblin")
         assert list(cs.buf) == ["north", "kill goblin"]
 
-
-# ---------------------------------------------------------------------------
-# ScriptContext command_history / last_command / command_issued tests
-# ---------------------------------------------------------------------------
 
 
 class TestScriptContextCommandHistory:

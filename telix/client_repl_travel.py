@@ -417,6 +417,8 @@ async def fast_travel(
         ctx.walk.active_command = None
         if noreply and engine is not None:
             engine.enabled = engine_was_enabled
+        if ctx.prompt.repaint_input is not None:
+            ctx.prompt.repaint_input()
 
 
 async def autodiscover(
@@ -632,6 +634,7 @@ async def autodiscover(
         ctx.walk.last_walk_room = ctx.room.current
         ctx.walk.last_walk_strategy = strategy
         ctx.walk.last_walk_noreply = noreply
+        ctx.walk.last_walk_room_change_cmd = room_change_cmd
         ctx.walk.last_walk_tried = tried
         ctx.walk.discover_active = False
         ctx.walk.discover_current = 0
@@ -642,6 +645,8 @@ async def autodiscover(
         # pathfinding (the block may be transient, e.g. a level gate).
         for (room_num, exit_dir), target in blocked_edges.items():
             graph.adj.setdefault(room_num, {})[exit_dir] = target
+        if ctx.prompt.repaint_input is not None:
+            ctx.prompt.repaint_input()
 
 
 async def randomwalk(
@@ -960,6 +965,8 @@ async def randomwalk(
         ctx.walk.last_walk_mode = "randomwalk"
         ctx.walk.last_walk_room = ctx.room.current
         ctx.walk.last_walk_noreply = noreply
+        ctx.walk.last_walk_room_change_cmd = ctx.walk.randomwalk_room_change_cmd
+        ctx.walk.last_walk_visit_level = visit_level
         ctx.walk.last_walk_visited = visited
         ctx.walk.randomwalk_active = False
         ctx.walk.randomwalk_room_change_cmd = ""
@@ -967,6 +974,8 @@ async def randomwalk(
         ctx.walk.randomwalk_total = 0
         ctx.walk.randomwalk_task = None
         ctx.walk.active_command = None
+        if ctx.prompt.repaint_input is not None:
+            ctx.prompt.repaint_input()
 
 
 async def handle_travel_commands(parts: list[str], ctx: "TelixSessionContext", log: logging.Logger) -> list[str]:
@@ -1074,6 +1083,10 @@ async def handle_travel_commands(parts: list[str], ctx: "TelixSessionContext", l
                     return parts[idx + 1 :]
                 verb = ctx.walk.last_walk_mode
                 noreply = noreply or ctx.walk.last_walk_noreply
+                if not room_change_cmd:
+                    room_change_cmd = ctx.walk.last_walk_room_change_cmd
+                if walk_visit_level == 2:
+                    walk_visit_level = ctx.walk.last_walk_visit_level
                 do_resume = True
             else:
                 # Auto-resume: if re-running the same mode from the

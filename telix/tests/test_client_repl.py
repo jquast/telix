@@ -90,29 +90,19 @@ def mock_writer(will_echo: bool = False) -> object:
     )
 
 
-def test_scroll_region_rows_property() -> None:
+@pytest.mark.parametrize(
+    "rows, cols, reserve, expected_scroll, expected_input",
+    [
+        (24, 80, 1, 21, 23),
+        (1, 80, 1, 0, 0),
+        (24, 80, 2, 20, 22),
+    ],
+)
+def test_scroll_region_properties(rows, cols, reserve, expected_scroll, expected_input) -> None:
     stdout, _ = mock_stdout()
-    sr = ScrollRegion(stdout, rows=24, cols=80, reserve_bottom=1)
-    assert sr.scroll_rows == 21
-
-
-def test_scroll_region_rows_minimum() -> None:
-    stdout, _ = mock_stdout()
-    sr = ScrollRegion(stdout, rows=1, cols=80, reserve_bottom=1)
-    assert sr.scroll_rows == 0
-
-
-def test_scroll_region_input_row() -> None:
-    stdout, _ = mock_stdout()
-    sr = ScrollRegion(stdout, rows=24, cols=80)
-    assert sr.input_row == 23
-
-
-def test_scroll_region_input_row_reserve_2() -> None:
-    stdout, _ = mock_stdout()
-    sr = ScrollRegion(stdout, rows=24, cols=80, reserve_bottom=2)
-    assert sr.scroll_rows == 20
-    assert sr.input_row == 22
+    sr = ScrollRegion(stdout, rows=rows, cols=cols, reserve_bottom=reserve)
+    assert sr.scroll_rows == expected_scroll
+    assert sr.input_row == expected_input
 
 
 def test_scroll_region_decstbm_enter_exit() -> None:
@@ -199,18 +189,22 @@ def test_scramble_password_per_char_replacement() -> None:
     assert result.endswith(" " * 10)
 
 
+def scaffold_env(handler=None):
+    """Build writer, stdout, term for repl_scaffold tests."""
+    pytest.importorskip("blessed")
+    writer = mock_writer()
+    writer.handle_send_naws = handler or (lambda: (24, 80))
+    writer.local_option = types.SimpleNamespace(enabled=lambda _: False)
+    writer.is_closing = lambda: False
+    stdout, transport = mock_stdout()
+    term = types.SimpleNamespace(on_resize=None)
+    return writer, stdout, transport, term
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
 async def test_adjusted_naws_active_scroll() -> None:
-    pytest.importorskip("blessed")
-
-    writer = mock_writer()
-    writer.handle_send_naws = lambda: (24, 80)
-    writer.local_option = types.SimpleNamespace(enabled=lambda _: False)
-    writer.is_closing = lambda: False
-
-    stdout, _ = mock_stdout()
-    term = types.SimpleNamespace(on_resize=None)
+    writer, stdout, _, term = scaffold_env()
 
     async with repl_scaffold(writer, term, stdout) as (scroll, _):
         result = writer.handle_send_naws()
@@ -222,15 +216,7 @@ async def test_adjusted_naws_active_scroll() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
 async def test_adjusted_naws_inactive_returns_terminal_size() -> None:
-    pytest.importorskip("blessed")
-
-    writer = mock_writer()
-    writer.handle_send_naws = lambda: (24, 80)
-    writer.local_option = types.SimpleNamespace(enabled=lambda _: False)
-    writer.is_closing = lambda: False
-
-    stdout, _ = mock_stdout()
-    term = types.SimpleNamespace(on_resize=None)
+    writer, stdout, _, term = scaffold_env()
 
     patched_naws = None
     async with repl_scaffold(writer, term, stdout) as (scroll, _):
@@ -244,18 +230,10 @@ async def test_adjusted_naws_inactive_returns_terminal_size() -> None:
 @pytest.mark.asyncio
 async def test_naws_restored_on_exception() -> None:
     """handle_send_naws is restored even if repl_scaffold body raises."""
-    pytest.importorskip("blessed")
-
     def orig_handler() -> tuple[int, int]:
         return (24, 80)
 
-    writer = mock_writer()
-    writer.handle_send_naws = orig_handler
-    writer.local_option = types.SimpleNamespace(enabled=lambda _: False)
-    writer.is_closing = lambda: False
-
-    stdout, _ = mock_stdout()
-    term = types.SimpleNamespace(on_resize=None)
+    writer, stdout, _, term = scaffold_env(handler=orig_handler)
 
     with pytest.raises(RuntimeError, match="injected"):
         async with repl_scaffold(writer, term, stdout):
@@ -268,18 +246,10 @@ async def test_naws_restored_on_exception() -> None:
 @pytest.mark.asyncio
 async def test_naws_restored_on_normal_exit() -> None:
     """handle_send_naws is restored after normal scaffold exit."""
-    pytest.importorskip("blessed")
-
     def orig_handler() -> tuple[int, int]:
         return (24, 80)
 
-    writer = mock_writer()
-    writer.handle_send_naws = orig_handler
-    writer.local_option = types.SimpleNamespace(enabled=lambda _: False)
-    writer.is_closing = lambda: False
-
-    stdout, _ = mock_stdout()
-    term = types.SimpleNamespace(on_resize=None)
+    writer, stdout, _, term = scaffold_env(handler=orig_handler)
 
     async with repl_scaffold(writer, term, stdout) as (scroll, rc):
         assert writer.handle_send_naws is not orig_handler
@@ -413,6 +383,8 @@ def test_split_incomplete_esc(data: bytes, flush: bytes, hold: bytes) -> None:
         ("`RANDOMWALK`", True),
         ("`home`", True),
         ("`HOME`", True),
+        ("`resume`", True),
+        ("`RESUME`", True),
         ("travel 123", False),
         ("`fast travel 123`", False),
         ("north", False),
@@ -423,21 +395,20 @@ def test_travel_re_matching(cmd: str, match: bool) -> None:
     assert bool(TRAVEL_RE.match(cmd)) is match
 
 
-def test_style_normal_populated() -> None:
+@pytest.mark.parametrize(
+    "style_ref, keys",
+    [
+        (lambda: STYLE_NORMAL, ["text_sgr", "bg_sgr", "suggestion_sgr"]),
+        (lambda: STYLE_TRIGGER, ["text_sgr", "bg_sgr"]),
+    ],
+)
+def test_style_populated(style_ref, keys) -> None:
     pytest.importorskip("blessed")
     make_styles()
-    assert isinstance(STYLE_NORMAL, dict)
-    assert STYLE_NORMAL["text_sgr"] != ""
-    assert STYLE_NORMAL["bg_sgr"] != ""
-    assert STYLE_NORMAL["suggestion_sgr"] != ""
-
-
-def test_style_trigger_populated() -> None:
-    pytest.importorskip("blessed")
-    make_styles()
-    assert isinstance(STYLE_TRIGGER, dict)
-    assert STYLE_TRIGGER["text_sgr"] != ""
-    assert STYLE_TRIGGER["bg_sgr"] != ""
+    style = style_ref()
+    assert isinstance(style, dict)
+    for k in keys:
+        assert style[k] != ""
 
 
 def test_style_normal_and_trigger_differ() -> None:
@@ -462,15 +433,7 @@ def test_render_input_line_basic() -> None:
 @pytest.mark.asyncio
 async def test_scaffold_resize_handler_updates_scroll() -> None:
     """repl_scaffold resize handler updates scroll region dimensions."""
-    pytest.importorskip("blessed")
-
-    writer = mock_writer()
-    writer.handle_send_naws = lambda: (24, 80)
-    writer.local_option = types.SimpleNamespace(enabled=lambda _: False)
-    writer.is_closing = lambda: False
-
-    stdout, transport = mock_stdout()
-    term = types.SimpleNamespace(on_resize=None)
+    writer, stdout, transport, term = scaffold_env()
 
     async with repl_scaffold(writer, term, stdout) as (scroll, rc):
         assert term.on_resize is not None
@@ -823,38 +786,18 @@ async def test_send_chained_repeated_non_move(monkeypatch: pytest.MonkeyPatch) -
     assert len(delays) >= 3
 
 
-def test_collapse_runs_basic() -> None:
-    """Consecutive identical commands are collapsed into count×cmd groups."""
-
-    result = collapse_runs(["e", "e", "e", "n", "n", "rocks"])
-    assert result == [("3\u00d7e", 0, 2), ("2\u00d7n", 3, 4), ("rocks", 5, 5)]
-
-
-def test_collapse_runs_single() -> None:
-    """A single command produces one entry with no count prefix."""
-
-    result = collapse_runs(["look"])
-    assert result == [("look", 0, 0)]
-
-
-def test_collapse_runs_all_same() -> None:
-    """All-identical list collapses to one group."""
-
-    result = collapse_runs(["e", "e", "e", "e"])
-    assert result == [("4\u00d7e", 0, 3)]
-
-
-def test_collapse_runs_with_start() -> None:
-    """Collapsing from a non-zero start skips earlier entries."""
-
-    result = collapse_runs(["e", "e", "e", "n", "n", "rocks"], start=3)
-    assert result == [("2\u00d7n", 3, 4), ("rocks", 5, 5)]
-
-
-def test_collapse_runs_empty_start_past_end() -> None:
-    """Start index beyond commands returns empty list."""
-
-    assert collapse_runs(["e", "n"], start=5) == []
+@pytest.mark.parametrize(
+    "commands, start, expected",
+    [
+        (["e", "e", "e", "n", "n", "rocks"], 0, [("3\u00d7e", 0, 2), ("2\u00d7n", 3, 4), ("rocks", 5, 5)]),
+        (["look"], 0, [("look", 0, 0)]),
+        (["e", "e", "e", "e"], 0, [("4\u00d7e", 0, 3)]),
+        (["e", "e", "e", "n", "n", "rocks"], 3, [("2\u00d7n", 3, 4), ("rocks", 5, 5)]),
+        (["e", "n"], 5, []),
+    ],
+)
+def test_collapse_runs(commands, start, expected) -> None:
+    assert collapse_runs(commands, start=start) == expected
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
@@ -1349,11 +1292,6 @@ async def test_resume_not_used_on_room_change(monkeypatch: pytest.MonkeyPatch, f
     assert remainder == []
 
 
-def test_travel_re_matches_resume() -> None:
-    assert TRAVEL_RE.match("`resume`") is not None
-    assert TRAVEL_RE.match("`RESUME`") is not None
-
-
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
 async def test_randomwalk_bounce_detection(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
@@ -1556,11 +1494,6 @@ async def test_home_travel_command(monkeypatch: pytest.MonkeyPatch, fast_sleep) 
     assert len(fast_travel_args) == 1
 
 
-def test_travel_re_matches_home() -> None:
-    assert TRAVEL_RE.match("`home`") is not None
-    assert TRAVEL_RE.match("`HOME`") is not None
-
-
 class MockHighlightEngine:
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
@@ -1745,19 +1678,13 @@ async def test_send_chained_typescript_echo_on(tmp_path: Any, monkeypatch: pytes
     assert content == ""
 
 
-def test_echo_trigger_writes_typescript(tmp_path: Any) -> None:
-    """echo_trigger writes the command to typescript_file."""
+def make_echo_repl(will_echo=False):
+    """Build a minimal ReplSession for echo_trigger tests."""
     pytest.importorskip("blessed")
-
     bt = types.SimpleNamespace(restore="", save="", cyan="", normal="", move_yx=lambda row, col: "")
     scroll = types.SimpleNamespace(input_row=0)
-    stdout_writer, _ = mock_stdout()
-
+    stdout_writer, transport = mock_stdout()
     ctx = TelixSessionContext()
-    ts_path = tmp_path / "typescript"
-    ts_file = open(ts_path, "w", encoding="utf-8", newline="")
-    ctx.typescript_file = ts_file
-
     repl = object.__new__(ReplSession)
     repl.blessed_term = bt
     repl.scroll = scroll
@@ -1765,7 +1692,16 @@ def test_echo_trigger_writes_typescript(tmp_path: Any) -> None:
     repl.ctx = ctx
     repl.replay_buf = []
     repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
-    repl.telnet_writer = types.SimpleNamespace(will_echo=False)
+    repl.telnet_writer = types.SimpleNamespace(will_echo=will_echo)
+    return repl, transport
+
+
+def test_echo_trigger_writes_typescript(tmp_path: Any) -> None:
+    """echo_trigger writes the command to typescript_file."""
+    repl, _ = make_echo_repl(will_echo=False)
+    ts_path = tmp_path / "typescript"
+    ts_file = open(ts_path, "w", encoding="utf-8", newline="")
+    repl.ctx.typescript_file = ts_file
 
     repl.echo_trigger("look")
     ts_file.close()
@@ -1777,48 +1713,17 @@ def test_echo_trigger_writes_typescript(tmp_path: Any) -> None:
 
 def test_echo_trigger_no_typescript() -> None:
     """echo_trigger with no typescript_file does not crash."""
-    pytest.importorskip("blessed")
-
-    bt = types.SimpleNamespace(restore="", save="", cyan="", normal="", move_yx=lambda row, col: "")
-    scroll = types.SimpleNamespace(input_row=0)
-    stdout_writer, _ = mock_stdout()
-
-    ctx = TelixSessionContext()
-    ctx.typescript_file = None
-
-    repl = object.__new__(ReplSession)
-    repl.blessed_term = bt
-    repl.scroll = scroll
-    repl.stdout = stdout_writer
-    repl.ctx = ctx
-    repl.replay_buf = []
-    repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
-    repl.telnet_writer = types.SimpleNamespace(will_echo=False)
-
+    repl, _ = make_echo_repl(will_echo=False)
+    repl.ctx.typescript_file = None
     repl.echo_trigger("look")
 
 
 def test_echo_trigger_masks_when_will_echo(tmp_path: Any) -> None:
     """echo_trigger masks display and typescript when will_echo is True."""
-    pytest.importorskip("blessed")
-
-    bt = types.SimpleNamespace(restore="", save="", cyan="", normal="", move_yx=lambda row, col: "")
-    scroll = types.SimpleNamespace(input_row=0)
-    stdout_writer, stdout_buf = mock_stdout()
-
-    ctx = TelixSessionContext()
+    repl, transport = make_echo_repl(will_echo=True)
     ts_path = tmp_path / "typescript"
     ts_file = open(ts_path, "w", encoding="utf-8", newline="")
-    ctx.typescript_file = ts_file
-
-    repl = object.__new__(ReplSession)
-    repl.blessed_term = bt
-    repl.scroll = scroll
-    repl.stdout = stdout_writer
-    repl.ctx = ctx
-    repl.replay_buf = []
-    repl.editor = types.SimpleNamespace(display=types.SimpleNamespace(cursor=0), password_mode=False, buf=[])
-    repl.telnet_writer = types.SimpleNamespace(will_echo=True)
+    repl.ctx.typescript_file = ts_file
 
     cmd = "secret123"
     repl.echo_trigger(cmd)
@@ -1828,7 +1733,7 @@ def test_echo_trigger_masks_when_will_echo(tmp_path: Any) -> None:
         ts_content = fh.read()
     assert ts_content == "\r\n"
 
-    display_output = bytes(stdout_buf.data).decode()
+    display_output = bytes(transport.data).decode()
     assert cmd not in display_output
     sextant_set = set(SEXTANT[1:])
     masked = [ch for ch in display_output if ch in sextant_set]
@@ -1944,6 +1849,76 @@ async def test_resume_inherits_noreply(monkeypatch: pytest.MonkeyPatch, fast_sle
     await handle_travel_commands(parts, writer.ctx, logging.getLogger("test"))
 
     assert captured_noreply == [True]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_resume_inherits_room_change_cmd(monkeypatch, fast_sleep):
+    """``resume`` restores room_change_cmd for autodiscover."""
+
+    adj = {"room1": {"north": "room2"}}
+    writer = WalkWriter(room_num="room1", adj=adj)
+    writer.ctx.walk.last_walk_mode = "autodiscover"
+    writer.ctx.walk.last_walk_room = "room1"
+    writer.ctx.walk.last_walk_room_change_cmd = "`await fremen.hunt`"
+
+    captured_kw = {}
+
+    async def fake_autodiscover(ctx, log, **kw):
+        captured_kw.update(kw)
+
+    monkeypatch.setattr("telix.client_repl_travel.autodiscover", fake_autodiscover)
+
+    parts = ["`resume`"]
+    await handle_travel_commands(parts, writer.ctx, logging.getLogger("test"))
+
+    assert captured_kw.get("room_change_cmd") == "`await fremen.hunt`"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_resume_inherits_randomwalk_room_change_cmd(monkeypatch, fast_sleep):
+    """``resume`` restores room_change_cmd for randomwalk."""
+
+    adj = {"room1": {"north": "room2"}}
+    writer = WalkWriter(room_num="room1", adj=adj)
+    writer.ctx.walk.last_walk_mode = "randomwalk"
+    writer.ctx.walk.last_walk_room = "room1"
+    writer.ctx.walk.last_walk_room_change_cmd = "search;survey"
+
+    async def fake_randomwalk(ctx, log, **kw):
+        pass
+
+    monkeypatch.setattr("telix.client_repl_travel.randomwalk", fake_randomwalk)
+
+    parts = ["`resume`"]
+    await handle_travel_commands(parts, writer.ctx, logging.getLogger("test"))
+
+    assert writer.ctx.walk.randomwalk_room_change_cmd == "search;survey"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
+async def test_resume_inherits_visit_level(monkeypatch, fast_sleep):
+    """``resume`` restores visit_level for randomwalk."""
+
+    adj = {"room1": {"north": "room2"}}
+    writer = WalkWriter(room_num="room1", adj=adj)
+    writer.ctx.walk.last_walk_mode = "randomwalk"
+    writer.ctx.walk.last_walk_room = "room1"
+    writer.ctx.walk.last_walk_visit_level = 5
+
+    captured_kw = {}
+
+    async def fake_randomwalk(ctx, log, **kw):
+        captured_kw.update(kw)
+
+    monkeypatch.setattr("telix.client_repl_travel.randomwalk", fake_randomwalk)
+
+    parts = ["`resume`"]
+    await handle_travel_commands(parts, writer.ctx, logging.getLogger("test"))
+
+    assert captured_kw.get("visit_level") == 5
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")

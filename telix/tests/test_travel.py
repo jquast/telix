@@ -1,6 +1,7 @@
 """Tests for extracted helpers in :mod:`telix.client_repl_travel`."""
 
 import asyncio
+import types
 
 import pytest
 
@@ -116,3 +117,66 @@ def test_repath_already_at_destination(tmp_path):
     result = client_repl_travel.repath(store, "A", "A", lambda msg: None)
     assert result == []
     store.close()
+
+
+def make_travel_ctx(graph=None, current=""):
+    """Build a minimal context namespace for fast_travel tests."""
+    walk = types.SimpleNamespace(
+        active_command=None,
+        active_command_time=0.0,
+        discover_active=False,
+        discover_current=0,
+        randomwalk_active=False,
+        randomwalk_current=0,
+        randomwalk_total=0,
+    )
+    repaint_calls = []
+    prompt = types.SimpleNamespace(
+        wait_fn=None,
+        echo=None,
+        ready=None,
+        repaint_input=lambda: repaint_calls.append(1),
+    )
+    room = types.SimpleNamespace(graph=graph, current=current, changed=asyncio.Event())
+    triggers = types.SimpleNamespace(engine=None)
+    writer = types.SimpleNamespace(write=lambda s: None)
+    ctx = types.SimpleNamespace(prompt=prompt, room=room, walk=walk, triggers=triggers, writer=writer)
+    return ctx, repaint_calls
+
+
+@pytest.mark.asyncio()
+async def test_fast_travel_calls_repaint_on_completion(tmp_path):
+    """fast_travel calls repaint_input after clearing active_command."""
+    import logging
+
+    store = rooms.RoomStore(str(tmp_path / "rooms.db"))
+    store.update_room({"num": "A", "name": "Start", "exits": {"east": "B"}})
+    store.update_room({"num": "B", "name": "End", "exits": {}})
+    ctx, repaint_calls = make_travel_ctx(graph=store, current="A")
+
+    original_write = ctx.writer.write
+
+    def fake_write(s):
+        original_write(s)
+        ctx.room.current = "B"
+        ctx.room.changed.set()
+
+    ctx.writer.write = fake_write
+
+    await client_repl_travel.fast_travel(
+        [("east", "B")], ctx, logging.getLogger("test"), destination="B"
+    )
+    store.close()
+    assert repaint_calls
+    assert ctx.walk.active_command is None
+
+
+@pytest.mark.asyncio()
+async def test_fast_travel_calls_repaint_on_empty_path():
+    """fast_travel calls repaint_input even with an empty step list."""
+    import logging
+
+    ctx, repaint_calls = make_travel_ctx()
+    await client_repl_travel.fast_travel([], ctx, logging.getLogger("test"))
+    assert repaint_calls
+    assert ctx.walk.active_command is None

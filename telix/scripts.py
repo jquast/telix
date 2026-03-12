@@ -433,7 +433,7 @@ class ScriptContext:
         :param wait_prompt: Wait for the server prompt (GA/EOR) after sending.
             Defaults to ``True``.
         """
-        from . import client_repl_commands
+        from . import client_repl_travel, client_repl_commands
 
         expanded = client_repl_commands.expand_commands_ex(line)
 
@@ -447,13 +447,29 @@ class ScriptContext:
             prompt_ready=self._ctx.prompt.ready,
             search_buffer=self._buf,
         )
+        parts = list(expanded.commands)
+        immediate_set = expanded.immediate_set
         sent_count = 0
-        for idx, cmd in enumerate(expanded.commands):
-            result = await client_repl_commands.dispatch_one(cmd, idx, sent_count, expanded.immediate_set, hooks)
+        idx = 0
+        while idx < len(parts):
+            cmd = parts[idx]
+            if client_repl_commands.TRAVEL_RE.match(cmd):
+                remainder = await client_repl_travel.handle_travel_commands(
+                    parts[idx:], self._ctx, self._log,
+                )
+                parts = remainder
+                immediate_set = frozenset()
+                idx = 0
+                sent_count = 0
+                continue
+            result = await client_repl_commands.dispatch_one(
+                cmd, idx, sent_count, immediate_set, hooks,
+            )
             if result is client_repl_commands.StepResult.ABORT:
                 break
             if result is client_repl_commands.StepResult.SENT:
                 sent_count += 1
+            idx += 1
         if wait_prompt and sent_count:
             await self.prompt()
 

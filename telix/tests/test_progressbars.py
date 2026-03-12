@@ -352,3 +352,67 @@ def test_detect_travel_bar_first():
     bars = detect_progressbars(gmcp)
     assert bars[0].name == TRAVEL_BAR_NAME
     assert bars[0].display_order == 0
+
+
+def test_bar_type_default():
+    bar = BarConfig("HP", "V", "hp", "mhp")
+    assert bar.bar_type == "bar"
+    assert bar.label_format == "{value}"
+
+
+def test_detect_level_label():
+    gmcp = {"Char.Status": {"level": 42}}
+    bars = detect_progressbars(gmcp)
+    level_bars = [b for b in bars if b.name == "Level"]
+    assert len(level_bars) == 1
+    assert level_bars[0].bar_type == "label"
+    assert level_bars[0].label_format == "Lv.{value}"
+    assert level_bars[0].value_field == "level"
+    assert level_bars[0].gmcp_package == "Char.Status"
+    assert level_bars[0].enabled is True
+
+
+def test_detect_money_label():
+    gmcp = {"Char.Status": {"money": 12345}}
+    bars = detect_progressbars(gmcp)
+    money_bars = [b for b in bars if b.name == "Money"]
+    assert len(money_bars) == 1
+    assert money_bars[0].bar_type == "label"
+    assert money_bars[0].label_format == "${value:,}"
+    assert money_bars[0].value_field == "money"
+
+
+def test_label_bar_round_trip(tmp_path):
+    path = str(tmp_path / "pb.json")
+    bars = [BarConfig("Level", "Char.Status", "level", "", bar_type="label", label_format="Lv.{value}")]
+    save_progressbars(path, "m:1", bars)
+    loaded = load_progressbars(path, "m:1")
+    assert loaded[0].bar_type == "label"
+    assert loaded[0].label_format == "Lv.{value}"
+
+
+def test_load_json_without_bar_type_defaults(tmp_path):
+    path = str(tmp_path / "pb.json")
+    data = {"m:1": {"bars": [{"name": "HP", "gmcp_package": "V", "value_field": "hp", "max_field": "mhp"}]}}
+    with open(path, "w") as f:
+        json.dump(data, f)
+    loaded = load_progressbars(path, "m:1")
+    assert loaded[0].bar_type == "bar"
+    assert loaded[0].label_format == "{value}"
+
+
+def test_bar_type_omitted_from_json_when_default(tmp_path):
+    path = str(tmp_path / "pb.json")
+    bars = [BarConfig("HP", "V", "hp", "mhp")]
+    save_progressbars(path, "m:1", bars)
+    with open(path) as f:
+        raw = json.load(f)
+    entry = raw["m:1"]["bars"][0]
+    assert "bar_type" not in entry
+    assert "label_format" not in entry
+
+
+def test_label_format_rendering():
+    assert "Lv.{value}".format(value=42) == "Lv.42"
+    assert "${value:,}".format(value=12345) == "$12,345"
+    assert "{value}".format(value="hello") == "hello"
