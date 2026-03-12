@@ -182,7 +182,7 @@ class ScriptOutputBuffer:
                 fut.cancel()
             return None
 
-    async def wait_for_prompt(self, timeout: float | None = 30.0) -> bool:
+    async def wait_for_prompt(self, timeout: float | None = None) -> bool:
         """
         Wait until the next GA/EOR prompt signal.
 
@@ -288,11 +288,27 @@ class ScriptContext:
         level the longest matching prefix is tried first, then progressively
         shorter ones, so both storage styles work transparently.
 
-        :param dotted_path: Dot-separated key path, e.g. ``"Char.Vitals.hp"``.
+        A bare field name without dots (e.g. ``"Water"``) searches across all
+        GMCP packages automatically.
+
+        If the path ends with ``%``, the value is computed as a ratio of the
+        field to its ``Max`` counterpart and returned as a float between 0.0
+        and 1.0.  Both dotted and bare forms work::
+
+            ctx.gmcp_get("Char.Guild.Stats.Water%")
+            ctx.gmcp_get("Water%")
+
+        :param dotted_path: Key path, e.g. ``"Char.Vitals.hp"`` or ``"hp"``.
         :returns: The value at that path, or ``None`` if not found.
         """
+        if dotted_path.endswith("%"):
+            return self._gmcp_get_pct(dotted_path[:-1])
+        return self._gmcp_get_raw(dotted_path)
+
+    def _gmcp_get_raw(self, dotted_path: str) -> typing.Any:
+        """Walk the GMCP data dict by *dotted_path* and return the leaf value."""
         parts = dotted_path.split(".")
-        node = self._ctx.gmcp_data  # inherited attr, stays top-level
+        node = self._ctx.gmcp_data
         i = 0
         while i < len(parts):
             if not isinstance(node, dict):
@@ -306,8 +322,58 @@ class ScriptContext:
                     found = True
                     break
             if not found:
+                if i == 0 and len(parts) == 1:
+                    val, _ = self._gmcp_search_field(parts[0])
+                    return val
                 return None
+        if node is self._ctx.gmcp_data:
+            return None
         return node
+
+    def _gmcp_search_field(self, field: str) -> tuple[typing.Any, dict[str, typing.Any] | None]:
+        """Search all GMCP package dicts for *field*.
+
+        :returns: ``(value, package_dict)`` or ``(None, None)`` if not found.
+        """
+        for pkg_data in self._ctx.gmcp_data.values():
+            if not isinstance(pkg_data, dict):
+                continue
+            val = pkg_data.get(field)
+            if val is not None:
+                return val, pkg_data
+        return None, None
+
+    def _gmcp_get_pct(self, dotted_path: str) -> float | None:
+        """Return the ratio of a field to its ``Max`` counterpart as 0.0--1.0."""
+        parts = dotted_path.rsplit(".", 1)
+        if len(parts) == 2:
+            pkg_path, field = parts
+            pkg = self._gmcp_get_raw(pkg_path)
+            if not isinstance(pkg, dict):
+                return None
+            cur_raw = pkg.get(field)
+        else:
+            field = parts[0]
+            cur_raw, pkg = self._gmcp_search_field(field)
+        if cur_raw is None or pkg is None:
+            return None
+        max_raw = pkg.get(f"Max{field}") or pkg.get(f"max{field}")
+        if max_raw is None:
+            lower_target = f"max{field.lower()}"
+            for k, v in pkg.items():
+                if k.lower() == lower_target:
+                    max_raw = v
+                    break
+        if max_raw is None:
+            return None
+        try:
+            cur = float(cur_raw)
+            mx = float(max_raw)
+        except (TypeError, ValueError):
+            return None
+        if mx <= 0:
+            return None
+        return cur / mx
 
     def get_room(self, num: str) -> "rooms.Room | None":
         """
@@ -333,11 +399,13 @@ class ScriptContext:
             return None
         return rg.find_path(self._ctx.room.current, str(dst))
 
-    async def send(self, line: str) -> None:
+    async def send(self, line: str, wait_prompt: bool = True) -> None:
         """
         Send a command string, with full expansion (repeat, ; | separators, backticks).
 
         :param line: Command line to send.
+        :param wait_prompt: Wait for the server prompt (GA/EOR) after sending.
+            Defaults to ``True``.
         """
         from . import client_repl_commands
 
@@ -360,13 +428,15 @@ class ScriptContext:
                 break
             if result is client_repl_commands.StepResult.SENT:
                 sent_count += 1
+        if wait_prompt and sent_count:
+            await self.prompt()
 
     def _send(self, cmd: str) -> None:
         """Send a single command to the server."""
         self._log.info("script: sending %r", cmd)
         self._ctx.writer.write(cmd + "\r\n")
 
-    async def prompt(self, timeout: float | None = 30.0) -> bool:
+    async def prompt(self, timeout: float | None = None) -> bool:
         """
         Wait for the next GA/EOR signal from the server.
 
@@ -375,7 +445,7 @@ class ScriptContext:
         """
         return await self._buf.wait_for_prompt(timeout)
 
-    async def prompts(self, n: int, timeout: float | None = 30.0) -> bool:
+    async def prompts(self, n: int, timeout: float | None = None) -> bool:
         """
         Wait for *n* consecutive server prompts.
 
@@ -406,7 +476,7 @@ class ScriptContext:
         """
         return self._buf.turns(n)
 
-    async def wait_for(self, pattern: str, timeout: float | None = 30.0) -> "re.Match[str] | None":
+    async def wait_for(self, pattern: str, timeout: float | None = None) -> "re.Match[str] | None":
         """
         Wait for a regex pattern to appear in the server output.
 
@@ -417,24 +487,68 @@ class ScriptContext:
         compiled = re.compile(pattern, re.IGNORECASE | re.MULTILINE | re.DOTALL)
         return await self._buf.wait_for_pattern(compiled, timeout)
 
-    async def condition_met(self, key: str, op: str, threshold: int, poll_interval: float = 0.25) -> bool:
-        """
-        Poll until a GMCP/capture condition becomes true, or the task is cancelled.
-
-        :param key: Condition key (e.g. ``"HP%"``).
-        :param op: Comparison operator (``">"``, ``"<"``, ``">="`` etc.).
-        :param threshold: Numeric threshold.
-        :param poll_interval: Seconds between polls.
-        :returns: ``True`` when condition is met.
-        """
+    async def _wait_for_condition(
+        self, cond: dict[str, str], timeout: float | None,
+    ) -> bool:
+        """Wait until *cond* is satisfied, re-evaluating on each GMCP update."""
         from . import trigger as ar_mod
 
-        cond = {key: f"{op}{threshold}"}
+        evt = self._ctx.gmcp.any_update
+        deadline = None if timeout is None else asyncio.get_event_loop().time() + timeout
         while True:
             ok, _ = ar_mod.check_condition(cond, self._ctx)
             if ok:
                 return True
-            await asyncio.sleep(poll_interval)
+            if deadline is not None:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return False
+            else:
+                remaining = None
+            try:
+                await asyncio.wait_for(evt.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return False
+
+    async def condition_met(
+        self, key: str, op: str, threshold: int, timeout: float | None = None,
+    ) -> bool:
+        """
+        Wait until a GMCP/capture condition becomes true.
+
+        Re-evaluates immediately on every GMCP update rather than polling.
+
+        :param key: Condition key (e.g. ``"HP%"``).
+        :param op: Comparison operator (``">"``, ``"<"``, ``">="`` etc.).
+        :param threshold: Numeric threshold.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
+        :returns: ``True`` when condition is met, ``False`` on timeout.
+        """
+        return await self._wait_for_condition({key: f"{op}{threshold}"}, timeout)
+
+    async def conditions_met(
+        self,
+        *conditions: tuple[str, str, int],
+        timeout: float | None = None,
+    ) -> bool:
+        """
+        Wait until all conditions are true simultaneously.
+
+        Each condition is a ``(key, op, threshold)`` tuple, using the same
+        syntax as :meth:`condition_met`::
+
+            await ctx.conditions_met(
+                ("Water%", ">", 0),
+                ("HP%", "<", 100),
+                timeout=30.0,
+            )
+
+        :param conditions: Variable number of ``(key, op, threshold)`` tuples.
+        :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
+        :returns: ``True`` when all conditions are met at the same time, ``False`` on timeout.
+        """
+        cond = {key: f"{op}{threshold}" for key, op, threshold in conditions}
+        return await self._wait_for_condition(cond, timeout)
 
     def print(self, *args: typing.Any, sep: str = " ") -> None:
         """
@@ -496,7 +610,7 @@ class ScriptContext:
         """List of available chat channel dicts for this session."""
         return self._ctx.chat.channels
 
-    async def room_changed(self, timeout: float | None = 30.0) -> bool:
+    async def room_changed(self, timeout: float | None = None) -> bool:
         """
         Wait until the next room transition (GMCP Room.Info received).
 
@@ -514,21 +628,22 @@ class ScriptContext:
         except asyncio.TimeoutError:
             return False
 
-    async def gmcp_changed(self, package: str, timeout: float | None = 30.0) -> bool:
+    async def gmcp_changed(self, package: str | None = None, timeout: float | None = None) -> bool:
         """
-        Wait until the next GMCP packet for *package* is received.
-
-        Creates a per-package event on first call; subsequent calls for the
-        same package reuse it.
+        Wait until the next GMCP packet is received.
 
         :param package: GMCP package name, e.g. ``"Char.Vitals"``.
+            Pass ``None`` (the default) to wait for any GMCP update.
         :param timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
         :returns: ``True`` if a packet arrived; ``False`` on timeout.
         """
-        events = self._ctx.gmcp.package_events
-        if package not in events:
-            events[package] = asyncio.Event()
-        evt = events[package]
+        if package is None:
+            evt = self._ctx.gmcp.any_update
+        else:
+            events = self._ctx.gmcp.package_events
+            if package not in events:
+                events[package] = asyncio.Event()
+            evt = events[package]
         try:
             await asyncio.wait_for(evt.wait(), timeout=timeout)
             return True
@@ -570,7 +685,7 @@ class ScriptContext:
         h = self._ctx.commands.history
         return h[-1] if h else None
 
-    async def command_issued(self, timeout: float | None = 30.0) -> str | None:
+    async def command_issued(self, timeout: float | None = None) -> str | None:
         """
         Wait until the next command is sent by any source.
 

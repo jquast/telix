@@ -1,6 +1,7 @@
 """Tests for telix.client_shell -- session setup, config loading, REPL gating."""
 
 # std imports
+import sys
 import json
 import asyncio
 from typing import Any
@@ -174,6 +175,7 @@ class TestCtxPreservation:
             "telix.client_shell.paths.history_path", lambda sk: str(tmp_path / "data" / f"history-{sk}")
         )
         monkeypatch.setattr("telix.rooms.rooms_path", lambda sk: str(tmp_path / "data" / f"rooms-{sk}.db"))
+        monkeypatch.setattr(sys, "argv", ["telix", "example.com", "4000"])
 
         old_ctx = TelnetSessionContext()
         old_ctx.typescript_file = "fake_ts"

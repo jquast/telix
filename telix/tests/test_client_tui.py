@@ -951,6 +951,7 @@ class TestActionConnectScreenRefresh:
             patch("telix.client_tui_session_manager.os.get_terminal_size") as mock_ts,
             patch("telix.client_tui_session_manager.os.set_blocking", create=True),
             patch("telix.client_tui_session_manager.sys.stdout"),
+            patch("telix.client_tui_session_manager.sys.stdin"),
         ):
             mock_ts.return_value = MagicMock(lines=24, columns=80)
             mock_popen.return_value = MagicMock(returncode=0)
@@ -989,6 +990,7 @@ class TestActionConnectScreenRefresh:
             ),
             patch("telix.client_tui_session_manager.os.set_blocking", create=True),
             patch("telix.client_tui_session_manager.sys.stdout"),
+            patch("telix.client_tui_session_manager.sys.stdin"),
             patch("telix.client_tui_session_manager.os._exit") as mock_os_exit,
         ):
             screen.action_connect()

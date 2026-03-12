@@ -310,6 +310,8 @@ def make_ctx():
     ctx.script_manager = None
     ctx.writer = MagicMock()
     ctx.commands = session_context.CommandState()
+    ctx.gmcp.any_update = asyncio.Event()
+    ctx.gmcp.package_events = {}
     return ctx
 
 
@@ -335,6 +337,55 @@ class TestScriptContextGmcpGet:
         buf = scripts.ScriptOutputBuffer()
         ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
         assert ctx.gmcp_get("No.Such.Key") is None
+
+    def test_pct_suffix(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Char.Guild.Stats.Water%") == pytest.approx(0.4)
+
+    def test_pct_suffix_missing_max(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Char.Guild.Stats.Water%") is None
+
+    def test_pct_suffix_zero_max(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 0}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Char.Guild.Stats.Water%") is None
+
+    def test_pct_suffix_case_insensitive_max(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 150, "maxwater": 200}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Char.Guild.Stats.Water%") == pytest.approx(0.75)
+
+    def test_bare_field_name(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Water") == 80
+
+    def test_bare_field_name_pct(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Water%") == pytest.approx(0.4)
+
+    def test_bare_field_name_missing(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Guild.Stats": {"Water": 80}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        assert ctx.gmcp_get("Nope") is None
 
 
 class TestScriptContextPrint:
@@ -405,6 +456,67 @@ class TestScriptContextProperties:
         assert ctx.captures["Kills"] == 5
 
 
+class TestConditionsMet:
+    """ScriptContext.conditions_met checks all conditions atomically."""
+
+    @pytest.mark.asyncio
+    async def test_all_true(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "50", "maxhp": "100", "mp": "80", "maxmp": "100"}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        result = await ctx.conditions_met(("hp%", "<", 100), ("mp%", ">", 50))
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_one_false_waits_for_update(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "100", "maxhp": "100", "mp": "80", "maxmp": "100"}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        task = asyncio.ensure_future(ctx.conditions_met(("hp%", "<", 100), ("mp%", ">", 50)))
+        await asyncio.sleep(0)
+        assert not task.done()
+        session_ctx.gmcp_data["Char.Vitals"]["hp"] = "50"
+        evt = session_ctx.gmcp.any_update
+        evt.set()
+        evt.clear()
+        await asyncio.sleep(0)
+        assert task.done()
+        assert task.result() is True
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_false(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "100", "maxhp": "100"}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        result = await ctx.conditions_met(("hp%", "<", 50), timeout=0.05)
+        assert result is False
+
+
+class TestConditionMet:
+    """ScriptContext.condition_met timeout behaviour."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_false(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "100", "maxhp": "100"}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        result = await ctx.condition_met("hp%", "<", 50, timeout=0.05)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_no_timeout_default(self):
+        session_ctx = make_ctx()
+        session_ctx.gmcp_data = {"Char.Vitals": {"hp": "50", "maxhp": "100"}}
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        result = await ctx.condition_met("hp%", "<", 100)
+        assert result is True
+
+
 class TestScriptContextSend:
     """ScriptContext.send sends commands through dispatch."""
 
@@ -417,7 +529,7 @@ class TestScriptContextSend:
         ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
         sent = []
         session_ctx.writer.write.side_effect = sent.append
-        await ctx.send("look")
+        await ctx.send("look", wait_prompt=False)
         assert any("look" in s for s in sent)
 
     @pytest.mark.asyncio
@@ -429,8 +541,21 @@ class TestScriptContextSend:
         ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
         sent = []
         session_ctx.writer.write.side_effect = sent.append
-        await ctx.send("north|south")
+        await ctx.send("north|south", wait_prompt=False)
         assert len([s for s in sent if s.strip()]) == 2
+
+    @pytest.mark.asyncio
+    async def test_send_waits_for_prompt_by_default(self):
+        session_ctx = make_ctx()
+        session_ctx.prompt.wait_fn = None
+        session_ctx.prompt.ready = None
+        buf = scripts.ScriptOutputBuffer()
+        ctx = scripts.ScriptContext(session_ctx, buf, logging.getLogger("test"))
+        sent = []
+        session_ctx.writer.write.side_effect = sent.append
+        asyncio.get_event_loop().call_soon(buf.on_prompt)
+        await ctx.send("look")
+        assert any("look" in s for s in sent)
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +799,25 @@ class TestScriptContextGmcpChanged:
         asyncio.ensure_future(pulse())
         assert await ctx.gmcp_changed("Room.Info", timeout=0.02) is False
         assert await ctx.gmcp_changed("Char.Vitals", timeout=1.0) is True
+
+    @pytest.mark.asyncio
+    async def test_any_update_fires(self):
+        session_ctx = make_ctx()
+        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+
+        async def pulse():
+            await asyncio.sleep(0.02)
+            session_ctx.gmcp.any_update.set()
+            session_ctx.gmcp.any_update.clear()
+
+        asyncio.ensure_future(pulse())
+        assert await ctx.gmcp_changed(timeout=1.0) is True
+
+    @pytest.mark.asyncio
+    async def test_any_update_timeout(self):
+        session_ctx = make_ctx()
+        ctx = scripts.ScriptContext(session_ctx, scripts.ScriptOutputBuffer(), logging.getLogger("test"))
+        assert await ctx.gmcp_changed(timeout=0.02) is False
 
 
 class TestScriptContextWalk:

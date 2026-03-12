@@ -246,7 +246,7 @@ BUILTIN_MACROS: list[Macro] = [
     Macro(key="KEY_ALT_B", text="`edit bars`", builtin=True, builtin_name="edit_bars"),
     Macro(key="KEY_ALT_E", text="`edit theme`", builtin=True, builtin_name="edit_theme"),
     Macro(key="KEY_ALT_SHIFT_H", text="`toggle highlights`", builtin=True, builtin_name="toggle_highlights"),
-    Macro(key="KEY_ALT_SHIFT_A", text="`toggle triggers`", builtin=True, builtin_name="toggle_triggers"),
+    Macro(key="KEY_ALT_SHIFT_T", text="`toggle triggers`", builtin=True, builtin_name="toggle_triggers"),
     Macro(key="KEY_ALT_Q", text="`stopscript`", builtin=True, builtin_name="stopscript"),
     Macro(key="KEY_CTRL_L", text="`repaint`", builtin=True, builtin_name="repaint"),
     Macro(key="KEY_CTRL_CLOSE_BRACKET", text="`disconnect`", builtin=True, builtin_name="disconnect"),

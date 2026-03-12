@@ -995,7 +995,7 @@ async def test_dispatch_one_when_pass() -> None:
             gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={}, trigger_engine=None
         )
     )
-    result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
+    result = await dispatch_one("`when hp%>=50`", 0, 0, frozenset(), hooks)
     assert result is StepResult.HANDLED
     assert not sent
 
@@ -1010,7 +1010,7 @@ async def test_dispatch_one_when_fail() -> None:
             gmcp_data={"Char.Vitals": {"hp": "20", "maxhp": "100"}}, captures={}, trigger_engine=None
         )
     )
-    result = await dispatch_one("`when HP%>=50`", 0, 0, frozenset(), hooks)
+    result = await dispatch_one("`when hp%>=50`", 0, 0, frozenset(), hooks)
     assert result is StepResult.ABORT
     assert not sent
 

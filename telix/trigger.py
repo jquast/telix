@@ -33,59 +33,6 @@ GROUP_RE = re.compile(r"\\(\d+)")
 COND_RE = re.compile(r"^(>=|<=|>|<|=)(\d+)$")
 KILL_RE = re.compile(r"^kill\s+(\S+)", re.IGNORECASE)
 
-# Maps condition key to (current_keys, max_keys) for GMCP Char.Vitals lookup.
-VITAL_PCT_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "HP%": (("hp", "HP"), ("maxhp", "maxHP", "max_hp")),
-    "MP%": (("mp", "MP", "mana", "sp", "SP"), ("maxmp", "maxMP", "max_mp", "maxsp", "maxSP")),
-}
-
-# Maps raw-value condition key to GMCP Char.Vitals field names.
-VITAL_RAW_KEYS: dict[str, tuple[str, ...]] = {"HP": ("hp", "HP"), "MP": ("mp", "MP", "mana", "sp", "SP")}
-
-
-def get_vital_raw(key: str, vitals: dict[str, typing.Any]) -> int | None:
-    """Return the raw vital value for *key*, or ``None`` if unavailable."""
-    field_names = VITAL_RAW_KEYS.get(key)
-    if field_names is None:
-        return None
-    for k in field_names:
-        raw = vitals.get(k)
-        if raw is not None:
-            try:
-                return int(raw)
-            except (TypeError, ValueError):
-                return None
-    return None
-
-
-def get_vital_pct(key: str, vitals: dict[str, typing.Any]) -> int | None:
-    """Return the vital percentage (0-100+) for *key*, or ``None`` if unavailable."""
-    spec = VITAL_PCT_KEYS.get(key)
-    if spec is None:
-        return None
-    cur_keys, max_keys = spec
-    cur_raw = None
-    for k in cur_keys:
-        cur_raw = vitals.get(k)
-        if cur_raw is not None:
-            break
-    max_raw = None
-    for k in max_keys:
-        max_raw = vitals.get(k)
-        if max_raw is not None:
-            break
-    if cur_raw is None or max_raw is None:
-        return None
-    try:
-        cur = int(cur_raw)
-        mx = int(max_raw)
-    except (TypeError, ValueError):
-        return None
-    if mx <= 0:
-        return None
-    return int(cur * 100 / mx)
-
-
 def gmcp_lookup_raw(key: str, gmcp: dict[str, typing.Any]) -> int | None:
     """Look up *key* directly in any GMCP package dict."""
     for pkg_data in gmcp.values():
@@ -98,6 +45,33 @@ def gmcp_lookup_raw(key: str, gmcp: dict[str, typing.Any]) -> int | None:
             except (TypeError, ValueError):
                 pass
     return None
+
+
+def _gmcp_walk(dotted_path: str, gmcp: dict[str, typing.Any]) -> typing.Any:
+    """Resolve a dot-separated path against the GMCP data dict.
+
+    Uses longest-prefix matching at each level, identical to the algorithm in
+    :meth:`~telix.scripts.ScriptContext._gmcp_get_raw`.
+    """
+    parts = dotted_path.split(".")
+    node: typing.Any = gmcp
+    i = 0
+    while i < len(parts):
+        if not isinstance(node, dict):
+            return None
+        found = False
+        for j in range(len(parts), i, -1):
+            segment = ".".join(parts[i:j])
+            if segment in node:
+                node = node[segment]
+                i = j
+                found = True
+                break
+        if not found:
+            return None
+    if node is gmcp:
+        return None
+    return node
 
 
 def gmcp_lookup_pct(key: str, gmcp: dict[str, typing.Any]) -> int | None:
@@ -130,6 +104,49 @@ def gmcp_lookup_pct(key: str, gmcp: dict[str, typing.Any]) -> int | None:
     return None
 
 
+def _gmcp_dotted_raw(key: str, gmcp: dict[str, typing.Any]) -> int | None:
+    """Resolve a dotted raw key like ``Char.Guild.Stats.Water`` to an int."""
+    raw = _gmcp_walk(key, gmcp)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _gmcp_dotted_pct(key: str, gmcp: dict[str, typing.Any]) -> int | None:
+    """Resolve a dotted pct key like ``Char.Guild.Stats.Water`` to a 0--100 int."""
+    base = key[:-1] if key.endswith("%") else key
+    parts = base.rsplit(".", 1)
+    if len(parts) != 2:
+        return None
+    pkg_path, field = parts
+    pkg = _gmcp_walk(pkg_path, gmcp)
+    if not isinstance(pkg, dict):
+        return None
+    cur_raw = pkg.get(field)
+    if cur_raw is None:
+        return None
+    max_raw = pkg.get(f"Max{field}") or pkg.get(f"max{field}")
+    if max_raw is None:
+        lower_target = f"max{field.lower()}"
+        for k, v in pkg.items():
+            if k.lower() == lower_target:
+                max_raw = v
+                break
+    if max_raw is None:
+        return None
+    try:
+        cur = int(cur_raw)
+        mx = int(max_raw)
+    except (TypeError, ValueError):
+        return None
+    if mx <= 0:
+        return None
+    return int(cur * 100 / mx)
+
+
 def compare(value: int, op: str, threshold: int) -> bool:
     """Evaluate ``value op threshold``."""
     if op == ">":
@@ -147,11 +164,15 @@ def compare(value: int, op: str, threshold: int) -> bool:
 
 def check_condition(when: dict[str, str], ctx: "TelixSessionContext") -> tuple[bool, str]:
     """
-    Check vital conditions against GMCP data and captured variables on *ctx*.
+    Check conditions against GMCP data and captured variables on *ctx*.
 
-    :param when: Condition dict, e.g. ``{"HP%": ">50"}`` (percentage),
-        ``{"HP": ">500"}`` (raw value), or ``{"Adrenaline": ">100"}``
-        (captured variable).
+    Keys may be bare names (``"hp%"``, ``"Water"``) which are searched across
+    all GMCP packages, or fully-qualified dotted paths
+    (``"Char.Guild.Stats.Water%"``).
+
+    :param when: Condition dict, e.g. ``{"hp%": ">50"}`` (percentage),
+        ``{"hp": ">500"}`` (raw value), ``{"Char.Guild.Stats.Water%": ">50"}``
+        (dotted path), or ``{"Adrenaline": ">100"}`` (captured variable).
     :param ctx: Session context with ``gmcp_data`` and ``captures`` attributes.
     :returns: ``(ok, failure_description)`` -- *ok* is ``False`` when a
         condition is not met; *failure_description* explains which.
@@ -159,10 +180,6 @@ def check_condition(when: dict[str, str], ctx: "TelixSessionContext") -> tuple[b
     if not when:
         return True, ""
     gmcp: dict[str, typing.Any] | None = ctx.gmcp_data if ctx is not None else None
-    vitals: dict[str, typing.Any] | None = None
-    if gmcp:
-        v = gmcp.get("Char.Vitals")
-        vitals = v if isinstance(v, dict) else None
     captures: dict[str, int] = getattr(ctx, "captures", {}) if ctx is not None else {}
     for key, expr in when.items():
         m = COND_RE.match(expr.strip())
@@ -171,25 +188,30 @@ def check_condition(when: dict[str, str], ctx: "TelixSessionContext") -> tuple[b
         op, threshold = m.group(1), int(m.group(2))
         value: int | None = None
         unit = ""
+        base = key[:-1] if key.endswith("%") else key
+        is_dotted = "." in base
         if key.endswith("%"):
-            if vitals is not None:
-                value = get_vital_pct(key, vitals)
-            if value is None and gmcp:
-                value = gmcp_lookup_pct(key, gmcp)
-            if value is None and captures:
-                base = key[:-1]
-                cur = captures.get(base)
-                mx = captures.get(f"Max{base}")
-                if cur is not None and mx is not None and mx > 0:
-                    value = int(cur * 100 / mx)
+            if is_dotted:
+                if gmcp:
+                    value = _gmcp_dotted_pct(key, gmcp)
+            else:
+                if gmcp:
+                    value = gmcp_lookup_pct(key, gmcp)
+                if value is None and captures:
+                    cur = captures.get(base)
+                    mx = captures.get(f"Max{base}")
+                    if cur is not None and mx is not None and mx > 0:
+                        value = int(cur * 100 / mx)
             unit = "%"
         else:
-            if vitals is not None:
-                value = get_vital_raw(key, vitals)
-            if value is None and gmcp:
-                value = gmcp_lookup_raw(key, gmcp)
-            if value is None and captures:
-                value = captures.get(key)
+            if is_dotted:
+                if gmcp:
+                    value = _gmcp_dotted_raw(key, gmcp)
+            else:
+                if gmcp:
+                    value = gmcp_lookup_raw(key, gmcp)
+                if value is None and captures:
+                    value = captures.get(key)
         if value is None:
             continue
         if not compare(value, op, threshold):

@@ -14,7 +14,7 @@ macro editor (Alt + M).
 | **Alt + Shift + H** | Toggle highlights on/off |
 | **Alt + M** | Edit macros (TUI editor) |
 | **Alt + T** | Edit triggers (TUI editor) |
-| **Alt + Shift + A** | Toggle triggers on/off |
+| **Alt + Shift + T** | Toggle triggers on/off |
 | **Alt + C** | Chat viewer / captures |
 | **Alt + B** | Edit progress bars (TUI editor) |
 | **Alt + E** | Edit theme |

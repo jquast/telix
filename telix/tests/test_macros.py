@@ -234,7 +234,7 @@ def test_ensure_builtin_macros_preserves_user_macros():
         ("KEY_ALT_H", "\x1bh"),
         ("KEY_ALT_M", "\x1bm"),
         ("KEY_ALT_SHIFT_H", "\x1bH"),
-        ("KEY_ALT_SHIFT_A", "\x1bA"),
+        ("KEY_ALT_SHIFT_T", "\x1bT"),
         ("KEY_F1", None),
         ("KEY_F3", None),
     ],

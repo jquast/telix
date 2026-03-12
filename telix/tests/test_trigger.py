@@ -1036,6 +1036,7 @@ def mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
             randomwalk_active=False,
         ),
         gmcp_data={"Char.Vitals": {"hp": str(hp), "maxhp": str(maxhp), "mp": str(mp), "maxmp": str(maxmp)}},
+        captures={},
         commands=session_context.CommandState(),
     )
     return ctx, written
@@ -1045,27 +1046,27 @@ def mock_writer_with_vitals(hp: int, maxhp: int, mp: int, maxmp: int):
     "when, hp, maxhp, mp, maxmp, ok",
     [
         ({}, 50, 100, 50, 100, True),
-        ({"HP%": ">50"}, 60, 100, 50, 100, True),
-        ({"HP%": ">50"}, 50, 100, 50, 100, False),
-        ({"HP%": ">50"}, 40, 100, 50, 100, False),
-        ({"HP%": ">=50"}, 50, 100, 50, 100, True),
-        ({"HP%": "<50"}, 40, 100, 50, 100, True),
-        ({"HP%": "<50"}, 50, 100, 50, 100, False),
-        ({"HP%": "<=50"}, 50, 100, 50, 100, True),
-        ({"HP%": "=50"}, 50, 100, 50, 100, True),
-        ({"HP%": "=50"}, 51, 100, 50, 100, False),
-        ({"MP%": ">30"}, 80, 100, 40, 100, True),
-        ({"MP%": ">30"}, 80, 100, 20, 100, False),
-        ({"HP%": ">50", "MP%": ">30"}, 60, 100, 40, 100, True),
-        ({"HP%": ">50", "MP%": ">30"}, 60, 100, 20, 100, False),
-        ({"HP%": ">50", "MP%": ">30"}, 40, 100, 40, 100, False),
-        ({"HP": ">50"}, 60, 100, 50, 100, True),
-        ({"HP": ">50"}, 50, 100, 50, 100, False),
-        ({"HP": ">=50"}, 50, 100, 50, 100, True),
-        ({"MP": ">30"}, 80, 100, 40, 100, True),
-        ({"MP": ">30"}, 80, 100, 20, 100, False),
-        ({"HP": ">50", "MP": ">30"}, 60, 100, 40, 100, True),
-        ({"HP": ">50", "MP": ">30"}, 60, 100, 20, 100, False),
+        ({"hp%": ">50"}, 60, 100, 50, 100, True),
+        ({"hp%": ">50"}, 50, 100, 50, 100, False),
+        ({"hp%": ">50"}, 40, 100, 50, 100, False),
+        ({"hp%": ">=50"}, 50, 100, 50, 100, True),
+        ({"hp%": "<50"}, 40, 100, 50, 100, True),
+        ({"hp%": "<50"}, 50, 100, 50, 100, False),
+        ({"hp%": "<=50"}, 50, 100, 50, 100, True),
+        ({"hp%": "=50"}, 50, 100, 50, 100, True),
+        ({"hp%": "=50"}, 51, 100, 50, 100, False),
+        ({"mp%": ">30"}, 80, 100, 40, 100, True),
+        ({"mp%": ">30"}, 80, 100, 20, 100, False),
+        ({"hp%": ">50", "mp%": ">30"}, 60, 100, 40, 100, True),
+        ({"hp%": ">50", "mp%": ">30"}, 60, 100, 20, 100, False),
+        ({"hp%": ">50", "mp%": ">30"}, 40, 100, 40, 100, False),
+        ({"hp": ">50"}, 60, 100, 50, 100, True),
+        ({"hp": ">50"}, 50, 100, 50, 100, False),
+        ({"hp": ">=50"}, 50, 100, 50, 100, True),
+        ({"mp": ">30"}, 80, 100, 40, 100, True),
+        ({"mp": ">30"}, 80, 100, 20, 100, False),
+        ({"hp": ">50", "mp": ">30"}, 60, 100, 40, 100, True),
+        ({"hp": ">50", "mp": ">30"}, 60, 100, 20, 100, False),
     ],
 )
 def test_check_condition(when, hp, maxhp, mp, maxmp, ok):
@@ -1078,25 +1079,25 @@ def test_check_condition(when, hp, maxhp, mp, maxmp, ok):
 
 def test_check_condition_no_gmcp():
     ctx = types.SimpleNamespace(gmcp_data=None)
-    ok, desc = check_condition({"HP%": ">50"}, ctx)
+    ok, desc = check_condition({"hp%": ">50"}, ctx)
     assert ok is True
 
 
 def test_check_condition_no_vitals():
     ctx = types.SimpleNamespace(gmcp_data={})
-    ok, desc = check_condition({"HP%": ">50"}, ctx)
+    ok, desc = check_condition({"hp%": ">50"}, ctx)
     assert ok is True
 
 
 def test_check_condition_zero_max():
     writer, _ = mock_writer_with_vitals(50, 0, 50, 100)
-    ok, desc = check_condition({"HP%": ">50"}, writer)
+    ok, desc = check_condition({"hp%": ">50"}, writer)
     assert ok is True
 
 
 def test_check_condition_invalid_expr():
     writer, _ = mock_writer_with_vitals(50, 100, 50, 100)
-    ok, desc = check_condition({"HP%": "bad"}, writer)
+    ok, desc = check_condition({"hp%": "bad"}, writer)
     assert ok is True
 
 
@@ -1108,7 +1109,7 @@ def test_check_condition_invalid_expr():
         ({"Adrenaline%": ">50"}, {"Adrenaline": 80, "MaxAdrenaline": 100}, True),
         ({"Adrenaline%": ">50"}, {"Adrenaline": 30, "MaxAdrenaline": 100}, False),
         ({"Unknown": ">50"}, {}, True),
-        ({"HP%": ">50"}, {}, True),
+        ({"hp%": ">50"}, {}, True),
     ],
 )
 def test_check_condition_captures(when, captures, ok):
@@ -1118,8 +1119,8 @@ def test_check_condition_captures(when, captures, ok):
 
 
 def test_check_condition_captures_gmcp_priority():
-    ctx = types.SimpleNamespace(gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={"HP": 20})
-    ok, desc = check_condition({"HP": ">50"}, ctx)
+    ctx = types.SimpleNamespace(gmcp_data={"Char.Vitals": {"hp": "80", "maxhp": "100"}}, captures={"hp": 20})
+    ok, desc = check_condition({"hp": ">50"}, ctx)
     assert ok is True
 
 
@@ -1139,12 +1140,43 @@ def test_check_condition_gmcp_arbitrary_key(when, gmcp_data, ok):
     assert result is ok
 
 
+@pytest.mark.parametrize(
+    "when, gmcp_data, ok",
+    [
+        (
+            {"Char.Guild.Stats.Water": ">50"},
+            {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}},
+            True,
+        ),
+        (
+            {"Char.Guild.Stats.Water": ">100"},
+            {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}},
+            False,
+        ),
+        (
+            {"Char.Guild.Stats.Water%": ">30"},
+            {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}},
+            True,
+        ),
+        (
+            {"Char.Guild.Stats.Water%": ">50"},
+            {"Char.Guild.Stats": {"Water": 80, "MaxWater": 200}},
+            False,
+        ),
+    ],
+)
+def test_check_condition_dotted_path(when, gmcp_data, ok):
+    ctx = types.SimpleNamespace(gmcp_data=gmcp_data, captures={})
+    result, _ = check_condition(when, ctx)
+    assert result is ok
+
+
 def test_save_triggers_when_roundtrip(tmp_path):
     fp = tmp_path / "ar.json"
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50", "MP%": ">30"})]
+    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50", "mp%": ">30"})]
     save_triggers(str(fp), rules, "test:23")
     loaded = load_triggers(str(fp), "test:23")
-    assert loaded[0].when == {"HP%": ">50", "MP%": ">30"}
+    assert loaded[0].when == {"hp%": ">50", "mp%": ">30"}
 
 
 def test_save_triggers_when_empty_not_saved(tmp_path):
@@ -1211,7 +1243,7 @@ def test_load_triggers_case_sensitive_flag(tmp_path):
 @pytest.mark.asyncio
 async def test_engine_skips_rule_on_condition_fail():
     writer, written = mock_writer_with_vitals(30, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
+    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50"})]
     engine = TriggerEngine(rules, writer, writer.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.02)
@@ -1219,13 +1251,13 @@ async def test_engine_skips_rule_on_condition_fail():
     failed = engine.pop_condition_failed()
     assert failed is not None
     assert failed[0] == 1
-    assert "HP%" in failed[1]
+    assert "hp%" in failed[1]
 
 
 @pytest.mark.asyncio
 async def test_engine_fires_rule_when_condition_passes():
     writer, written = mock_writer_with_vitals(80, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
+    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50"})]
     engine = TriggerEngine(rules, writer, writer.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.02)
@@ -1236,7 +1268,7 @@ async def test_engine_fires_rule_when_condition_passes():
 @pytest.mark.asyncio
 async def test_condition_failed_clears_on_read():
     writer, _ = mock_writer_with_vitals(30, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
+    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50"})]
     engine = TriggerEngine(rules, writer, writer.log)
     engine.feed("A bear appears.\n")
     await asyncio.sleep(0.02)
@@ -1248,7 +1280,7 @@ async def test_condition_failed_clears_on_read():
 async def test_condition_blocked_preserves_buffer_for_retry():
     """Buffer is retained when condition fails so rule can fire after HP heals."""
     writer, written = mock_writer_with_vitals(30, 100, 50, 100)
-    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"})]
+    rules = [TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50"})]
     engine = TriggerEngine(rules, writer, writer.log)
     engine.on_prompt()
 
@@ -1269,7 +1301,7 @@ async def test_condition_blocked_clears_buffer_on_repeated_failure():
     """Buffer is cleared when the same condition fails twice to prevent loops."""
     writer, written = mock_writer_with_vitals(30, 100, 50, 100)
     rules = [
-        TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"HP%": ">50"}),
+        TriggerRule(pattern=re.compile(r"bear"), reply="kill bear;", when={"hp%": ">50"}),
         TriggerRule(pattern=re.compile(r"corpse"), reply="loot corpse;"),
     ]
     engine = TriggerEngine(rules, writer, writer.log)

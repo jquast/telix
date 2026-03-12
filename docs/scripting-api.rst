@@ -11,7 +11,7 @@ of Telix.
 Send
 ~~~~
 
-``await ctx.send(line)``
+``await ctx.send(line, wait_prompt=True)``
     Send a command to the server.  Supports the same syntax as the REPL:
 
     - ``;`` between commands waits for the server's prompt before sending the next
@@ -21,14 +21,22 @@ Send
     Backtick directives like `` `async` `` and `` `until` `` are handled by the client, not sent to
     the server.  See :doc:`commands` for the full list of available backtick commands.
 
+    By default, ``send`` waits for the server's prompt (GA/EOR) after all
+    commands have been dispatched.  Pass ``wait_prompt=False`` to return
+    immediately without waiting::
+
+        await ctx.send("look")              # waits for prompt
+        await ctx.send("look", wait_prompt=False)  # returns immediately
+
 Prompts
 ~~~~~~~
 
-``await ctx.prompt(timeout=30.0)``
+``await ctx.prompt(timeout=None)``
     Wait for the server's next prompt.  Returns ``True`` if it arrived within
-    the timeout, ``False`` otherwise.
+    the timeout, ``False`` on timeout.  Pass a number of seconds to set a
+    deadline; the default ``None`` waits indefinitely.
 
-``await ctx.prompts(n, timeout=30.0)``
+``await ctx.prompts(n, timeout=None)``
     Wait for *n* prompts in a row.  Useful for pacing a sequence of commands.
 
 Server Output
@@ -57,17 +65,17 @@ Terminal output
 Pattern matching
 ~~~~~~~~~~~~~~~~
 
-``await ctx.wait_for(pattern, timeout=30.0)``
+``await ctx.wait_for(pattern, timeout=None)``
     Wait for a line of server output matching *pattern* (a regular expression).
     Returns the match object when found, or ``None`` on timeout.
 
 Conditions
 ~~~~~~~~~~
 
-``await ctx.condition_met(key, op, threshold, poll_interval=0.25)``
-    Wait until a numeric condition becomes true, checking every
-    *poll_interval* seconds.  *op* is one of ``">"``, ``"<"``, ``">="``,
-    ``"<="``, ``"="``.
+``await ctx.condition_met(key, op, threshold, timeout=None)``
+    Wait until a numeric condition becomes true.  Returns ``True`` when the
+    condition is met, ``False`` on timeout.  *op* is one of ``">"``, ``"<"``,
+    ``">="``, ``"<="``, ``"="``.
 
     *key* resolves in this order:
 
@@ -86,19 +94,55 @@ Conditions
     4. **Highlight capture variable** -- any variable captured by a
        highlight rule, by name (or ``Name`` / ``MaxName`` for ``%``).
 
+    *key* may also be a fully-qualified dotted path, which bypasses the search
+    and resolves directly::
+
+        await ctx.condition_met("Char.Guild.Stats.Water%", "<", 50)
+
+``await ctx.conditions_met(*conditions, timeout=None)``
+    Wait until multiple conditions are all true **at the same time**.  Each
+    condition is a ``(key, op, threshold)`` tuple using the same syntax as
+    ``condition_met``.  Returns ``True`` when all conditions hold, ``False``
+    on timeout::
+
+        await ctx.conditions_met(
+            ("Water%", ">", 0),
+            ("HP%", "<", 100),
+            timeout=30.0,
+        )
+
+    Unlike running separate ``condition_met`` calls with ``asyncio.wait``,
+    this checks all conditions atomically, so you are guaranteed they all hold
+    simultaneously when it returns.
+
 GMCP data
 ~~~~~~~~~
 
 ``ctx.gmcp``
     The full GMCP data dictionary, as received from the server.
 
-``ctx.gmcp_get(dotted_path)``
+``ctx.gmcp_get(path)``
     Read a value out of the GMCP data by path, e.g.
     ``ctx.gmcp_get("Char.Vitals.hp")``.  Returns ``None`` if not found.
 
-``await ctx.gmcp_changed(package, timeout=30.0)``
-    Wait until the next GMCP packet for *package* is received.  Returns
-    ``True`` if a packet arrived within the timeout, ``False`` otherwise::
+    A bare field name without dots searches across all GMCP packages::
+
+        hp = ctx.gmcp_get("hp")          # finds hp in Char.Vitals
+        water = ctx.gmcp_get("Water")    # finds Water in Char.Guild.Stats
+
+    If the path ends with ``%``, the value is computed as a ratio of the field
+    to its ``Max`` counterpart, returned as a float between 0.0 and 1.0.
+    Both dotted and bare forms work::
+
+        ctx.gmcp_get("Char.Guild.Stats.Water%")  # e.g. 0.95
+        ctx.gmcp_get("Water%")                   # same result
+
+    The ``Max`` lookup is case-insensitive (``MaxWater``, ``maxwater``, etc.).
+
+``await ctx.gmcp_changed(package=None, timeout=None)``
+    Wait until the next GMCP packet is received.  Pass a package name to wait
+    for a specific package, or omit it (or pass ``None``) to wait for any
+    GMCP update.  Returns ``True`` if a packet arrived, ``False`` on timeout::
 
         async def watch_vitals(ctx: ScriptContext) -> None:
             while True:
@@ -106,6 +150,9 @@ GMCP data
                     break
                 hp = ctx.gmcp_get("Char.Vitals.hp")
                 ctx.print(f"[vitals] HP: {hp}")
+
+        # wait for any GMCP update
+        await ctx.gmcp_changed()
 
 Room graph
 ~~~~~~~~~~
@@ -134,7 +181,7 @@ Room graph
     Find directions from the current room to *dst*.  Returns a list of
     direction strings, or ``None`` if no route is known.
 
-``await ctx.room_changed(timeout=30.0)``
+``await ctx.room_changed(timeout=None)``
     Wait until you move to a new room.  Returns ``True`` on a room change,
     ``False`` on timeout::
 

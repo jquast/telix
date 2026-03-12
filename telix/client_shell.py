@@ -383,6 +383,8 @@ async def telix_client_shell(
         if evt is not None:
             evt.set()
             evt.clear()
+        ctx.gmcp.any_update.set()
+        ctx.gmcp.any_update.clear()
 
     telnet_writer.set_ext_callback(telnetlib3.telopt.GMCP, on_gmcp)
 
@@ -622,6 +624,8 @@ async def ws_client_shell(ws_reader: ws_transport.WebSocketReader, ws_writer: ws
         if evt is not None:
             evt.set()
             evt.clear()
+        ctx.gmcp.any_update.set()
+        ctx.gmcp.any_update.clear()
 
     ws_writer.set_ext_callback(ws_transport.GMCP, on_gmcp)
 

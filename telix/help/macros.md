@@ -29,7 +29,7 @@ disable a builtin, but you cannot delete it.
 | Alt+B | Edit bars |
 | Alt+E | Edit theme |
 | Alt+Shift+H | Toggle highlights |
-| Alt+Shift+A | Toggle triggers |
+| Alt+Shift+T | Toggle triggers |
 | Alt+Q | Stop all running scripts |
 | Ctrl+L | Repaint screen |
 | Ctrl+] | Disconnect |
