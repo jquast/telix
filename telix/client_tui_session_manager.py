@@ -1255,7 +1255,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
         margin-bottom: 1;
     }
     #name {
-        width: 1fr;
+        width: 31;
     }
     #protocol-radio {
         height: auto;
@@ -1274,7 +1274,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
         height: auto;
     }
     #port {
-        width: 13;
+        width: 12;
     }
     #ws-path-row {
         height: auto;
@@ -1299,7 +1299,6 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
     #server-type-col {
         width: 2fr;
         height: auto;
-        padding-left: 12;
     }
     #server-type-label {
         width: 12;

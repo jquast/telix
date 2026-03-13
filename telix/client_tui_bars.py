@@ -335,6 +335,7 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         gmcp_package: str = "",
         value_field: str = "",
         max_field: str = "",
+        max_gmcp_package: str = "",
         enabled: bool = True,
         color_mode: str = "theme",
         color_name_max: str = "green",
@@ -416,13 +417,16 @@ class ProgressBarEditPane(client_tui_base.EditListPane):
         bar_type = "label" if self.query_one("#pb-type-label", textual.widgets.RadioButton).value else "bar"
         label_format = self.query_one("#pb-label-format", textual.widgets.Input).value.strip() or "{value}"
         order = 0
+        max_gmcp_pkg = ""
         if self.editing_idx is not None:
             order = self.bars[self.editing_idx].display_order
+            max_gmcp_pkg = self.bars[self.editing_idx].max_gmcp_package
         entry = ProgressBarTuple(
             name=name,
             gmcp_package=gmcp_pkg,
             value_field=value_field,
             max_field=max_field,
+            max_gmcp_package=max_gmcp_pkg,
             enabled=enabled,
             color_mode=color_mode,
             color_name_max=color_name_max,
