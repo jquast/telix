@@ -492,10 +492,10 @@ class TestGetTermValue:
         monkeypatch.setenv("TERM", "screen-256color")
         assert main_mod._get_term_value() == "screen-256color"
 
-    def test_falls_back_to_unknown(self, monkeypatch):
+    def test_falls_back_to_ansi(self, monkeypatch):
         monkeypatch.setattr(sys, "argv", ["telix", "host"])
         monkeypatch.delenv("TERM", raising=False)
-        assert main_mod._get_term_value() == "unknown"
+        assert main_mod._get_term_value() == "ansi"
 
 
 class TestPopServerType:

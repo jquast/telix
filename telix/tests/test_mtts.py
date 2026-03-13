@@ -157,8 +157,46 @@ def test_install_mtts_with_sw_name():
 def test_install_mtts_sets_charset():
     mtts.install_mtts("xterm", encoding="cp437")
     assert mtts.TelixClient.mnes_env["CHARSET"] == "CP437"
+    assert mtts.TelixClient.mnes_env["MTTS"] == "1803"
 
 
 def test_install_mtts_charset_default():
     mtts.install_mtts("xterm")
     assert mtts.TelixClient.mnes_env["CHARSET"] == "UTF-8"
+    assert mtts.TelixClient.mnes_env["MTTS"] == "1807"
+
+
+def test_make_ttype_callback_non_utf8():
+    cb = mtts.make_ttype_callback("xterm", encoding="cp437")
+    cb()
+    cb()
+    assert cb() == "MTTS 1803"
+
+
+def test_gmcp_hello_sends_telix():
+    """Core.Hello identifies Telix instead of telnetlib3."""
+    import types
+    import logging
+    client = mtts.TelixClient.__new__(mtts.TelixClient)
+    client._gmcp_hello_sent = False
+    client._gmcp_modules = ["Char 1"]
+    client.log = logging.getLogger("test")
+    sent = []
+    client.writer = types.SimpleNamespace(send_gmcp=lambda pkg, data: sent.append((pkg, data)))
+    client._send_gmcp_hello()
+    assert sent[0] == ("Core.Hello", {"client": "Telix", "version": mtts.version})
+    assert sent[1] == ("Core.Supports.Set", ["Char 1"])
+
+
+def test_gmcp_hello_not_sent_twice():
+    """Core.Hello guard prevents duplicate sends."""
+    import types
+    import logging
+    client = mtts.TelixClient.__new__(mtts.TelixClient)
+    client._gmcp_hello_sent = True
+    client._gmcp_modules = []
+    client.log = logging.getLogger("test")
+    sent = []
+    client.writer = types.SimpleNamespace(send_gmcp=lambda pkg, data: sent.append((pkg, data)))
+    client._send_gmcp_hello()
+    assert sent == []

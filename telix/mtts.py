@@ -62,15 +62,16 @@ class MttsCapabilities:
         return sum(val for flag, val in bits if flag)
 
 
-def make_ttype_callback(term: str, ssl: bool = False) -> Callable[[], str]:
+def make_ttype_callback(term: str, ssl: bool = False, encoding: str = "utf-8") -> Callable[[], str]:
     """
     Return a closure that cycles TTYPE responses per MTTS protocol.
 
     :param term: Terminal type string (e.g. from ``$TERM``).
     :param ssl: Whether the connection uses TLS.
+    :param encoding: Character encoding (e.g. ``"utf-8"``, ``"cp437"``).
     :returns: Callable that returns the next TTYPE response on each call.
     """
-    caps = MttsCapabilities(ssl=ssl)
+    caps = MttsCapabilities(ssl=ssl, utf8=encoding.lower().replace("-", "") == "utf8")
     mtts_str = f"MTTS {caps.bitvector}"
     upper_term = term.upper()
     call_count = 0
@@ -89,10 +90,11 @@ def make_ttype_callback(term: str, ssl: bool = False) -> Callable[[], str]:
 
 
 class TelixClient(telnetlib3.client.TelnetClient):
-    """TelnetClient subclass with MTTS TTYPE cycling and MNES support."""
+    """TelnetClient subclass with MTTS TTYPE cycling, MNES, and Core.Hello override."""
 
     ttype_factory: Callable[[], str] | None = None
     mnes_env: dict[str, str] | None = None
+    gmcp_hello: dict[str, str] | None = None
 
     def send_ttype(self) -> str:
         """Cycle TTYPE responses per MTTS protocol when a factory is set."""
@@ -111,6 +113,16 @@ class TelixClient(telnetlib3.client.TelnetClient):
             else:
                 env.update(self.mnes_env)
         return env
+
+    def _send_gmcp_hello(self) -> None:
+        """Send Core.Hello identifying Telix instead of telnetlib3."""
+        if self._gmcp_hello_sent:
+            return
+        self._gmcp_hello_sent = True
+        hello = self.gmcp_hello or {"client": "Telix", "version": version}
+        self.writer.send_gmcp("Core.Hello", hello)
+        self.writer.send_gmcp("Core.Supports.Set", self._gmcp_modules)
+        self.log.info("GMCP handshake: Core.Hello + Core.Supports.Set %s", self._gmcp_modules)
 
 
 class TelixTerminalClient(TelixClient, telnetlib3.client.TelnetTerminalClient):
@@ -142,8 +154,8 @@ def install_mtts(term: str, ssl: bool = False, sw_name: str | None = None, encod
     :param sw_name: Terminal software name from XTVERSION query.
     :param encoding: Character encoding (e.g. ``"utf-8"``, ``"cp437"``).
     """
-    caps = MttsCapabilities(ssl=ssl)
-    TelixClient.ttype_factory = staticmethod(make_ttype_callback(term, ssl=ssl))
+    caps = MttsCapabilities(ssl=ssl, utf8=encoding.lower().replace("-", "") == "utf8")
+    TelixClient.ttype_factory = staticmethod(make_ttype_callback(term, ssl=ssl, encoding=encoding))
     TelixClient.mnes_env = {
         "CLIENT_NAME": client_name(sw_name),
         "CLIENT_VERSION": version,

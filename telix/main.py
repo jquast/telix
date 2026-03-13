@@ -233,9 +233,9 @@ def _get_term_value() -> str:
     """
     Return the terminal type for MTTS negotiation.
 
-    Uses ``--term`` from ``sys.argv`` if present, otherwise ``$TERM``.
+    Uses ``--term`` from ``sys.argv`` if present, otherwise ``$TERM``, or "ansi" when not present.
     """
-    return _get_argv_value("--term", os.environ.get("TERM", "unknown"))
+    return _get_argv_value("--term", os.environ.get("TERM", "ansi"))
 
 
 def main() -> None:

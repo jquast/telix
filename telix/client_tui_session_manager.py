@@ -1299,6 +1299,7 @@ class SessionEditScreen(textual.screen.Screen[SessionConfig | None]):
     #server-type-col {
         width: 2fr;
         height: auto;
+        padding-left: 12;
     }
     #server-type-label {
         width: 12;
