@@ -671,6 +671,7 @@ class TestScriptContextEventChanged:
     async def test_different_packages_independent(self):
         ctx, sctx = make_script_ctx()
         sctx.gmcp.package_events = {}
+        sctx.gmcp.package_events["Char.Vitals"] = asyncio.Event()
 
         async def pulse():
             await asyncio.sleep(0.05)
