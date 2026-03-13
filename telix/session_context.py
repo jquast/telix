@@ -68,6 +68,7 @@ class WalkState:
     last_walk_visit_level: int = 2
     last_walk_visited: set[str] = dataclasses.field(default_factory=set)
     last_walk_tried: set[tuple[str, str]] = dataclasses.field(default_factory=set)
+    command_delay: float = 0.0
 
 
 @dataclasses.dataclass

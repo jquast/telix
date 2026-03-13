@@ -470,6 +470,9 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
         width: 8;
         margin-right: 2;
     }
+    #rw-delay {
+        width: 10;
+    }
     .rw-option Switch {
         width: auto;
     }
@@ -497,12 +500,14 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
         default_visit_level: int = 2,
         default_room_change_cmd: str = "",
         default_triggers: bool = True,
+        default_command_delay: float = 0.25,
     ) -> None:
         super().__init__()
         self.result_file = result_file
         self.default_visit_level = default_visit_level
         self.default_room_change_cmd = default_room_change_cmd
         self.default_triggers = default_triggers
+        self.default_command_delay = default_command_delay
 
     def compose(self) -> textual.app.ComposeResult:
         with textual.containers.Vertical(id="rw-dialog"):
@@ -539,6 +544,10 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
                     )
                     yield textual.widgets.Label("Triggers:")
                     yield textual.widgets.Switch(value=self.default_triggers, id="rw-triggers")
+                    yield textual.widgets.Label("Delay:")
+                    yield textual.widgets.Input(
+                        value=str(self.default_command_delay), id="rw-delay"
+                    )
                 with textual.containers.Horizontal(classes="rw-option"):
                     yield textual.widgets.Label("Room change command:")
                     yield textual.widgets.Input(
@@ -572,7 +581,12 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
             return
         room_change_cmd = self.query_one("#rw-room-change-cmd", textual.widgets.Input).value.strip()
         triggers = self.query_one("#rw-triggers", textual.widgets.Switch).value
-        self.write_result(True, level, room_change_cmd, triggers)
+        delay_str = self.query_one("#rw-delay", textual.widgets.Input).value.strip()
+        try:
+            delay = float(delay_str)
+        except ValueError:
+            delay = self.default_command_delay
+        self.write_result(True, level, room_change_cmd, triggers, delay)
         self.dismiss(True)
 
     def on_button_pressed(self, event: textual.widgets.Button.Pressed) -> None:
@@ -582,15 +596,24 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
         elif event.button.id == "rw-ok":
             self.validate_and_dismiss()
         elif event.button.id == "rw-cancel":
-            self.write_result(False, self.default_visit_level, self.default_room_change_cmd, self.default_triggers)
+            self.write_result(
+                False, self.default_visit_level, self.default_room_change_cmd,
+                self.default_triggers, self.default_command_delay,
+            )
             self.dismiss(False)
 
     def action_cancel(self) -> None:
         """Cancel the dialog and write default values."""
-        self.write_result(False, self.default_visit_level, self.default_room_change_cmd, self.default_triggers)
+        self.write_result(
+            False, self.default_visit_level, self.default_room_change_cmd,
+            self.default_triggers, self.default_command_delay,
+        )
         self.dismiss(False)
 
-    def write_result(self, confirmed: bool, visit_level: int, room_change_cmd: str = "", triggers: bool = True) -> None:
+    def write_result(
+        self, confirmed: bool, visit_level: int, room_change_cmd: str = "",
+        triggers: bool = True, command_delay: float = 0.25,
+    ) -> None:
         if not self.result_file:
             return
         cmd = f"`randomwalk 999 {visit_level}"
@@ -605,6 +628,7 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
                 "visit_level": visit_level,
                 "room_change_cmd": room_change_cmd,
                 "triggers": triggers,
+                "command_delay": command_delay,
                 "command": cmd,
             }
         )
@@ -613,7 +637,8 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
 
 
 def run_randomwalk_dialog(
-    result_file: str, default_visit_level: int = 2, default_room_change_cmd: str = "", default_triggers: bool = True
+    result_file: str, default_visit_level: int = 2, default_room_change_cmd: str = "",
+    default_triggers: bool = True, default_command_delay: float = 0.25,
 ) -> None:
     """
     Launch the random walk dialog in the current (worker) thread.
@@ -629,6 +654,7 @@ def run_randomwalk_dialog(
             default_visit_level=default_visit_level,
             default_room_change_cmd=default_room_change_cmd,
             default_triggers=default_triggers,
+            default_command_delay=default_command_delay,
         )
     )
 
@@ -638,6 +664,7 @@ def randomwalk_dialog_main(
     default_visit_level: str = "2",
     default_room_change_cmd: str = "",
     default_triggers: str = "1",
+    default_command_delay: str = "0.25",
     logfile: str = "",
 ) -> None:
     """Launch standalone random walk dialog TUI."""
@@ -649,6 +676,7 @@ def randomwalk_dialog_main(
         default_visit_level=int(default_visit_level),
         default_room_change_cmd=default_room_change_cmd,
         default_triggers=(default_triggers == "1"),
+        default_command_delay=float(default_command_delay),
     )
     app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
     app.run()
@@ -692,6 +720,12 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
         height: auto;
         margin-bottom: 1;
     }
+    #ad-strategy-row > Label {
+        padding-top: 1;
+    }
+    #ad-strategy-row > Switch {
+        margin-top: 1;
+    }
     .ad-strategy {
         width: 1fr;
         height: auto;
@@ -707,6 +741,10 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
     }
     #ad-room-change-cmd {
         width: 1fr;
+    }
+    #ad-delay {
+        width: 10;
+        margin-top: 1;
     }
     #ad-buttons {
         height: 3;
@@ -725,12 +763,14 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
         default_strategy: str = "bfs",
         default_room_change_cmd: str = "",
         default_triggers: bool = True,
+        default_command_delay: float = 0.25,
     ) -> None:
         super().__init__()
         self.result_file = result_file
         self.default_strategy = default_strategy
         self.default_room_change_cmd = default_room_change_cmd
         self.default_triggers = default_triggers
+        self.default_command_delay = default_command_delay
 
     def compose(self) -> textual.app.ComposeResult:
         with textual.containers.Vertical(id="ad-dialog"):
@@ -766,6 +806,10 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
                     )
                 yield textual.widgets.Label("Triggers:")
                 yield textual.widgets.Switch(value=self.default_triggers, id="ad-triggers")
+                yield textual.widgets.Label("Delay:")
+                yield textual.widgets.Input(
+                    value=str(self.default_command_delay), id="ad-delay"
+                )
             with textual.containers.Horizontal(classes="ad-option"):
                 yield textual.widgets.Label("Room change command:")
                 yield textual.widgets.Input(
@@ -799,18 +843,32 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
         elif event.button.id == "ad-ok":
             room_change_cmd = self.query_one("#ad-room-change-cmd", textual.widgets.Input).value.strip()
             triggers = self.query_one("#ad-triggers", textual.widgets.Switch).value
-            self.write_result(True, self.get_strategy(), room_change_cmd, triggers)
+            delay_str = self.query_one("#ad-delay", textual.widgets.Input).value.strip()
+            try:
+                delay = float(delay_str)
+            except ValueError:
+                delay = self.default_command_delay
+            self.write_result(True, self.get_strategy(), room_change_cmd, triggers, delay)
             self.dismiss(True)
         elif event.button.id == "ad-cancel":
-            self.write_result(False, self.default_strategy, self.default_room_change_cmd, self.default_triggers)
+            self.write_result(
+                False, self.default_strategy, self.default_room_change_cmd,
+                self.default_triggers, self.default_command_delay,
+            )
             self.dismiss(False)
 
     def action_cancel(self) -> None:
         """Cancel the dialog and write default values."""
-        self.write_result(False, self.default_strategy, self.default_room_change_cmd, self.default_triggers)
+        self.write_result(
+            False, self.default_strategy, self.default_room_change_cmd,
+            self.default_triggers, self.default_command_delay,
+        )
         self.dismiss(False)
 
-    def write_result(self, confirmed: bool, strategy: str, room_change_cmd: str = "", triggers: bool = True) -> None:
+    def write_result(
+        self, confirmed: bool, strategy: str, room_change_cmd: str = "",
+        triggers: bool = True, command_delay: float = 0.25,
+    ) -> None:
         """Write result JSON to disk for the parent process."""
         if not self.result_file:
             return
@@ -826,6 +884,7 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
                 "strategy": strategy,
                 "room_change_cmd": room_change_cmd,
                 "triggers": triggers,
+                "command_delay": command_delay,
                 "command": cmd,
             }
         )
@@ -834,7 +893,8 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
 
 
 def run_autodiscover_dialog(
-    result_file: str, default_strategy: str = "bfs", default_room_change_cmd: str = "", default_triggers: bool = True
+    result_file: str, default_strategy: str = "bfs", default_room_change_cmd: str = "",
+    default_triggers: bool = True, default_command_delay: float = 0.25,
 ) -> None:
     """
     Launch the autodiscover dialog in the current (worker) thread.
@@ -843,6 +903,7 @@ def run_autodiscover_dialog(
     :param default_strategy: Initial strategy selection (``"bfs"`` or ``"dfs"``).
     :param default_room_change_cmd: Initial room change command string.
     :param default_triggers: Initial triggers toggle state.
+    :param default_command_delay: Initial command delay in seconds.
     """
     client_tui_base.launch_editor_in_thread(
         AutodiscoverDialogScreen(
@@ -850,6 +911,7 @@ def run_autodiscover_dialog(
             default_strategy=default_strategy,
             default_room_change_cmd=default_room_change_cmd,
             default_triggers=default_triggers,
+            default_command_delay=default_command_delay,
         )
     )
 
@@ -859,6 +921,7 @@ def autodiscover_dialog_main(
     default_strategy: str = "bfs",
     default_room_change_cmd: str = "",
     default_triggers: str = "1",
+    default_command_delay: str = "0.25",
     logfile: str = "",
 ) -> None:
     """Launch standalone autodiscover dialog TUI."""
@@ -870,6 +933,7 @@ def autodiscover_dialog_main(
         default_strategy=default_strategy,
         default_room_change_cmd=default_room_change_cmd,
         default_triggers=(default_triggers == "1"),
+        default_command_delay=float(default_command_delay),
     )
     app = client_tui_base.EditorApp(screen)  # type: ignore[arg-type]
     app.run()

@@ -44,6 +44,7 @@ before trying the next branch.
 | **BFS** | Explore nearest exits first (breadth-first, default) |
 | **DFS** | Explore farthest exits first (depth-first) |
 | **noreply** | Disable trigger processing during the walk |
+| **delay** | Seconds between movement commands (default 0.25) |
 | **roomcmd** | Commands to execute in each newly discovered room |
 
 **Warning:** Autodiscover can lead to dangerous areas, death traps, or
@@ -63,6 +64,7 @@ required number of times.
 | **limit** | Maximum number of steps (default 999) |
 | **visit_level** | Minimum visits per room before stopping (default 2) |
 | **noreply** | Disable trigger processing during the walk |
+| **delay** | Seconds between movement commands (default 0.25) |
 | **roomcmd** | Commands to execute in each newly discovered room |
 
 ### Resume (F5)

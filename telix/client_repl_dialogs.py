@@ -223,11 +223,13 @@ def randomwalk_dialog(replay_buf: typing.Any | None = None, session_key: str = "
     default_visit_level = 2
     default_room_change_cmd = ""
     default_triggers = True
+    default_command_delay = 0.25
     if session_key:
         prefs = rooms.load_prefs(session_key)
         default_visit_level = int(prefs.get("randomwalk_visit_level", 2))
         default_room_change_cmd = str(prefs.get("randomwalk_room_change_cmd", ""))
         default_triggers = bool(prefs.get("randomwalk_triggers", True))
+        default_command_delay = float(prefs.get("autodiscover_command_delay", 0.25))
 
     from . import client_tui_dialogs
 
@@ -238,7 +240,7 @@ def randomwalk_dialog(replay_buf: typing.Any | None = None, session_key: str = "
     _prepare_terminal()
     _run_in_thread(
         lambda: client_tui_dialogs.run_randomwalk_dialog(
-            result_path, default_visit_level, default_room_change_cmd, default_triggers
+            result_path, default_visit_level, default_room_change_cmd, default_triggers, default_command_delay
         ),
         replay_buf=replay_buf,
     )
@@ -255,6 +257,9 @@ def randomwalk_dialog(replay_buf: typing.Any | None = None, session_key: str = "
             )
             save_data["randomwalk_room_change_cmd"] = str(data.get("room_change_cmd", default_room_change_cmd))
             save_data["randomwalk_triggers"] = bool(data.get("triggers", default_triggers))
+            save_data["autodiscover_command_delay"] = float(
+                data.get("command_delay", default_command_delay)
+            )
             rooms.save_prefs(session_key, save_data)
         return str(data.get("command", f"`randomwalk 999 {default_visit_level}`"))
     finally:
@@ -279,6 +284,7 @@ def autodiscover_dialog(replay_buf: typing.Any | None = None, session_key: str =
     default_strategy = "bfs"
     default_room_change_cmd = ""
     default_triggers = True
+    default_command_delay = 0.25
     if session_key:
         prefs = rooms.load_prefs(session_key)
         saved = prefs.get("autodiscover_strategy", "bfs")
@@ -286,6 +292,7 @@ def autodiscover_dialog(replay_buf: typing.Any | None = None, session_key: str =
             default_strategy = str(saved)
         default_room_change_cmd = str(prefs.get("autodiscover_room_change_cmd", ""))
         default_triggers = bool(prefs.get("autodiscover_triggers", True))
+        default_command_delay = float(prefs.get("autodiscover_command_delay", 0.25))
 
     from . import client_tui_dialogs
 
@@ -296,7 +303,7 @@ def autodiscover_dialog(replay_buf: typing.Any | None = None, session_key: str =
     _prepare_terminal()
     _run_in_thread(
         lambda: client_tui_dialogs.run_autodiscover_dialog(
-            result_path, default_strategy, default_room_change_cmd, default_triggers
+            result_path, default_strategy, default_room_change_cmd, default_triggers, default_command_delay
         ),
         replay_buf=replay_buf,
     )
@@ -311,6 +318,7 @@ def autodiscover_dialog(replay_buf: typing.Any | None = None, session_key: str =
             save_data["autodiscover_strategy"] = str(data.get("strategy", default_strategy))
             save_data["autodiscover_room_change_cmd"] = str(data.get("room_change_cmd", default_room_change_cmd))
             save_data["autodiscover_triggers"] = bool(data.get("triggers", default_triggers))
+            save_data["autodiscover_command_delay"] = float(data.get("command_delay", default_command_delay))
             rooms.save_prefs(session_key, save_data)
         return str(data.get("command", f"`autodiscover {default_strategy}`"))
     finally:

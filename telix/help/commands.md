@@ -119,6 +119,8 @@ BFS-explore unvisited exits from nearby rooms.  Optional arguments
 - **limit** -- maximum exits to explore (default 999)
 - **bfs** / **dfs** -- search strategy (default bfs)
 - **noreply** -- completely disable trigger processing during the walk
+- **delay** -- seconds between movement commands (default 0.25); increase
+  for servers that limit movement speed (e.g. breath or fatigue systems)
 - **roomcmd** *cmds* -- commands to run in each new room; everything after
   ``roomcmd`` is the command string, processed through the full client pipeline
   (semicolons wait for prompt, ``|`` sends immediately, backtick commands run
@@ -140,6 +142,8 @@ arguments (in any order after the verb, except ``roomcmd`` which must be last):
 - **limit** -- maximum steps (default 999)
 - **visit_level** -- minimum visits per room before stopping (default 2)
 - **noreply** -- completely disable trigger processing during the walk
+- **delay** -- seconds between movement commands (default 0.25); increase
+  for servers that limit movement speed (e.g. breath or fatigue systems)
 - **roomcmd** *cmds* -- commands to run in each new room; everything after
   ``roomcmd`` is the command string, processed through the full client pipeline
   (semicolons wait for prompt, ``|`` sends immediately, backtick commands run

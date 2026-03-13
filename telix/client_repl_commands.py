@@ -709,6 +709,8 @@ async def send_chained(
             if room_changed is not None:
                 try:
                     await asyncio.wait_for(room_changed.wait(), timeout=0.5)
+                    moves_room[cmd] = True
+                    break
                 except asyncio.TimeoutError:
                     pass
                 actual = ctx.room.current

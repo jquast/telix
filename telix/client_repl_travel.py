@@ -14,7 +14,7 @@ from collections.abc import Callable, Awaitable
 import telnetlib3.stream_writer
 
 # local
-from . import client_repl_commands
+from . import rooms, client_repl_commands
 
 if TYPE_CHECKING:
     from .rooms import RoomGraph
@@ -257,7 +257,7 @@ async def fast_travel(
             for attempt in range(max_retries + 1):
                 # Delay between steps (and retries) for server rate limits.
                 if step_idx > 0 or attempt > 0:
-                    await asyncio.sleep(client_repl_commands.COMMAND_DELAY)
+                    await asyncio.sleep(ctx.walk.command_delay or client_repl_commands.COMMAND_DELAY)
 
                 if room_changed is not None:
                     room_changed.clear()
@@ -495,6 +495,8 @@ async def autodiscover(
                 if (gw, d) not in tried and t not in inaccessible
             ]
             if not branches:
+                if echo_fn is not None:
+                    echo_fn(f"AUTODISCOVER: complete, explored {step_count} exits")
                 break
 
             ctx.walk.discover_total = step_count + len(branches)
@@ -551,12 +553,17 @@ async def autodiscover(
             # Step through the frontier exit.
             if echo_fn is not None:
                 echo_fn(f"AUTODISCOVER [{step_count}]: exploring {direction} from {gw_room[:8]}")
-            await asyncio.sleep(client_repl_commands.COMMAND_DELAY)
+            await asyncio.sleep(ctx.walk.command_delay or client_repl_commands.COMMAND_DELAY)
             ctx.walk.active_command = direction
             ctx.walk.active_command_time = time.monotonic()
             prompt_ready = ctx.prompt.ready
             if prompt_ready is not None:
                 prompt_ready.clear()
+            # Wait for room arrival using the event instead of polling.
+            room_changed = ctx.room.changed
+            arrived = False
+            if room_changed is not None:
+                room_changed.clear()
             send = ctx.repl.send_line
             if send is not None:
                 send(direction)
@@ -564,16 +571,12 @@ async def autodiscover(
                 ctx.writer.write(direction + "\r\n")
             else:
                 ctx.writer.write((direction + "\r\n").encode("utf-8"))
-            # Wait for room arrival using the event instead of polling.
-            room_changed = ctx.room.changed
-            arrived = False
             if room_changed is not None:
-                room_changed.clear()
                 try:
                     await asyncio.wait_for(room_changed.wait(), timeout=ctx.room.arrival_timeout)
+                    arrived = True
                 except asyncio.TimeoutError:
-                    pass
-                arrived = ctx.room.current != gw_room
+                    arrived = ctx.room.current != gw_room
             else:
                 for wait in range(30):
                     await asyncio.sleep(0.3)
@@ -584,8 +587,6 @@ async def autodiscover(
                 ctx.walk.active_command = None
                 tried.add((gw_room, direction))
                 ctx.walk.blocked_exits.add((gw_room, direction))
-                if target_num:
-                    inaccessible.add(target_num)
                 if echo_fn is not None:
                     echo_fn(f"AUTODISCOVER [{step_count}]: no room change after {direction}")
                 continue
@@ -625,6 +626,9 @@ async def autodiscover(
             # Stay where we are -- next iteration re-discovers branches
             # from current position, so nearby clusters get swept without
             # backtracking.
+        else:
+            if step_count >= limit and echo_fn is not None:
+                echo_fn(f"AUTODISCOVER: limit reached ({step_count} exits)")
     except asyncio.CancelledError:
         pass
     finally:
@@ -811,21 +815,22 @@ async def randomwalk(
             ctx.walk.active_command_time = time.monotonic()
             if wait_fn is not None:
                 await wait_fn()
-            if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
-                ctx.writer.write(direction + "\r\n")
-            else:
-                ctx.writer.write((direction + "\r\n").encode("utf-8"))
 
             # Wait for room change using event instead of polling.
             room_changed = ctx.room.changed
             arrived = False
             if room_changed is not None:
                 room_changed.clear()
+            if isinstance(ctx.writer, telnetlib3.stream_writer.TelnetWriterUnicode):
+                ctx.writer.write(direction + "\r\n")
+            else:
+                ctx.writer.write((direction + "\r\n").encode("utf-8"))
+            if room_changed is not None:
                 try:
                     await asyncio.wait_for(room_changed.wait(), timeout=ctx.room.arrival_timeout)
+                    arrived = True
                 except asyncio.TimeoutError:
-                    pass
-                arrived = ctx.room.current != current
+                    arrived = ctx.room.current != current
             else:
                 for tick in range(30):
                     await asyncio.sleep(0.3)
@@ -913,7 +918,7 @@ async def randomwalk(
                 bounce_count = 0
             prev_room = current
 
-            await asyncio.sleep(client_repl_commands.COMMAND_DELAY)
+            await asyncio.sleep(ctx.walk.command_delay or client_repl_commands.COMMAND_DELAY)
 
             # Re-flood: the room graph's adjacency is updated live by
             # GMCP Room.Info, so newly discovered exits expand the
@@ -957,6 +962,10 @@ async def randomwalk(
                     if not ar.exclusive_active and not ar.reply_pending:
                         break
                     settle += 1
+        else:
+            if echo_fn is not None:
+                rw = f"{ctx.walk.randomwalk_current}/{ctx.walk.randomwalk_total}"
+                echo_fn(f"RANDOMWALK [{rw}]: limit reached ({limit} steps)")
     except asyncio.CancelledError:
         pass
     finally:
@@ -1070,6 +1079,9 @@ async def handle_travel_commands(parts: list[str], ctx: "TelixSessionContext", l
                             numeric_idx += 1
                         except ValueError:
                             pass
+
+            walk_prefs = rooms.load_prefs(ctx.session_key) if ctx.session_key else {}
+            ctx.walk.command_delay = float(walk_prefs.get("autodiscover_command_delay", 0.0))
 
             echo_fn = ctx.prompt.echo
             if verb == "resume":

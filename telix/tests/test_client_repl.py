@@ -1467,6 +1467,21 @@ async def test_randomwalk_skips_blocked_rooms(monkeypatch: pytest.MonkeyPatch, f
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
 @pytest.mark.asyncio
+async def test_randomwalk_same_hash_rooms(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
+    """Randomwalk detects arrival via room_changed event even when room ID is unchanged."""
+    adj: dict[str, dict[str, str]] = {"same": {"north": "same", "south": "same"}}
+    writer = TrackingWalkWriter(room_num="same", adj=adj, blocked_directions=set())
+    writer.ctx.room.arrival_timeout = 1.0
+
+    await randomwalk(writer.ctx, logging.getLogger("test"), limit=5)
+
+    no_change = [m for m in writer.echo_log if "no room change" in m]
+    assert len(no_change) == 0
+    assert len(writer.sent) >= 4
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
+@pytest.mark.asyncio
 async def test_home_travel_command(monkeypatch: pytest.MonkeyPatch, fast_sleep) -> None:
     adj: dict[str, dict[str, str]] = {"room1": {"north": "room2"}, "room2": {"south": "room1"}}
     writer = WalkWriter(room_num="room1", adj=adj)

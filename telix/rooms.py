@@ -9,6 +9,7 @@ data to ``~/.local/share/telix/rooms-{host}_{port}.db``.
 import os
 import re
 import json
+import hashlib
 import random
 import typing
 import sqlite3
@@ -27,14 +28,17 @@ EXIT_DIR_RE = re.compile(
 )
 
 
-ROOM_ID_KEYS = ("num", "vnum", "id", "pk")
+ROOM_ID_KEYS = ("num", "vnum", "id")
 
 
 def room_id(info: dict[str, typing.Any]) -> str | None:
     """
     Extract the room identifier from a GMCP ``Room.Info`` payload.
 
-    Checks ``num``, ``vnum``, ``id``, and ``pk`` in priority order.
+    Checks ``num``, ``vnum``, and ``id`` in priority order.  When none
+    of these keys are present, a 12-character SHA-1 hash is generated
+    from the room name and full exit data (direction + destination name
+    pairs) to produce a stable synthetic identifier.
 
     :param info: GMCP Room.Info dict.
     :returns: Room identifier as a string, or ``None`` if no key is found.
@@ -42,7 +46,16 @@ def room_id(info: dict[str, typing.Any]) -> str | None:
     for key in ROOM_ID_KEYS:
         if key in info:
             return str(info[key])
-    return None
+    name = info.get("name")
+    if name is None:
+        return None
+    exits = info.get("exits")
+    if isinstance(exits, dict) and exits:
+        pairs = ",".join(f"{k}:{exits[k]}" for k in sorted(exits))
+        fingerprint = f"{name}|{pairs}"
+    else:
+        fingerprint = str(name)
+    return hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:12]
 
 
 def strip_exit_dirs(name: str) -> str:

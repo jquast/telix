@@ -45,9 +45,11 @@ def store(tmp_path: Any) -> RoomStore:
         ({"num": "42"}, "42"),
         ({"vnum": 100}, "100"),
         ({"id": "abc"}, "abc"),
-        ({"pk": "LPK"}, "LPK"),
         ({"num": "1", "vnum": "2"}, "1"),
-        ({"name": "no id"}, None),
+        ({"name": "Office"}, "6c3a72eaf623"),
+        ({"name": "Hallway", "exits": {"n": "X", "s": "Y"}}, "4ee24ef63d1e"),
+        ({"name": "Hallway", "exits": {"n": "X", "s": "Z"}}, "a46fb0de758b"),
+        ({"pk": "LPK", "name": "Office", "exits": {"s": "Hall"}}, "71a12afa55f5"),
         ({}, None),
     ],
 )
@@ -104,12 +106,22 @@ def test_update_room_numeric_id(store: RoomStore) -> None:
     assert store.get_room("42") is not None
 
 
-@pytest.mark.parametrize("key, value", [("num", "100"), ("vnum", "200"), ("id", "300"), ("pk", "LPK")])
-def test_update_room_id_key_fallbacks(store: RoomStore, key, value) -> None:
+@pytest.mark.parametrize(
+    "key, value, expected_id",
+    [("num", "100", "100"), ("vnum", "200", "200"), ("id", "300", "300")],
+)
+def test_update_room_id_key_fallbacks(store: RoomStore, key, value, expected_id) -> None:
     store.update_room({key: value, "name": "Test Room"})
-    r = store.get_room(value)
+    r = store.get_room(expected_id)
     assert r is not None
     assert r.name == "Test Room"
+
+
+def test_update_room_name_only(store: RoomStore) -> None:
+    store.update_room({"pk": "LPK", "name": "Office of Kymbahl", "exits": {"s": "Hall"}})
+    r = store.get_room("0dc9bc0d6009")
+    assert r is not None
+    assert r.name == "Office of Kymbahl"
 
 
 def test_update_room_missing_optional_fields(store: RoomStore) -> None:
