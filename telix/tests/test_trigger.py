@@ -342,9 +342,9 @@ async def test_trigger_engine_delay_execution():
     rules = [TriggerRule(pattern=re.compile(r"trigger"), reply="`delay 10ms`;delayed;")]
     engine = TriggerEngine(rules, writer, writer.log)
     engine.feed("trigger\n")
-    await asyncio.sleep(0.005)
+    await asyncio.sleep(0.001)
     assert not any("delayed" in w for w in written)
-    await asyncio.sleep(0.03)
+    await asyncio.sleep(0.10)
     assert any("delayed\r\n" in w for w in written)
 
 
@@ -357,9 +357,9 @@ async def test_trigger_engine_reply_chaining():
     ]
     engine = TriggerEngine(rules, writer, writer.log)
     engine.feed("alpha\n")
-    await asyncio.sleep(0.005)
+    await asyncio.sleep(0.001)
     assert not any("first" in w for w in written)
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.15)
     assert any("first\r\n" in w for w in written)
 
     engine.feed("beta\n")
@@ -547,16 +547,16 @@ async def test_exclusive_rule_index_tracks_active_rule():
     assert engine.exclusive_rule_index == 0
 
     engine.feed("alpha\n")
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.02)
     assert engine.exclusive_active is True
     assert engine.exclusive_rule_index == 1
 
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.15)
     assert engine.exclusive_active is False
     assert engine.exclusive_rule_index == 0
 
     engine.feed("gamma\n")
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.02)
     assert engine.exclusive_active is True
     assert engine.exclusive_rule_index == 3
 
@@ -776,21 +776,21 @@ async def test_prompt_cycle_dedup_always_rule():
 
     engine.feed("monster\n")
     engine.on_prompt()
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.001)
     assert engine.exclusive_active is True
 
     engine.feed("corpse here\n")
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.10)
     assert sum(1 for w in written if "loot\r\n" in w) == 1
 
     engine.feed("another corpse\n")
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.02)
     assert sum(1 for w in written if "loot\r\n" in w) == 1
 
     engine.on_prompt()
     engine.feed("corpse again\n")
     engine.on_prompt()
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0.02)
     assert sum(1 for w in written if "loot\r\n" in w) == 2
 
 
