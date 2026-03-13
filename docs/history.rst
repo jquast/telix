@@ -1,6 +1,11 @@
 History
 =======
 
+0.1.3 -- 2026-03-13
+-------------------
+
+- enhancement: support non-GMCP complaint room keys, ("vnum", "id", "pk") (Medievia)
+
 0.1.2 -- 2026-03-13
 -------------------
 

@@ -107,7 +107,9 @@ def load_configs(ctx: "session_context.TelixSessionContext") -> None:
     ctx.room.graph = rooms.RoomStore(rooms_file)
 
     def on_room_info(data: typing.Any) -> None:
-        num = str(data["num"])
+        num = rooms.room_id(data)
+        if num is None:
+            return
         ctx.room.previous = ctx.room.current
         ctx.room.current = num
         ctx.room.changed.set()

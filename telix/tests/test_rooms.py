@@ -13,6 +13,7 @@ import pytest
 from telix.rooms import (
     RoomGraph,
     RoomStore,
+    room_id,
     load_prefs,
     prefs_path,
     rooms_path,
@@ -36,6 +37,22 @@ def store(tmp_path: Any) -> RoomStore:
     s = RoomStore(db)
     yield s
     s.close()
+
+
+@pytest.mark.parametrize(
+    "info, expected",
+    [
+        ({"num": "42"}, "42"),
+        ({"vnum": 100}, "100"),
+        ({"id": "abc"}, "abc"),
+        ({"pk": "LPK"}, "LPK"),
+        ({"num": "1", "vnum": "2"}, "1"),
+        ({"name": "no id"}, None),
+        ({}, None),
+    ],
+)
+def test_room_id(info, expected) -> None:
+    assert room_id(info) == expected
 
 
 def build_linear(store: RoomStore) -> None:
@@ -85,6 +102,14 @@ def test_update_room_existing(store: RoomStore) -> None:
 def test_update_room_numeric_id(store: RoomStore) -> None:
     store.update_room({"num": 42, "name": "Numeric Room"})
     assert store.get_room("42") is not None
+
+
+@pytest.mark.parametrize("key, value", [("num", "100"), ("vnum", "200"), ("id", "300"), ("pk", "LPK")])
+def test_update_room_id_key_fallbacks(store: RoomStore, key, value) -> None:
+    store.update_room({key: value, "name": "Test Room"})
+    r = store.get_room(value)
+    assert r is not None
+    assert r.name == "Test Room"
 
 
 def test_update_room_missing_optional_fields(store: RoomStore) -> None:

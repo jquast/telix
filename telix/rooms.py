@@ -27,6 +27,24 @@ EXIT_DIR_RE = re.compile(
 )
 
 
+ROOM_ID_KEYS = ("num", "vnum", "id", "pk")
+
+
+def room_id(info: dict[str, typing.Any]) -> str | None:
+    """
+    Extract the room identifier from a GMCP ``Room.Info`` payload.
+
+    Checks ``num``, ``vnum``, ``id``, and ``pk`` in priority order.
+
+    :param info: GMCP Room.Info dict.
+    :returns: Room identifier as a string, or ``None`` if no key is found.
+    """
+    for key in ROOM_ID_KEYS:
+        if key in info:
+            return str(info[key])
+    return None
+
+
 def strip_exit_dirs(name: str) -> str:
     """
     Strip trailing exit-direction lists like ``[n,s,w,e]`` from a room name.
@@ -214,9 +232,9 @@ class RoomStore:
         """
         Update or create a room from a GMCP ``Room.Info`` payload.
 
-        :param info: GMCP Room.Info dict with at least ``num``.
+        :param info: GMCP Room.Info dict with a room identifier key.
         """
-        num = str(info["num"])
+        num = room_id(info) or ""
         exits = info.get("exits", {})
         if isinstance(exits, dict):
             exits = {str(k): str(v) for k, v in exits.items() if v}
