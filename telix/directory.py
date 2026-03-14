@@ -130,6 +130,12 @@ def directory_to_sessions() -> dict[str, typing.Any]:
         key = f"{fav['host']}:{fav.get('port', 23)}"
         if key in sessions:
             sessions[key].bookmarked = True
+            _apply_overrides(
+                sessions[key],
+                fav.get("encoding"),
+                fav.get("mode"),
+                fav.get("protocol"),
+            )
         else:
             cfg = _entry_to_session(fav)
             cfg.bookmarked = True

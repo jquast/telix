@@ -68,6 +68,7 @@ ENCODINGS = (
     "iso-8859-2",
     "iso-8859-15",
     "cp1251",
+    "cp1252",
     "koi8-r",
     "big5",
     "big5bbs",

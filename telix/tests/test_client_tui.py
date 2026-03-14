@@ -192,6 +192,7 @@ def test_build_command_default_encoding_omitted() -> None:
         ("iso-8859-1", "iso-8859-1"),
         (" utf8 ", "utf8"),
         (" latin-1 ", "latin-1"),
+        ("cp1252", "cp1252"),
         ("bogus-unknown-codec", "utf8"),
     ],
 )

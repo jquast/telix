@@ -10,8 +10,9 @@ import sys
 
 # Tokens recognised as encoding names (non-numeric, non-ssl).
 _KNOWN_ENCODINGS = frozenset({
-    "ascii", "atascii", "big5", "cp437", "gbk", "gb18030",
-    "latin-1", "latin1", "petscii", "topaz", "utf-8", "utf8",
+    "ascii", "atascii", "big5", "cp437", "cp1251", "cp1252",
+    "gbk", "gb18030", "latin-1", "latin1", "petscii", "topaz",
+    "utf-8", "utf8",
 })
 
 

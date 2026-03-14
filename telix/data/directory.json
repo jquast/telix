@@ -6,12 +6,6 @@
   "type": "mud"
  },
  {
-  "host": "3m.vineyard.haus",
-  "port": 3000,
-  "name": "3m.vineyard.haus",
-  "type": "mud"
- },
- {
   "host": "4dimensions.org",
   "port": 6000,
   "name": "4dimensions.org",
@@ -246,6 +240,12 @@
   "host": "ansiblemoo.org",
   "port": 6000,
   "name": "ansiblemoo.org",
+  "type": "mud"
+ },
+ {
+  "host": "aod.genesismuds.com",
+  "port": 23,
+  "name": "aod.genesismuds.com",
   "type": "mud"
  },
  {
@@ -2522,7 +2522,8 @@
   "host": "medievia.com",
   "port": 4000,
   "name": "medievia.com",
-  "type": "mud"
+  "type": "mud",
+  "encoding": "cp1252"
  },
  {
   "host": "medinamud.tk",
@@ -2588,12 +2589,6 @@
   "host": "mo.mushpark.com",
   "port": 2012,
   "name": "mo.mushpark.com",
-  "type": "mud"
- },
- {
-  "host": "moo.demetro.nl",
-  "port": 8888,
-  "name": "moo.demetro.nl",
   "type": "mud"
  },
  {
@@ -3029,6 +3024,12 @@
   "host": "mud.kharkov.org",
   "port": 7000,
   "name": "mud.kharkov.org",
+  "type": "mud"
+ },
+ {
+  "host": "mud.kiev.ua",
+  "port": 9000,
+  "name": "mud.kiev.ua",
   "type": "mud"
  },
  {
@@ -4686,6 +4687,12 @@
   "type": "mud"
  },
  {
+  "host": "twilitdreams.genesismuds.com",
+  "port": 23,
+  "name": "twilitdreams.genesismuds.com",
+  "type": "mud"
+ },
+ {
   "host": "twyst.org",
   "port": 3333,
   "name": "twyst.org",
@@ -5236,8 +5243,7 @@
   "host": "aeug.asuscomm.com",
   "port": 8888,
   "name": "aeug.asuscomm.com",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "agency.bbs.nz",
@@ -5255,7 +5261,8 @@
   "host": "alcatrazbbs.ddns.net",
   "port": 9000,
   "name": "alcatrazbbs.ddns.net",
-  "type": "bbs"
+  "type": "bbs",
+  "encoding": "atascii"
  },
  {
   "host": "alco.bbs.io",
@@ -5367,8 +5374,7 @@
   "host": "andcycle.idv.tw",
   "port": 23,
   "name": "andcycle.idv.tw",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "andr01d.zapto.org",
@@ -5654,7 +5660,6 @@
   "port": 23,
   "name": "bbs.as.ntu.edu.tw",
   "type": "bbs",
-  "encoding": "big5",
   "rows": 1
  },
  {
@@ -5757,8 +5762,7 @@
   "host": "bbs.ccns.ncku.edu.tw",
   "port": 3456,
   "name": "bbs.ccns.ncku.edu.tw",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "bbs.ccxbbs.net",
@@ -5839,8 +5843,7 @@
   "host": "bbs.cs.nthu.edu.tw",
   "port": 23,
   "name": "bbs.cs.nthu.edu.tw",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "bbs.cyrellia.com",
@@ -5879,12 +5882,6 @@
   "type": "bbs"
  },
  {
-  "host": "bbs.deepskies.com",
-  "port": 6400,
-  "name": "bbs.deepskies.com",
-  "type": "bbs"
- },
- {
   "host": "bbs.demigoth.com",
   "port": 23,
   "name": "bbs.demigoth.com",
@@ -5900,6 +5897,12 @@
   "host": "bbs.digicombbs.com",
   "port": 2323,
   "name": "bbs.digicombbs.com",
+  "type": "bbs"
+ },
+ {
+  "host": "bbs.digilogbbs.com",
+  "port": 2323,
+  "name": "bbs.digilogbbs.com",
   "type": "bbs"
  },
  {
@@ -5989,8 +5992,7 @@
   "host": "bbs.emu486.net",
   "port": 23,
   "name": "bbs.emu486.net",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "bbs.eotd.com",
@@ -6163,12 +6165,6 @@
   "type": "bbs"
  },
  {
-  "host": "bbs.ipingthereforeiam.com",
-  "port": 2324,
-  "name": "bbs.ipingthereforeiam.com",
-  "type": "bbs"
- },
- {
   "host": "bbs.iscabbs.com",
   "port": 23,
   "name": "bbs.iscabbs.com",
@@ -6244,8 +6240,7 @@
   "host": "bbs.kry.pt",
   "port": 2323,
   "name": "bbs.kry.pt",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "bbs.lightly-salted.com",
@@ -6323,12 +6318,6 @@
   "host": "bbs.miyanet.moe",
   "port": 23,
   "name": "bbs.miyanet.moe",
-  "type": "bbs"
- },
- {
-  "host": "bbs.mlinks.com",
-  "port": 23,
-  "name": "bbs.mlinks.com",
   "type": "bbs"
  },
  {
@@ -7148,14 +7137,6 @@
   "type": "bbs"
  },
  {
-  "host": "cavebbs.homeip.net",
-  "port": 23,
-  "name": "cavebbs.homeip.net",
-  "type": "bbs",
-  "columns": 80,
-  "rows": 1
- },
- {
   "host": "cbbs.mitsaltair.com",
   "port": 8800,
   "name": "cbbs.mitsaltair.com",
@@ -7171,8 +7152,7 @@
   "host": "cd.csie.io",
   "port": 23,
   "name": "cd.csie.io",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "cebbs.costakis.org",
@@ -7644,12 +7624,6 @@
   "encoding": "gbk"
  },
  {
-  "host": "digdist.synchro.net",
-  "port": 23,
-  "name": "digdist.synchro.net",
-  "type": "bbs"
- },
- {
   "host": "digitalx.ddns.net",
   "port": 7411,
   "name": "digitalx.ddns.net",
@@ -7769,6 +7743,13 @@
   "host": "dzbbs.hopto.org",
   "port": 64128,
   "name": "dzbbs.hopto.org",
+  "type": "bbs",
+  "encoding": "petscii"
+ },
+ {
+  "host": "eaglewing1962.freeddns.org",
+  "port": 6400,
+  "name": "eaglewing1962.freeddns.org",
   "type": "bbs",
   "encoding": "petscii"
  },
@@ -8009,12 +7990,6 @@
   "type": "bbs"
  },
  {
-  "host": "freespeak.hopto.org",
-  "port": 1337,
-  "name": "freespeak.hopto.org",
-  "type": "bbs"
- },
- {
   "host": "freeway.vkradio.com",
   "port": 23,
   "name": "freeway.vkradio.com",
@@ -8062,12 +8037,6 @@
   "name": "fw2.cnetbbs.net",
   "type": "bbs",
   "encoding": "latin1"
- },
- {
-  "host": "g-point.tunk.org",
-  "port": 500,
-  "name": "g-point.tunk.org",
-  "type": "bbs"
  },
  {
   "host": "galaxy74bbs.com",
@@ -8169,12 +8138,6 @@
   "host": "greywolf.synchro.net",
   "port": 23,
   "name": "greywolf.synchro.net",
-  "type": "bbs"
- },
- {
-  "host": "gridlock.synchronetbbs.org",
-  "port": 23,
-  "name": "gridlock.synchronetbbs.org",
   "type": "bbs"
  },
  {
@@ -8542,8 +8505,7 @@
   "host": "libido.cx",
   "port": 23,
   "name": "libido.cx",
-  "type": "bbs",
-  "encoding": "big5"
+  "type": "bbs"
  },
  {
   "host": "lilacbbs.com",
@@ -8735,12 +8697,6 @@
   "type": "bbs"
  },
  {
-  "host": "midbbs.kinet.ne.jp",
-  "port": 3123,
-  "name": "midbbs.kinet.ne.jp",
-  "type": "bbs"
- },
- {
   "host": "milek7.pl",
   "port": 23,
   "name": "milek7.pl",
@@ -8789,12 +8745,6 @@
   "name": "montereybbs.com",
   "type": "bbs",
   "encoding": "latin1"
- },
- {
-  "host": "moratahack.com",
-  "port": 23,
-  "name": "moratahack.com",
-  "type": "bbs"
  },
  {
   "host": "mortuary.ddns.net",
@@ -8955,7 +8905,8 @@
   "host": "neronis.eu",
   "port": 9000,
   "name": "neronis.eu",
-  "type": "bbs"
+  "type": "bbs",
+  "encoding": "cp1251"
  },
  {
   "host": "netasylum.com",
@@ -9081,18 +9032,6 @@
   "encoding": "big5"
  },
  {
-  "host": "ohb.synchronetbbs.org",
-  "port": 23,
-  "name": "ohb.synchronetbbs.org",
-  "type": "bbs"
- },
- {
-  "host": "oim.wolfpaw.net",
-  "port": 1960,
-  "name": "oim.wolfpaw.net",
-  "type": "bbs"
- },
- {
   "host": "oldschool.synchronetbbs.org",
   "port": 513,
   "name": "oldschool.synchronetbbs.org",
@@ -9182,12 +9121,6 @@
   "host": "overfit.retrievo.xyz",
   "port": 8023,
   "name": "overfit.retrievo.xyz",
-  "type": "bbs"
- },
- {
-  "host": "packet.w4bfb.org",
-  "port": 2333,
-  "name": "packet.w4bfb.org",
   "type": "bbs"
  },
  {
@@ -9285,12 +9218,6 @@
   "host": "phoenix.bnbbbs.net",
   "port": 23,
   "name": "phoenix.bnbbbs.net",
-  "type": "bbs"
- },
- {
-  "host": "pkmud.net",
-  "port": 5000,
-  "name": "pkmud.net",
   "type": "bbs"
  },
  {
@@ -9821,13 +9748,6 @@
  },
  {
   "host": "ssbbs.ddns.net",
-  "port": 6502,
-  "name": "ssbbs.ddns.net",
-  "type": "bbs",
-  "encoding": "petscii"
- },
- {
-  "host": "ssbbs.ddns.net",
   "port": 6510,
   "name": "ssbbs.ddns.net",
   "type": "bbs"
@@ -10138,12 +10058,6 @@
   "type": "bbs"
  },
  {
-  "host": "thecrypt.synchronetbbs.org",
-  "port": 513,
-  "name": "thecrypt.synchronetbbs.org",
-  "type": "bbs"
- },
- {
   "host": "thedigitalpost.freeddns.org",
   "port": 23,
   "name": "thedigitalpost.freeddns.org",
@@ -10204,12 +10118,6 @@
   "name": "theoldnet.com",
   "type": "bbs",
   "encoding": "petscii"
- },
- {
-  "host": "theparityerror.com",
-  "port": 23,
-  "name": "theparityerror.com",
-  "type": "bbs"
  },
  {
   "host": "thepenaltybox.org",
@@ -10301,7 +10209,7 @@
   "port": 2323,
   "name": "tnabbs.org",
   "type": "bbs",
-  "encoding": "petscii"
+  "encoding": "cp437"
  },
  {
   "host": "toolazy.synchro.net",
@@ -10449,13 +10357,6 @@
   "port": 23,
   "name": "vague.ddns.net",
   "type": "bbs"
- },
- {
-  "host": "valley64.com",
-  "port": 6400,
-  "name": "valley64.com",
-  "type": "bbs",
-  "encoding": "petscii"
  },
  {
   "host": "verify-nebula.kicks-ass.net",
@@ -10775,8 +10676,7 @@
   "host": "xibalba.l33t.codes",
   "port": 44510,
   "name": "xibalba.l33t.codes",
-  "type": "bbs",
-  "encoding": "cp437"
+  "type": "bbs"
  },
  {
   "host": "zahrl.ddns.net",
