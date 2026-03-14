@@ -257,9 +257,7 @@ def randomwalk_dialog(replay_buf: typing.Any | None = None, session_key: str = "
             )
             save_data["randomwalk_room_change_cmd"] = str(data.get("room_change_cmd", default_room_change_cmd))
             save_data["randomwalk_triggers"] = bool(data.get("triggers", default_triggers))
-            save_data["autodiscover_command_delay"] = float(
-                data.get("command_delay", default_command_delay)
-            )
+            save_data["autodiscover_command_delay"] = float(data.get("command_delay", default_command_delay))
             rooms.save_prefs(session_key, save_data)
         return str(data.get("command", f"`randomwalk 999 {default_visit_level}`"))
     finally:

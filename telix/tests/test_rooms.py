@@ -107,8 +107,7 @@ def test_update_room_numeric_id(store: RoomStore) -> None:
 
 
 @pytest.mark.parametrize(
-    "key, value, expected_id",
-    [("num", "100", "100"), ("vnum", "200", "200"), ("id", "300", "300")],
+    "key, value, expected_id", [("num", "100", "100"), ("vnum", "200", "200"), ("id", "300", "300")]
 )
 def test_update_room_id_key_fallbacks(store: RoomStore, key, value, expected_id) -> None:
     store.update_room({key: value, "name": "Test Room"})

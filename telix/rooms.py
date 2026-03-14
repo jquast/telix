@@ -9,9 +9,9 @@ data to ``~/.local/share/telix/rooms-{host}_{port}.db``.
 import os
 import re
 import json
-import hashlib
 import random
 import typing
+import hashlib
 import sqlite3
 import datetime
 import collections

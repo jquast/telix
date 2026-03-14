@@ -545,9 +545,7 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
                     yield textual.widgets.Label("Triggers:")
                     yield textual.widgets.Switch(value=self.default_triggers, id="rw-triggers")
                     yield textual.widgets.Label("Delay:")
-                    yield textual.widgets.Input(
-                        value=str(self.default_command_delay), id="rw-delay"
-                    )
+                    yield textual.widgets.Input(value=str(self.default_command_delay), id="rw-delay")
                 with textual.containers.Horizontal(classes="rw-option"):
                     yield textual.widgets.Label("Room change command:")
                     yield textual.widgets.Input(
@@ -597,22 +595,32 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
             self.validate_and_dismiss()
         elif event.button.id == "rw-cancel":
             self.write_result(
-                False, self.default_visit_level, self.default_room_change_cmd,
-                self.default_triggers, self.default_command_delay,
+                False,
+                self.default_visit_level,
+                self.default_room_change_cmd,
+                self.default_triggers,
+                self.default_command_delay,
             )
             self.dismiss(False)
 
     def action_cancel(self) -> None:
         """Cancel the dialog and write default values."""
         self.write_result(
-            False, self.default_visit_level, self.default_room_change_cmd,
-            self.default_triggers, self.default_command_delay,
+            False,
+            self.default_visit_level,
+            self.default_room_change_cmd,
+            self.default_triggers,
+            self.default_command_delay,
         )
         self.dismiss(False)
 
     def write_result(
-        self, confirmed: bool, visit_level: int, room_change_cmd: str = "",
-        triggers: bool = True, command_delay: float = 0.25,
+        self,
+        confirmed: bool,
+        visit_level: int,
+        room_change_cmd: str = "",
+        triggers: bool = True,
+        command_delay: float = 0.25,
     ) -> None:
         if not self.result_file:
             return
@@ -637,8 +645,11 @@ class RandomwalkDialogScreen(textual.screen.Screen[bool]):
 
 
 def run_randomwalk_dialog(
-    result_file: str, default_visit_level: int = 2, default_room_change_cmd: str = "",
-    default_triggers: bool = True, default_command_delay: float = 0.25,
+    result_file: str,
+    default_visit_level: int = 2,
+    default_room_change_cmd: str = "",
+    default_triggers: bool = True,
+    default_command_delay: float = 0.25,
 ) -> None:
     """
     Launch the random walk dialog in the current (worker) thread.
@@ -807,9 +818,7 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
                 yield textual.widgets.Label("Triggers:")
                 yield textual.widgets.Switch(value=self.default_triggers, id="ad-triggers")
                 yield textual.widgets.Label("Delay:")
-                yield textual.widgets.Input(
-                    value=str(self.default_command_delay), id="ad-delay"
-                )
+                yield textual.widgets.Input(value=str(self.default_command_delay), id="ad-delay")
             with textual.containers.Horizontal(classes="ad-option"):
                 yield textual.widgets.Label("Room change command:")
                 yield textual.widgets.Input(
@@ -852,22 +861,32 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
             self.dismiss(True)
         elif event.button.id == "ad-cancel":
             self.write_result(
-                False, self.default_strategy, self.default_room_change_cmd,
-                self.default_triggers, self.default_command_delay,
+                False,
+                self.default_strategy,
+                self.default_room_change_cmd,
+                self.default_triggers,
+                self.default_command_delay,
             )
             self.dismiss(False)
 
     def action_cancel(self) -> None:
         """Cancel the dialog and write default values."""
         self.write_result(
-            False, self.default_strategy, self.default_room_change_cmd,
-            self.default_triggers, self.default_command_delay,
+            False,
+            self.default_strategy,
+            self.default_room_change_cmd,
+            self.default_triggers,
+            self.default_command_delay,
         )
         self.dismiss(False)
 
     def write_result(
-        self, confirmed: bool, strategy: str, room_change_cmd: str = "",
-        triggers: bool = True, command_delay: float = 0.25,
+        self,
+        confirmed: bool,
+        strategy: str,
+        room_change_cmd: str = "",
+        triggers: bool = True,
+        command_delay: float = 0.25,
     ) -> None:
         """Write result JSON to disk for the parent process."""
         if not self.result_file:
@@ -893,8 +912,11 @@ class AutodiscoverDialogScreen(textual.screen.Screen[bool]):
 
 
 def run_autodiscover_dialog(
-    result_file: str, default_strategy: str = "bfs", default_room_change_cmd: str = "",
-    default_triggers: bool = True, default_command_delay: float = 0.25,
+    result_file: str,
+    default_strategy: str = "bfs",
+    default_room_change_cmd: str = "",
+    default_triggers: bool = True,
+    default_command_delay: float = 0.25,
 ) -> None:
     """
     Launch the autodiscover dialog in the current (worker) thread.
