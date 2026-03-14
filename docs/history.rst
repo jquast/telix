@@ -1,6 +1,11 @@
 History
 =======
 
+0.1.4 -- 2026-03-13
+
+- bugfix: Make more effort to track rooms on servers like Medievia that do not serve any room id's,
+  and, remove erroneously assigned "pk"
+
 0.1.3 -- 2026-03-13
 -------------------
 
