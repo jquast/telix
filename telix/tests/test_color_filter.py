@@ -149,6 +149,18 @@ def test_reset_with_bg_preserves_explicit_bg() -> None:
     assert result[last_bg:].startswith("48;2;0;170;0")
 
 
+def test_reset_with_explicit_fg_bg_skips_redundant_reset_parts() -> None:
+    """ESC[0;30;42m must not emit redundant reset fg/bg that bloat the parameter count."""
+    f = _make_filter(background_color=(0, 0, 0))
+    result = f.filter("\x1b[0;30;42m")
+    sgr_blocks = [s.rstrip("m") for s in result.split("\x1b[") if s]
+    combined = sgr_blocks[-1]
+    param_count = len(combined.split(";"))
+    assert param_count <= 16
+    assert combined.count("48;2;") == 1
+    assert combined.count("38;2;") == 1
+
+
 def test_reset_with_fg_preserves_explicit_fg() -> None:
     f = _make_filter(background_color=(0, 0, 0))
     result = f.filter("\x1b[0;31m")

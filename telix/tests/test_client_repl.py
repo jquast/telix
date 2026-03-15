@@ -1752,6 +1752,45 @@ def test_echo_trigger_masks_when_will_echo(tmp_path: Any) -> None:
     assert "secret123" not in replay
 
 
+def test_cleanup_preserves_typescript_on_mode_switch(tmp_path: Any) -> None:
+    """Cleanup() must not close ctx when mode_switched so raw loop keeps typescript_file."""
+    stdout, _ = mock_stdout()
+    repl = object.__new__(ReplSession)
+    repl.ctx = TelixSessionContext()
+    ts_path = tmp_path / "typescript"
+    ts_file = open(ts_path, "w", encoding="utf-8")
+    repl.ctx.typescript_file = ts_file
+    repl.trigger_engine = None
+    repl.stdout = stdout
+    repl.mode_switched = True
+    repl.scroll = types.SimpleNamespace(scroll_bottom=22)
+    repl.blessed_term = types.SimpleNamespace(save="", restore="", move_yx=lambda r, c: "", normal="", clear_eos="")
+
+    repl.cleanup()
+
+    assert repl.ctx.typescript_file is ts_file
+    ts_file.close()
+
+
+def test_cleanup_closes_ctx_on_normal_exit(tmp_path: Any) -> None:
+    """Cleanup() closes ctx when connection ended normally (not a mode switch)."""
+    stdout, _ = mock_stdout()
+    repl = object.__new__(ReplSession)
+    repl.ctx = TelixSessionContext()
+    ts_path = tmp_path / "typescript"
+    ts_file = open(ts_path, "w", encoding="utf-8")
+    repl.ctx.typescript_file = ts_file
+    repl.trigger_engine = None
+    repl.stdout = stdout
+    repl.mode_switched = False
+    repl.scroll = None
+
+    repl.cleanup()
+
+    assert repl.ctx.typescript_file is None
+    ts_file.close()
+
+
 def test_typescript_will_echo_writes_bare_crlf(tmp_path: Any) -> None:
     """When will_echo is True, read_input writes bare \\r\\n to typescript."""
     pytest.importorskip("blessed")

@@ -252,6 +252,7 @@ class ColorFilter:
         seq_sets_bold = False
         seq_sets_blink = False
         seq_has_fg = False
+        seq_has_bg = False
         for part in parts:
             try:
                 val = int(part) if part else 0
@@ -263,6 +264,8 @@ class ColorFilter:
                 seq_sets_blink = True
             if (30 <= val <= 37) or (90 <= val <= 97) or val in (38, 39):
                 seq_has_fg = True
+            if (40 <= val <= 47) or (100 <= val <= 107) or val in (48, 49):
+                seq_has_bg = True
 
         bold = self._bold or seq_sets_bold
         ice = self._config.ice_colors
@@ -280,8 +283,10 @@ class ColorFilter:
                 bold = False
                 blink = False
                 output_parts.append("0")
-                output_parts.extend(self._reset_bg_parts)
-                output_parts.extend(self._reset_fg_parts)
+                if not seq_has_bg:
+                    output_parts.extend(self._reset_bg_parts)
+                if not seq_has_fg:
+                    output_parts.extend(self._reset_fg_parts)
                 self._fg_idx = 7
                 self._current_fg = self._fg_color
                 self._current_bg = self._config.background_color

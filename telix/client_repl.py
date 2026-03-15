@@ -1831,7 +1831,8 @@ class ReplSession:
         """Cancel trigger engine, restore cursor, clear kludge DMZ."""
         if self.trigger_engine is not None:
             self.trigger_engine.cancel()
-        self.ctx.close()
+        if not self.mode_switched:
+            self.ctx.close()
         self.stdout.write(get_term().normal_cursor.encode())
         self.stdout.write(CURSOR.DEFAULT.encode())
         self.stdout.write(CURSOR.COLOR_RESET_OSC.encode())
